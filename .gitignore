@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+
+.coil_analyzer/uploads/
+.coil_analyzer/exports/
+.coil_analyzer/configs/
+.coil_analyzer/manifest.json
+.coil_analyzer/mapping_library.json
+
+.streamlit/secrets.toml

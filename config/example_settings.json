@@ -1,0 +1,18 @@
+{
+  "analysis_window": {
+    "cycle_start": 0,
+    "cycle_count": 3,
+    "detrend": true,
+    "remove_offset": true,
+    "zero_phase_smoothing": false,
+    "smoothing_order": 2,
+    "smoothing_cutoff_ratio": 0.2,
+    "show_zero_crossing_aux": false
+  },
+  "settings": {
+    "vin_pk": 9.0,
+    "gain_mode": 20.0,
+    "representative_b": {},
+    "reference_workbook_path": null
+  }
+}
