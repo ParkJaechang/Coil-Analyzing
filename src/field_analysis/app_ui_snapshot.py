@@ -23,7 +23,7 @@ from .lut import TARGET_LABELS, prioritize_lut_target_metrics, recommend_voltage
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
-from .ui_dataset_library import render_dataset_library_panel
+from .ui_dataset_library import render_dataset_library_file_selector, render_dataset_library_panel
 from .plotting import (
     plot_command_waveform,
     plot_current_compensation_waveforms,
@@ -166,6 +166,14 @@ def _run_app_shell(
             accept_multiple_files=True,
             key="lcr_uploads",
             help="LCR 파일은 자동 기억 목록과 업로드 폴더 요약에 함께 남깁니다.",
+        )
+        continuous_library_payloads = render_dataset_library_file_selector(
+            dataset_mode="continuous",
+            key_prefix="continuous",
+        )
+        transient_library_payloads = render_dataset_library_file_selector(
+            dataset_mode="finite_cycle",
+            key_prefix="transient",
         )
         if lock_usage_mode:
             usage_mode = initial_usage_mode
@@ -376,8 +384,8 @@ def _run_app_shell(
             key="full_section_nav",
         )
 
-    uploaded_payloads = category_payloads("continuous", continuous_files)
-    transient_payloads = category_payloads("transient", transient_files)
+    uploaded_payloads = category_payloads("continuous", continuous_files) + continuous_library_payloads
+    transient_payloads = category_payloads("transient", transient_files) + transient_library_payloads
     validation_payloads = category_payloads("validation", validation_files)
     lcr_payloads = category_payloads("lcr", lcr_files)
     lcr_records = list_persisted_uploads("lcr")
