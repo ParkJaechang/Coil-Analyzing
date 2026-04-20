@@ -1,0 +1,37 @@
+{
+  "policy_version": "v3_candidate_p95_sine_l1fo",
+  "policy_allow_interpolated_auto": true,
+  "policy_margin_source": "p95",
+  "holdout_mode": "frequency",
+  "policy_thresholds": {
+    "min_surface_confidence": 0.6,
+    "min_harmonic_fill_ratio": 0.6,
+    "max_predicted_error_band": 0.18,
+    "min_input_limit_margin": 0.1,
+    "min_support_runs": 2
+  },
+  "case_count": 21,
+  "evaluated_case_count": 21,
+  "auto_count": 18,
+  "preview_or_block_count": 3,
+  "false_auto_count": 17,
+  "false_auto_rate_within_auto": 0.9444444444444444,
+  "mean_realized_shape_corr": 0.7929961036171866,
+  "mean_realized_nrmse": 0.25680297614014114,
+  "mean_predicted_error_band": 0.16,
+  "mean_input_limit_margin": 0.0,
+  "mean_gain_input_limit_margin": 0.0,
+  "mean_peak_input_limit_margin": 0.6810917813546752,
+  "mean_p95_input_limit_margin": 0.6824294458828113,
+  "support_state_counts": {
+    "interpolated_in_hull": 21
+  },
+  "evaluation_status_counts": {
+    "ok": 21
+  },
+  "confusion_counts": {
+    "false_auto": 17,
+    "correct_block": 3,
+    "correct_auto": 1
+  }
+}

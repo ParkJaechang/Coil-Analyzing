@@ -208,6 +208,7 @@ def compute_gain_requirement(
     measured_vout_pk: float | None,
     gain_mode_v_per_v: float,
     vin_pk: float,
+    configured_gain_pct: float | None = None,
     notes: str = "",
 ) -> dict[str, Any]:
     target_ipk = target_ipp_a / 2.0
@@ -216,9 +217,19 @@ def compute_gain_requirement(
         required_vout_pk = float(measured_vout_pk * (target_ipp_a / achieved_ipp_a))
     elif electrical_metrics.get("|Z1|") is not None:
         required_vout_pk = float(target_ipk * electrical_metrics["|Z1|"])
-    alpha = (
+    required_alpha = (
         float(required_vout_pk / (vin_pk * gain_mode_v_per_v))
         if required_vout_pk is not None and vin_pk > 0 and gain_mode_v_per_v > 0
+        else None
+    )
+    configured_gain_v_per_v = (
+        float(gain_mode_v_per_v * configured_gain_pct / 100.0)
+        if configured_gain_pct is not None
+        else None
+    )
+    configured_vout_pk = (
+        float(vin_pk * configured_gain_v_per_v)
+        if configured_gain_v_per_v is not None
         else None
     )
     return {
@@ -226,9 +237,19 @@ def compute_gain_requirement(
         "target_Ipp_A": target_ipp_a,
         "achieved_Ipp_A": achieved_ipp_a,
         "required_Vout_pk": required_vout_pk,
-        "required_alpha": alpha,
-        "required_alpha_pct": alpha * 100.0 if alpha is not None else None,
-        "gain_mode_v_per_v": gain_mode_v_per_v,
-        "overload": bool(alpha is not None and alpha > 1.0),
+        "required_Vout_pp": float(required_vout_pk * 2.0) if required_vout_pk is not None else None,
+        "required_alpha": required_alpha,
+        "required_alpha_pct": required_alpha * 100.0 if required_alpha is not None else None,
+        "full_scale_gain_mode_v_per_v": gain_mode_v_per_v,
+        "configured_gain_pct": configured_gain_pct,
+        "configured_gain_v_per_v": configured_gain_v_per_v,
+        "configured_Vout_pk": configured_vout_pk,
+        "configured_Vout_pp": float(configured_vout_pk * 2.0) if configured_vout_pk is not None else None,
+        "setting_sufficient": bool(
+            required_alpha is not None
+            and configured_gain_pct is not None
+            and (required_alpha * 100.0) <= configured_gain_pct
+        ),
+        "overload": bool(required_alpha is not None and required_alpha > 1.0),
         "notes": notes,
     }

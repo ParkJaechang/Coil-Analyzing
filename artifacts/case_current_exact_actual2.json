@@ -1,0 +1,85 @@
+{
+  "body": "입력\n업로드 기억 유지\n기억 초기화\n전체삭제\n연속 cycle 데이터 업로드\nDrag and drop files here\nLimit 200MB per file • CSV, TXT, XLSX, XLSM, XLS\nBrowse files\nfinite-cycle 전용 데이터 업로드\nDrag and drop files here\nLimit 200MB per file • CSV, TXT, XLSX, XLSM, XLS\nBrowse files\n2차 보정 검증 run 업로드\nDrag and drop files here\nLimit 200MB per file • CSV, TXT, XLSX, XLSM, XLS\nBrowse files\nLCR 데이터 업로드\nDrag and drop files here\nLimit 200MB per file • CSV, TXT, XLSX, XLSM, XLS\nBrowse files\n연속 cycle: 55개 (기억된 파일 재사용)\n10d2317e131196fe_sine_2_20.csv, 1305fe61d37f8a0b_sine_1_10.csv, 142bbf65b91ca399_sine_5_20.csv, 16d6f09e3c4e873f_tri_5_5.csv\nfinite-cycle: 96개 (기억된 파일 재사용)\nsinusidal/00777c78a89e3efe_2hz_1cycle_20pp.csv, sinusidal/0d7763260e79d8ae_2hz_1cycle_10pp.csv, sinusidal/1ee9857ef966a191_2hz_1.5cycle_10pp.csv, sinusidal/1hz_1cycle_20pp.csv\n검증 run: 1개 (기억된 파일 재사용)\n8d51f7c793c4e3fa_샘플파형테스트결과_1hz_pp20A.csv\nLCR: 1개 (기억된 파일 재사용)\n77c185653ab4be59_all_bands_full.xlsx\n사용 모드: 간단 LUT\n핵심 설정\n기대 cycle 수\n타겟 전류 해석\nauto\n대표 전류 축\ni_sum_signed\n대표 자기장 축\nbz_mT\n구동 하드웨어\nDAQ 최대 Voltage PP (V)\nDC AMP gain @100% (x)\nDC AMP 최대 출력 (±V)\n사용 가능 AMP gain 상한 (%)\n데이터 기준 AMP gain (%)\n지원 범위 밖 target extrapolation 허용\nkeyboard_arrow_right\n고급 설정\nDeploy\n전자기장 LUT/보정 운용 툴\nmeasured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱\n화면\nQuick LUT\nFinite Runs\nRaw Waveforms\nData Import\nExport\n바로 사용하기\n공식 운영 대역\n0.25 ~ 5 Hz\n연속 전류 exact\n자동 추천\nfinite exact\nn/a\n외부 작업\nbench + 실측 1개\n좌측에서 파일을 올리거나 기억된 데이터를 재사용합니다. 2. Quick LUT에서 목표 파형/주파수/레벨을 고릅니다. 3. exact / provisional / preview-only / unsupported 상태를 확인한 뒤 export를 사용합니다.\nkeyboard_arrow_right\n작업 공간 / 기억된 데이터 / 업로드 폴더\n연속 cycle 메타데이터 편집\nfinite-cycle 메타데이터 편집\n2차 보정 검증 run 메타데이터 편집\nkeyboard_arrow_right\n而щ읆 留ㅽ븨 議곗젙\nReference test\n없음\n대표 예제 바로 불러오기\n처음 사용할 때는 아래 대표 exact 시나리오를 불러온 뒤 계산 버튼만 누르면 전체 흐름을 바로 확인할 수 있습니다.\nsine / 0.5 Hz / 20 A / auto\n예제 1. 연속 전류 exact\nsine / 0.25 Hz / 20 mT / software-ready\n예제 2. 연속 자기장 exact\ntriangle / 1.0 Hz / 1.0 cycle / 20 pp\n예제 3. finite triangle exact\n크기 LUT 계산은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. 파형 보정 계산은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.\n목표값 기반 추천과 measured output 파형 보정을 같이 확인합니다.\n현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.\n파형\nsine\n주파수 (Hz)\n근접 주파수 trend 사용\n보유 주파수(reference 포함): 0.25, 0.5, 1, 2, 5, 10, 15 Hz\n공식 운영/모델링 대역은 0.25 ~ 5 Hz입니다. 5 Hz 초과 조건은 참고용/실험용으로만 취급됩니다.\n크기 LUT 목표 항목\nAchieved Bz PP (mT)\n크기 LUT 목표값\n파형 보정 목표 항목\n전류\n파형 보정 목표 bz_mT PP (mT)\n구동 cycle 수 제한 사용\n실사용 모드\n실사용 모드 제한: continuous 실사용 모드는 current target만 허용합니다.\n크기 LUT 계산\nbz_mT 파형 보정 계산\nkeyboard_arrow_right\nLCR prior 보정\nkeyboard_arrow_right\nstartup / transient 1차 보정\n현재 요청\nsine / 0.25 Hz / field / 20\n자동 추천 가능\nexact field support입니다. 소프트웨어 경로는 준비되었고 bench sign-off 후 공식 승격됩니다.\n추천 상태\nsoftware-ready\n가장 가까운 exact\nsine / 0.25 Hz / 20 A\n다음 추가 측정 추천: sine 0.75 Hz 20 A / sine 0.75 Hz 10 A / sine 0.75 Hz 5 A\n요청 라우터\n자동 추천 가능: exact field support입니다. 소프트웨어 경로는 준비되었고 bench sign-off 후 공식 승격됩니다.\nnearest exact recipe: sine / 0.25 Hz / 20 A\n추가 측정 추천: sine 0.75 Hz 20 A / sine 0.75 Hz 10 A / sine 0.75 Hz 5 A\nkeyboard_arrow_right\n실사용 지원 범위\n파형, 주파수, 목표값을 고른 뒤 계산 버튼을 누르십시오.",
+  "charts": [
+    {
+      "idx": 0,
+      "title": "<b><b>Continuous Exact Coverage (<= 5 Hz)</b></b>",
+      "traces": [
+        {
+          "name": null,
+          "y": [
+            "sine | 0.25Hz",
+            "sine | 0.5Hz",
+            "sine | 1Hz",
+            "sine | 2Hz",
+            "sine | 5Hz",
+            "triangle | 0.25Hz",
+            "triangle | 0.5Hz",
+            "triangle | 1Hz",
+            "triangle | 2Hz",
+            "triangle | 5Hz"
+          ]
+        }
+      ]
+    },
+    {
+      "idx": 1,
+      "title": "<b><b>Finite Exact Coverage (<= 5 Hz)</b></b>",
+      "traces": [
+        {
+          "name": null,
+          "y": [
+            "sine | 0.25Hz | 0.75cy",
+            "sine | 0.25Hz | 1cy",
+            "sine | 0.25Hz | 1.25cy",
+            "sine | 0.25Hz | 1.5cy",
+            "sine | 0.5Hz | 0.75cy",
+            "sine | 0.5Hz | 1cy",
+            "sine | 0.5Hz | 1.25cy",
+            "sine | 0.5Hz | 1.5cy",
+            "sine | 1Hz | 0.75cy",
+            "sine | 1Hz | 1cy",
+            "sine | 1Hz | 1.25cy",
+            "sine | 1Hz | 1.5cy",
+            "sine | 1.25Hz | 0.75cy",
+            "sine | 1.25Hz | 1cy",
+            "sine | 1.25Hz | 1.25cy",
+            "sine | 1.25Hz | 1.5cy",
+            "sine | 2Hz | 0.75cy",
+            "sine | 2Hz | 1cy",
+            "sine | 2Hz | 1.25cy",
+            "sine | 2Hz | 1.5cy",
+            "sine | 5Hz | 0.75cy",
+            "sine | 5Hz | 1cy",
+            "sine | 5Hz | 1.25cy",
+            "sine | 5Hz | 1.5cy",
+            "triangle | 0.25Hz | 0.75cy",
+            "triangle | 0.25Hz | 1cy",
+            "triangle | 0.25Hz | 1.25cy",
+            "triangle | 0.25Hz | 1.5cy",
+            "triangle | 0.5Hz | 0.75cy",
+            "triangle | 0.5Hz | 1cy",
+            "triangle | 0.5Hz | 1.25cy",
+            "triangle | 0.5Hz | 1.5cy",
+            "triangle | 1Hz | 0.75cy",
+            "triangle | 1Hz | 1cy",
+            "triangle | 1Hz | 1.25cy",
+            "triangle | 1Hz | 1.5cy",
+            "triangle | 1.25Hz | 0.75cy",
+            "triangle | 1.25Hz | 1cy",
+            "triangle | 1.25Hz | 1.25cy",
+            "triangle | 1.25Hz | 1.5cy",
+            "triangle | 2Hz | 0.75cy",
+            "triangle | 2Hz | 1cy",
+            "triangle | 2Hz | 1.25cy",
+            "triangle | 2Hz | 1.5cy",
+            "triangle | 3Hz | 0.75cy",
+            "triangle | 3Hz | 1cy",
+            "triangle | 3Hz | 1.25cy",
+            "triangle | 3Hz | 1.5cy"
+          ]
+        }
+      ]
+    }
+  ]
+}

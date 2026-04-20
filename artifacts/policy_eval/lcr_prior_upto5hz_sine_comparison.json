@@ -1,0 +1,21 @@
+{
+  "baseline_file": "policy_eval_v2_upto5hz_sine_baseline.json",
+  "lcr_file": "policy_eval_v2_upto5hz_sine_lcrprior035.json",
+  "comparison": {
+    "case_count": 15,
+    "shape_corr_before": 0.8143113601140564,
+    "shape_corr_after": 0.8143110745092345,
+    "shape_corr_delta": -2.856048219035401e-07,
+    "nrmse_before": 0.23523540172673846,
+    "nrmse_after": 0.23523519097010728,
+    "nrmse_delta": -2.1075663117486876e-07,
+    "predicted_error_band_before": 0.2209243125590215,
+    "predicted_error_band_after": 0.22989321329570553,
+    "predicted_error_band_delta": 0.008968900736684021,
+    "false_auto_before": 0,
+    "false_auto_after": 0,
+    "false_block_before": 1,
+    "false_block_after": 1
+  },
+  "conclusion": "LCR prior infrastructure is active, but the current 0.35 blend does not materially improve <=5 Hz sine L1FO preview quality yet; the next shortest change should target stronger harmonic-local phase modeling rather than policy reopening."
+}

@@ -1,0 +1,37 @@
+{
+  "generated_at_utc": "2026-04-17T07:11:55.370457+00:00",
+  "root": "D:\\programs\\Codex\\Coil Analyzing",
+  "success": true,
+  "executions": [
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\report_exact_and_finite_scope.py",
+      "returncode": 0,
+      "stdout": "Wrote D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\exact_and_finite_scope.md\nWrote D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\exact_and_finite_scope.json",
+      "stderr": ""
+    },
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\generate_bz_first_artifacts.py",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\report_operational_support_scope.py",
+      "returncode": 0,
+      "stdout": "Wrote artifacts\\policy_eval\\operational_support_scope.md\nWrote artifacts\\policy_eval\\operational_support_scope.json",
+      "stderr": ""
+    },
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\report_finite_exact_productization.py",
+      "returncode": 0,
+      "stdout": "Wrote artifacts\\policy_eval\\finite_exact_productization.json\nWrote artifacts\\policy_eval\\finite_exact_productization.md",
+      "stderr": ""
+    },
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\report_finite_data_recommendations.py",
+      "returncode": 0,
+      "stdout": "Wrote artifacts\\policy_eval\\finite_data_recommendations.md\nWrote artifacts\\policy_eval\\finite_data_recommendations.json",
+      "stderr": ""
+    }
+  ]
+}

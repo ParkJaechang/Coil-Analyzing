@@ -1,0 +1,42 @@
+{
+  "generated_at_utc": "2026-04-17T08:18:16.590046+00:00",
+  "overall_status": "partial",
+  "rows": [
+    {
+      "file": "recommendation_service.py",
+      "status": "split_active",
+      "after_lines": 19,
+      "target_met": true,
+      "helper_count": 2,
+      "helper_files": {
+        "recommendation_service_runtime.py": 244,
+        "recommendation_service_finalize.py": 401
+      }
+    },
+    {
+      "file": "validation_retune.py",
+      "status": "fallback_or_unsplit",
+      "after_lines": 2280,
+      "target_met": false,
+      "helper_count": 8,
+      "helper_files": {
+        "validation_retune_shared.py": 491,
+        "validation_retune_provenance.py": 91,
+        "validation_retune_alignment.py": 461,
+        "validation_retune_runtime.py": 372,
+        "validation_retune_comparison.py": 138,
+        "validation_retune_corrected_export.py": 272,
+        "validation_retune_acceptance.py": 279,
+        "validation_retune_metric_utils.py": 240
+      }
+    },
+    {
+      "file": "compensation.py",
+      "status": "unsplit",
+      "after_lines": 3320,
+      "target_met": false,
+      "helper_count": 0,
+      "helper_files": {}
+    }
+  ]
+}

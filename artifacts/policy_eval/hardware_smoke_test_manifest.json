@@ -1,0 +1,45 @@
+{
+  "generated_at_utc": "2026-04-14T03:06:41.956040+00:00",
+  "note": "not executed in current coding environment; use on attached hardware bench",
+  "cases": [
+    {
+      "case_id": "cont_exact_current_01",
+      "regime": "continuous",
+      "target_type": "current",
+      "waveform": "sine",
+      "freq_hz": 0.5,
+      "level_or_field": 20,
+      "cycles": null,
+      "expected_mode": "exact auto",
+      "waveform_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current.csv",
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_formula.txt",
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_control_lut.csv"
+    },
+    {
+      "case_id": "cont_exact_field_01",
+      "regime": "continuous",
+      "target_type": "field",
+      "waveform": "sine",
+      "freq_hz": 0.25,
+      "level_or_field": 20,
+      "cycles": null,
+      "expected_mode": "exact auto",
+      "waveform_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field.csv",
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_formula.txt",
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_control_lut.csv"
+    },
+    {
+      "case_id": "finite_exact_sine_01",
+      "regime": "transient",
+      "target_type": "current",
+      "waveform": "sine",
+      "freq_hz": 0.5,
+      "level_or_field": 20,
+      "cycles": 1.0,
+      "expected_mode": "exact recipe",
+      "waveform_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine.csv",
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_formula.txt",
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_control_lut.csv"
+    }
+  ]
+}

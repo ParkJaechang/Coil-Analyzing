@@ -1,132 +1,112 @@
-# Coil Large-Signal Analyzer
+# 전자기장 LUT/보정 운용 툴
 
-로컬 CSV/XLSX 시계열 데이터와 워크스페이스 reference 파일을 이용해 코일 / 전자석의 large-signal 전기적 특성과 자기장 응답을 분석하는 Streamlit 앱이다.
+`D:\programs\Codex\Coil Analyzing\app_field_analysis_quick.py` 는 `<= 5 Hz` exact-supported 운용 범위를 빠르게 확인하고, LUT / 제어 수식 / 보정 파형을 내보내는 Streamlit 앱입니다.
 
 ## 실행 방법
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
+가장 쉬운 방법:
+
+- 일반 실행: [launch_quick_lut.cmd](D:\programs\Codex\Coil Analyzing\launch_quick_lut.cmd)
+- 실사용 모드 기본 실행: [launch_quick_lut_operational.cmd](D:\programs\Codex\Coil Analyzing\launch_quick_lut_operational.cmd)
+
+직접 실행:
+
+```powershell
+& "D:\programs\Codex\.venv\Scripts\streamlit.exe" run "D:\programs\Codex\Coil Analyzing\app_field_analysis_quick.py"
 ```
 
-앱은 빈 상태에서도 실행되며, 업로드할 파일이 없으면 안내 화면과 built-in example dataset를 제공한다.
+## 공식 지원 범위
 
-## 지원 파일 형식
+- 공식 운영 대역: `0.25 ~ 5 Hz`
+- 자동 추천 운영:
+  - `continuous / current / exact support / <= 5 Hz`
+- software-ready:
+  - `continuous / field / exact support / <= 5 Hz`
+- finite exact-supported:
+  - `<= 5 Hz`
+  - `sine 47 + triangle 48 = 95 recipes`
+- provisional preview:
+  - `sine / 1.0 Hz / 1.0 cycle / 20 pp`
+  - 근거: `1.0 Hz / 1.0 cycle / 10 pp exact`를 `2x` 스케일
+- preview-only:
+  - `interpolated_in_hull`
+  - finite exact recipe 표 밖 요청
+- blocked 또는 reference-only:
+  - `interpolated_edge`
+  - `out_of_hull`
+  - `> 5 Hz`
 
-- 입력 waveform: `CSV`, `XLSX`
-- 테스트 요청표: `CSV`, `XLSX`
-- reference workbook: `all_bands_full.xlsx`
-- 참고 문서: `7224-Datasheet-05-06-24 (1).pdf`, `7224-7226_OperatorManual-1.pdf`, `코스모크 전자석_Silicon steel (25.10.28).pdf`
+## 상태 의미
 
-파일이 실제로 존재하지 않아도 앱은 종료되지 않는다. workbook / PDF 상태는 Home 페이지에서 확인할 수 있다.
+- `exact`: 공식 exact-supported 경로. 자동 추천과 다운로드 허용.
+- `provisional`: exact가 없는 한 칸을 임시 대체 조합으로 제공. 실험 모드 전용.
+- `preview-only`: 계산 결과는 참고용. 자동 다운로드 금지.
+- `unsupported`: 공식 지원 범위 밖. nearest exact/provisional 및 추가 측정 추천 확인.
 
-## 채널 매핑 방법
+## 사용 흐름
 
-1. `Data Import` 에서 waveform 파일을 올린다.
-2. `Channel Mapping & Calibration` 에서 시간, 전압, 전류, 자기장 채널을 선택한다.
-3. 각 채널에 대해 아래 항목을 설정한다.
-   - scale
-   - offset
-   - polarity invert
-   - delay correction
-   - unit
-4. time 단위는 `s`, `ms`, `us`, `datetime` 을 지원한다.
-5. timestamp가 `2026-04-07T16:45:31.5746008+09:00` 같은 ISO datetime 문자열이어도 분석 가능하다.
-6. 자기장 채널은 여러 개를 등록할 수 있고 alias 를 지정할 수 있다.
-7. `전류 기준 자동 정렬` 을 누르면 cross-correlation 기반 delay 를 current 채널 기준으로 추정한다.
+1. 좌측에서 연속/finite/검증/LCR 파일을 업로드하거나 기억된 데이터를 재사용합니다.
+2. `Quick LUT` 화면에서 파형, 주파수, 목표 타입(current/field), 레벨, cycle을 고릅니다.
+3. 상단 `요청 라우터`에서 현재 상태가 `exact / provisional / preview-only / unsupported` 중 무엇인지 확인합니다.
+4. 필요하면 `가장 가까운 exact 조합으로 전환` 또는 `가장 가까운 provisional 조합으로 미리보기`를 사용합니다.
+5. 결과 화면에서 추천 전압, 예상 출력, 엔진/신뢰도, export 파일 접두사를 확인합니다.
+6. `제어 LUT CSV`, `제어 수식 TXT`, `보정 전압 파형 CSV`를 내려받습니다.
 
-한 번 저장한 컬럼 패턴은 workspace-local mapping library에 저장되어 유사한 파일에 재사용된다.
+## 대표 시나리오
 
-## 계산식 설명
+- 연속 전류 exact:
+  - `sine / 0.5 Hz / current 20 A`
+- 연속 자기장 exact:
+  - `sine / 0.25 Hz / field 20 mT`
+- finite triangle exact:
+  - `triangle / 1.0 Hz / 1.0 cycle / 20 pp`
 
-기본파 추정은 zero-crossing 단독 방식이 아니라 sine fit / single-frequency basis fit 기반이다.
+앱 상단의 `대표 예제 바로 불러오기` 버튼으로 바로 세팅할 수 있습니다.
 
-- `|Z1| = V1_pk / I1_pk`
-- `delta_phi_VI = phase_V - phase_I`
-- `Req = |Z1| * cos(delta_phi_VI)`
-- `Xeq = |Z1| * sin(delta_phi_VI)`
-- `Leq = Xeq / (2*pi*f)`
-- `K_BI = B1_pk / I1_pk`
-- `K_BV = B1_pk / V1_pk`
-- `alpha = Vout_pk / (Vin_pk * G_mode)`
-- `lambda(t) = integral(v(t) - Rdc*i(t)) dt`
+## 업로드 폴더와 기억된 데이터
 
-추가 지표:
+앱은 아래 캐시 폴더를 자동으로 읽고, 새 파일이 들어오면 scope/report를 자동 갱신합니다.
 
-- raw peak-to-peak
-- raw RMS
-- fundamental peak
-- fundamental RMS
-- phase in degree
-- phase delay in seconds
-- crest factor
-- THD, if data quality permits
+- continuous: [D:\programs\Codex\outputs\field_analysis_app_state\uploads\continuous](D:\programs\Codex\outputs\field_analysis_app_state\uploads\continuous)
+- transient: [D:\programs\Codex\outputs\field_analysis_app_state\uploads\transient](D:\programs\Codex\outputs\field_analysis_app_state\uploads\transient)
+- validation: [D:\programs\Codex\outputs\field_analysis_app_state\uploads\validation](D:\programs\Codex\outputs\field_analysis_app_state\uploads\validation)
+- lcr: [D:\programs\Codex\outputs\field_analysis_app_state\uploads\lcr](D:\programs\Codex\outputs\field_analysis_app_state\uploads\lcr)
 
-## Large-Signal vs Small-Signal
+## export 파일
 
-- `Electrical Analysis`, `Magnetic Analysis`, `Gain / Drive Requirement Analysis` 는 waveform 기반 measured large-signal 결과를 사용한다.
-- `LCR Reference Comparison` 은 `all_bands_full.xlsx` 의 small-signal reference 를 별도로 읽어 비교한다.
-- 둘은 같은 표나 계산에서 자동으로 섞이지 않는다.
-- LCR meter series R 은 자동으로 copper resistance 또는 `Rdc` 로 간주하지 않는다.
-- `Rdc(T)` 는 `Advanced Analysis` 에서 별도 입력값으로 취급한다.
+대표 export는 아래 4종입니다.
 
-## 예시 워크플로우
+- `*_control_lut.csv`
+- `*_formula.txt`
+- `*_coefficients.csv`
+- `*.csv` recommended command waveform
 
-1. reference file 상태 확인
-2. waveform CSV/XLSX 업로드
-3. 채널 매핑
-4. calibration factor / polarity / unit / delay 입력
-5. 테스트 요청 포인트와 실제 데이터 매칭
-6. cycle start / cycle count 기반 analysis window 선택
-7. Signal Analysis 실행
-8. Electrical / Magnetic / Advanced / Gain / Reference 페이지 확인
-9. Export 페이지에서 Excel + HTML + JSON bundle 다운로드
+파일명에는 waveform, freq, target type, level, cycle 조건이 포함됩니다.
 
-## 사용 편의 개선 사항
+## known limitations
 
-- 사이드바를 단계형 한국어 UI로 정리했다.
-- 각 페이지 상단에 `빠른 가이드` 를 넣어, 지금 해야 할 작업을 바로 볼 수 있다.
-- Gain 분석 페이지에서는 실측 `Vout_pk` 입력값이 있으면 그것을 우선 사용한다.
-- `Vout_pk` 가 없으면 waveform에서 계산된 `V1_pk` 를 사용하고, 그것도 없으면 measured `|Z1|` 와 목표 `Ipp` 로 required `Vout_pk` 를 역산한다.
+- interpolated auto는 닫혀 있습니다.
+- finite generalization은 preview-only입니다.
+- `continuous / field exact`는 software-ready 상태이며, 공식 승격에는 외부 bench sign-off가 남아 있습니다.
+- 남은 exact 실측 공백은 `sine / 1.0 Hz / 1.0 cycle / 20 pp` 1개입니다.
 
-## UI 페이지 개요
+## 테스트/검증
 
-- `Home / Project Overview`: 프로젝트 상태, reference 상태, 최근 업로드, 누락 포인트
-- `Data Import`: waveform 업로드, preview, sheet 선택, metadata 입력
-- `Test Request Manager`: preset 요청표, 요청표 업로드, 상태 테이블
-- `Channel Mapping & Calibration`: 채널 지정, scale/offset/invert/delay, auto alignment
-- `Signal Analysis`: 정수 주기 window, detrend, offset removal, zero-phase smoothing, fitted waveform
-- `Electrical Analysis`: large-signal impedance / power / phase
-- `Magnetic Analysis`: B amplitude / phase / B-I / B-V
-- `Advanced Analysis`: lambda-i, differential inductance 추정
-- `Gain / Drive Requirement Analysis`: alpha, gain mode 20 V/V or 6 V/V, overload 판단
-- `LCR Reference Comparison`: `all_bands_full.xlsx` multi-sheet selector, measured vs reference plot
-- `Export`: Excel, HTML plot, JSON settings bundle
+PC 안에서 닫힌 주요 검증:
 
-## 알려진 한계
+- exact/provisional/preview/unsupported UI regression
+- request router one-click transition validation
+- exact export 파일 생성/헤더/행 수/메타 검증
+- finite triangle exact software path validation
+- scope auto-refresh validation
 
-- 1차 버전의 중심은 sine-like waveform 분석이다.
-- 긴 raw 파일을 자동 세그먼트로 쪼개는 기능은 아직 없다. 현재는 파일 단위 + cycle window 선택 중심이다.
-- PDF 본문 파싱은 하지 않는다. 현재는 파일 존재 상태와 workbook 중심 fallback 구조다.
-- multi-sheet waveform workbook 은 파일당 선택 sheet 하나를 기준으로 읽는다.
-- cross-correlation alignment 는 충분한 excitation 이 있어야 안정적이다.
-- THD 는 간단한 harmonic magnitude 기반이므로 window quality에 민감하다.
+대표 artifact:
 
-## 테스트
+- [exact_matrix_closeout.md](D:\programs\Codex\Coil Analyzing\artifacts\policy_eval\exact_matrix_closeout.md)
+- [exact_export_validation.md](D:\programs\Codex\Coil Analyzing\artifacts\policy_eval\exact_export_validation.md)
+- [release_preflight.md](D:\programs\Codex\Coil Analyzing\artifacts\policy_eval\release_preflight.md)
 
-```bash
-pytest
-```
+## 외부 작업으로 남아 있는 항목
 
-## 파일 구조
-
-```text
-app.py
-config/example_settings.json
-src/coil_analyzer/
-tests/
-requirements.txt
-README.md
-```
+- bench sign-off
+- 남은 exact 실측 1개 추가

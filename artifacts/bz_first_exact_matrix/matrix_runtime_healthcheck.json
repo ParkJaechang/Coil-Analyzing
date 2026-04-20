@@ -1,0 +1,173 @@
+{
+  "generated_at_utc": "2026-04-17T07:12:03.594126+00:00",
+  "root": "D:\\programs\\Codex\\Coil Analyzing",
+  "success": true,
+  "executions": [
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\refresh_exact_supported_scope.py",
+      "returncode": 0,
+      "stdout": "Wrote D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\exact_scope_refresh.json",
+      "stderr": ""
+    },
+    {
+      "script": "D:\\programs\\Codex\\Coil Analyzing\\tools\\generate_bz_first_artifacts.py",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "pytest",
+      "command": [
+        "C:\\Users\\jaech\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+        "-m",
+        "pytest",
+        "D:\\programs\\Codex\\Coil Analyzing\\tests\\test_recommendation_service.py",
+        "-q",
+        "-k",
+        "artifact_scope_lock or marks_above_5hz_current_runtime_as_reference_only_preview"
+      ],
+      "returncode": 0,
+      "stdout": ".....                                                                    [100%]\n5 passed, 18 deselected in 4.70s",
+      "stderr": ""
+    }
+  ],
+  "checks": [
+    {
+      "name": "refresh_exact_supported_scope",
+      "status": "pass",
+      "details": "refresh_exact_supported_scope.py completed successfully."
+    },
+    {
+      "name": "generate_bz_first_artifacts",
+      "status": "pass",
+      "details": "generate_bz_first_artifacts.py completed successfully."
+    },
+    {
+      "name": "exact_matrix_count_check",
+      "status": "pass",
+      "details": "finite_exact_cells=95"
+    },
+    {
+      "name": "provisional_count_check",
+      "status": "pass",
+      "details": "finite_exact_cells=95, provisional_cells=1, missing_exact_cells=1, promotion_state=provisional_only"
+    },
+    {
+      "name": "lut_catalog_count_check",
+      "status": "pass",
+      "details": "total=39, entries=39, by_status_total=39"
+    },
+    {
+      "name": "catalog_runtime_state_check",
+      "status": "pass",
+      "details": "groups=29, duplicate_runtime_entries=19, stale_runtime_entries=10"
+    },
+    {
+      "name": "data_intake_regression",
+      "status": "pass",
+      "details": "passing_checks=6/6"
+    },
+    {
+      "name": "roi_priority_check",
+      "status": "pass",
+      "details": "head_category=missing_exact_promotion, validation_attention_items=1, validation_present=True"
+    },
+    {
+      "name": "promotion_smoke_check",
+      "status": "pass",
+      "details": "canonical placeholder keeps the target cell provisional until a non-placeholder 1hz_1cycle_20pp upload arrives, then the cell is promoted to exact."
+    },
+    {
+      "name": "runtime_route_consistency_check",
+      "status": "pass",
+      "details": "5 passed, 18 deselected in 4.70s"
+    },
+    {
+      "name": "runtime_display_label_healthcheck",
+      "status": "pass",
+      "details": "leak_violations=0, display_name_mismatches=0, display_label_mismatches=0"
+    },
+    {
+      "name": "closeout_summary_check",
+      "status": "pass",
+      "details": "release_candidate_summary_exists=True"
+    }
+  ],
+  "snapshot": {
+    "finite_exact_cells": 95,
+    "provisional_cells": 1,
+    "missing_exact_cells": 1,
+    "promotion_state": "provisional_only",
+    "lut_catalog_total": 39,
+    "roi_head_category": "missing_exact_promotion"
+  },
+  "promotion_smoke": {
+    "pass": true,
+    "baseline": {
+      "official_recipe_total": 1,
+      "provisional_count": 1,
+      "missing_count": 1,
+      "promotion_state": "provisional_only"
+    },
+    "promoted": {
+      "official_recipe_total": 2,
+      "provisional_count": 0,
+      "missing_count": 0,
+      "promotion_state": "promoted_to_exact"
+    },
+    "details": "canonical placeholder keeps the target cell provisional until a non-placeholder 1hz_1cycle_20pp upload arrives, then the cell is promoted to exact."
+  },
+  "runtime_display_label_healthcheck": {
+    "generated_at_utc": "2026-04-17T07:12:03.590558+00:00",
+    "success": true,
+    "summary": {
+      "artifact_record_counts": {
+        "corrected_lut_catalog": 3,
+        "exact_matrix.continuous_current.cells": 48,
+        "exact_matrix.continuous_current.summary": 10,
+        "exact_matrix.continuous_field.summary": 10,
+        "exact_matrix.finite.cells": 95,
+        "exact_matrix.finite.summary": 48,
+        "exact_matrix.missing": 1,
+        "exact_matrix.provisional": 1,
+        "exact_matrix.reference_only": 7,
+        "lut_catalog": 39,
+        "measurement_roi_priority": 7,
+        "retune_picker_catalog": 39,
+        "validation_catalog": 3
+      },
+      "total_records": 311,
+      "leak_violations": 0,
+      "display_name_mismatches": 0,
+      "display_label_mismatches": 0
+    },
+    "checks": [
+      {
+        "name": "label_report_present",
+        "status": "pass",
+        "details": "label_sanitization_report.json loaded"
+      },
+      {
+        "name": "display_leak_check",
+        "status": "pass",
+        "details": "leak_violations=0"
+      },
+      {
+        "name": "display_name_consistency_check",
+        "status": "pass",
+        "details": "display_name_mismatches=0"
+      },
+      {
+        "name": "display_label_consistency_check",
+        "status": "pass",
+        "details": "display_label_mismatches=0"
+      },
+      {
+        "name": "label_artifact_coverage_check",
+        "status": "pass",
+        "details": "{\"corrected_lut_catalog\": 3, \"exact_matrix.continuous_current.cells\": 48, \"exact_matrix.continuous_current.summary\": 10, \"exact_matrix.continuous_field.summary\": 10, \"exact_matrix.finite.cells\": 95, \"exact_matrix.finite.summary\": 48, \"exact_matrix.missing\": 1, \"exact_matrix.provisional\": 1, \"exact_matrix.reference_only\": 7, \"lut_catalog\": 39, \"measurement_roi_priority\": 7, \"retune_picker_catalog\": 39, \"validation_catalog\": 3}"
+      }
+    ],
+    "violations": []
+  }
+}

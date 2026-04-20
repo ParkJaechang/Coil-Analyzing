@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-04-17T07:35:15+00:00",
+  "schema_version": "measurement_roi_priority_v3",
+  "summary": {
+    "missing_exact_cells": 1,
+    "continuous_gap_cells": 24,
+    "validation_attention_items": 1
+  },
+  "priorities": [
+    {
+      "rank": 1,
+      "category": "missing_exact_promotion",
+      "request_type": "exact_measurement",
+      "display_object_key": "current::sine::1::1::20::pp",
+      "display_name": "current / sine / 1 Hz / 1 cycle / 20 pp",
+      "display_label": "current / sine / 1 Hz / 1 cycle / 20 pp",
+      "request": "current / sine / 1 Hz / 1 cycle / 20 pp",
+      "why": "Only remaining certified finite exact gap. A measured upload promotes the matrix from 95 to 96 certified exact cells.",
+      "expected_gain": "removes the last provisional-only cell from operator guidance"
+    },
+    {
+      "rank": 2,
+      "category": "continuous_exact_gap_fill",
+      "request_type": "exact_measurement_campaign",
+      "display_name": "current / 0.75 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "display_label": "current / 0.75 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "request": "current / 0.75 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "why": "fills the gap between 0.5 Hz and 1.0 Hz",
+      "expected_gain": "reduces preview-only interpolation in the continuous exact operating table"
+    },
+    {
+      "rank": 3,
+      "category": "continuous_exact_gap_fill",
+      "request_type": "exact_measurement_campaign",
+      "display_name": "current / 1.5 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "display_label": "current / 1.5 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "request": "current / 1.5 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "why": "fills the gap between 1.0 Hz and 2.0 Hz",
+      "expected_gain": "reduces preview-only interpolation in the continuous exact operating table"
+    },
+    {
+      "rank": 4,
+      "category": "continuous_exact_gap_fill",
+      "request_type": "exact_measurement_campaign",
+      "display_name": "current / 3 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "display_label": "current / 3 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "request": "current / 3 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "why": "reduces the long jump between 2.0 Hz and 5.0 Hz",
+      "expected_gain": "reduces preview-only interpolation in the continuous exact operating table"
+    },
+    {
+      "rank": 5,
+      "category": "continuous_exact_gap_fill",
+      "request_type": "exact_measurement_campaign",
+      "display_name": "current / 4 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "display_label": "current / 4 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "request": "current / 4 Hz | waveforms sine, triangle | levels 5 A, 10 A, 20 A",
+      "why": "adds a pre-5 Hz anchor close to the exact operating limit",
+      "expected_gain": "reduces preview-only interpolation in the continuous exact operating table"
+    },
+    {
+      "rank": 6,
+      "category": "validation_priority",
+      "request_type": "validation_run",
+      "display_object_key": "current::sine::1.25::1.25::20::pp",
+      "source_kind": "export",
+      "display_name": "current / sine / 1.25 Hz / 1.25 cycle / 20 pp",
+      "display_label": "current / sine / 1.25 Hz / 1.25 cycle / 20 pp | export",
+      "request": "current / sine / 1.25 Hz / 1.25 cycle / 20 pp | export | validate 1.25 cycle",
+      "why": "clipping/saturation detected; Bz NRMSE 74.21%; Bz shape corr 0.368; Bz phase lag 0.1498s",
+      "expected_gain": "converts existing LUT lineage into a trustworthy operator reference"
+    },
+    {
+      "rank": 7,
+      "category": "finite_edge_reinforcement",
+      "request_type": "replication_campaign",
+      "display_name": "current / finite edge reinforcement | freqs 2 Hz, 5 Hz | cycles 0.75 cycle, 1 cycle, 1.25 cycle, 1.5 cycle | waveforms sine, triangle | level 20 pp",
+      "display_label": "current / finite edge reinforcement | freqs 2 Hz, 5 Hz | cycles 0.75 cycle, 1 cycle, 1.25 cycle, 1.5 cycle | waveforms sine, triangle | level 20 pp",
+      "request": "current / finite edge reinforcement | freqs 2 Hz, 5 Hz | cycles 0.75 cycle, 1 cycle, 1.25 cycle, 1.5 cycle | waveforms sine, triangle | level 20 pp",
+      "why": "2 Hz and 5 Hz are the highest-stress finite exact bands and worth reinforcing with repeat measurements.",
+      "expected_gain": "improves confidence near the dynamic edge of the finite exact matrix"
+    }
+  ]
+}

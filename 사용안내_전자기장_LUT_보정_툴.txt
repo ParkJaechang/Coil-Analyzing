@@ -1,0 +1,37 @@
+전자기장 LUT/보정 운용 툴 사용 안내
+
+1. 실행
+- 일반 실행: launch_quick_lut.cmd
+- 실사용 모드 기본 실행: launch_quick_lut_operational.cmd
+
+2. 공식 지원 범위
+- 공식 운영 대역: 0.25 ~ 5 Hz
+- 자동 추천 운영: continuous/current exact <= 5 Hz
+- software-ready: continuous/field exact <= 5 Hz
+- finite exact-supported: <= 5 Hz, sine 47 + triangle 48 = 95 recipes
+- provisional preview: sine / 1.0 Hz / 1.0 cycle / 20 pp
+
+3. 상태 의미
+- exact: 자동 추천/다운로드 가능
+- provisional: 임시 대체 조합, 실험 모드 전용
+- preview-only: 결과 참고만 가능
+- unsupported: 공식 지원 범위 밖
+
+4. 기본 사용 순서
+- 좌측에서 연속/finite/검증/LCR 파일 업로드
+- Quick LUT에서 파형/주파수/목표 타입/레벨/cycle 선택
+- 요청 라우터에서 현재 상태 확인
+- 필요하면 가장 가까운 exact/provisional 조합으로 전환
+- 결과 확인 후 제어 LUT / 수식 / 파형 CSV 다운로드
+
+5. 주의
+- interpolated auto는 닫혀 있음
+- finite generalization은 preview-only
+- > 5 Hz는 reference-only
+- continuous/field exact는 bench sign-off 전까지 공식 승격 대기
+
+6. 업로드 폴더
+- continuous: D:\programs\Codex\outputs\field_analysis_app_state\uploads\continuous
+- transient: D:\programs\Codex\outputs\field_analysis_app_state\uploads\transient
+- validation: D:\programs\Codex\outputs\field_analysis_app_state\uploads\validation
+- lcr: D:\programs\Codex\outputs\field_analysis_app_state\uploads\lcr

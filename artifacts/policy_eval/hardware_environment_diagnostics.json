@@ -1,0 +1,268 @@
+{
+  "generated_at_utc": "2026-04-14T05:22:32.638221+00:00",
+  "usb_6451": {
+    "Status": "Unknown",
+    "Present": false,
+    "Class": "DAQDevice",
+    "FriendlyName": "USB-6451",
+    "InstanceId": "USB\\VID_3923&PID_7B42\\235187D",
+    "Problem": 45,
+    "ConfigManagerErrorCode": 45,
+    "Service": "ninimbusrkw"
+  },
+  "lcr_meter": {
+    "Status": "Unknown",
+    "Present": false,
+    "Class": "Ports",
+    "FriendlyName": "LCR Meter Virtual COM Port(COM5)",
+    "InstanceId": "FTDIBUS\\VID_2184+PID_005F+GW83MJWQA\\0000",
+    "Problem": 45,
+    "ConfigManagerErrorCode": 45,
+    "Service": "FTSER2K"
+  },
+  "ni_services_running": [
+    {
+      "Status": 4,
+      "Name": "lkClassAds",
+      "DisplayName": "NI PSP Service Locator"
+    },
+    {
+      "Status": 4,
+      "Name": "lkTimeSync",
+      "DisplayName": "NI Time Synchronization"
+    },
+    {
+      "Status": 4,
+      "Name": "mxssvr",
+      "DisplayName": "NI Configuration Manager"
+    },
+    {
+      "Status": 4,
+      "Name": "niauth",
+      "DisplayName": "NI Authentication Service"
+    },
+    {
+      "Status": 4,
+      "Name": "nidevldu",
+      "DisplayName": "NI Device Loader"
+    },
+    {
+      "Status": 4,
+      "Name": "NIDomainService",
+      "DisplayName": "NI Domain Service"
+    },
+    {
+      "Status": 4,
+      "Name": "nimDNSResponder",
+      "DisplayName": "NI mDNS Responder Service"
+    },
+    {
+      "Status": 4,
+      "Name": "NINetworkDiscovery",
+      "DisplayName": "NI Network Discovery"
+    },
+    {
+      "Status": 4,
+      "Name": "nipxicmsvc",
+      "DisplayName": "NI PXI Chassis Management Service"
+    },
+    {
+      "Status": 4,
+      "Name": "nipxirmu",
+      "DisplayName": "NI PXI Resource Manager"
+    },
+    {
+      "Status": 4,
+      "Name": "niroco",
+      "DisplayName": "NI Route Coordinator"
+    },
+    {
+      "Status": 4,
+      "Name": "nisds",
+      "DisplayName": "NI Sync Domain Service"
+    },
+    {
+      "Status": 4,
+      "Name": "NiSvcLoc",
+      "DisplayName": "NI Service Locator"
+    },
+    {
+      "Status": 4,
+      "Name": "NITaggerService",
+      "DisplayName": "NI Variable Engine"
+    },
+    {
+      "Status": 1,
+      "Name": "NIWebServer",
+      "DisplayName": "NI Web Server"
+    }
+  ],
+  "pyserial_ports": [
+    {
+      "device": "COM3",
+      "description": "ǥ�� Bluetooth���� ���� ��ũ(COM3)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_VID&0001009E_PID&4066\\8&3A9899E2&0&E458BC5D91E3_C00000000"
+    },
+    {
+      "device": "COM4",
+      "description": "ǥ�� Bluetooth���� ���� ��ũ(COM4)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\8&3A9899E2&0&000000000000_00000002"
+    }
+  ],
+  "visa_resources": [
+    "ASRL3::INSTR",
+    "ASRL4::INSTR"
+  ],
+  "nidaqmx": {
+    "driver_version": {
+      "major": 25,
+      "minor": 8,
+      "update": 1
+    },
+    "devices": []
+  },
+  "repo_has_bench_runner_signals": true,
+  "repo_hits": [
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\README.md",
+      "LineNumber": 72,
+      "Line": "- LCR meter series R 은 자동으로 copper resistance 또는 `Rdc` 로 간주하지 않는다."
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 40,
+      "Line": "        \"Get-PnpDevice | Where-Object { $_.FriendlyName -eq 'USB-6451' } \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 47,
+      "Line": "        \"Get-PnpDevice | Where-Object { $_.FriendlyName -like '*LCR Meter*' } \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 67,
+      "Line": "        \"import json, pyvisa; \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 68,
+      "Line": "        \"rm=pyvisa.ResourceManager(); \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 74,
+      "Line": "        \"import json; from nidaqmx.system import System; \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 82,
+      "Line": "        \"Get-ChildItem -Recurse -File | Select-String -Pattern 'nidaqmx|DAQmx|pyvisa|serial\\\\.Serial|ResourceManager|COM5|USB-6451|LCR Meter' \""
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 90,
+      "Line": "        blockers.append(\"USB-6451가 PnP 조회 결과에 없습니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 92,
+      "Line": "        blockers.append(\"USB-6451가 Windows에서는 phantom device로 남아 있고 Present=False 상태입니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 95,
+      "Line": "        blockers.append(\"NI-DAQmx Python API에서 인식되는 실제 DAQ device가 0개입니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 98,
+      "Line": "        blockers.append(\"LCR Meter COM 포트가 현재 조회 결과에 없습니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 100,
+      "Line": "        blockers.append(\"LCR Meter Virtual COM Port(COM5)가 Windows에서 phantom device이며 Present=False 상태입니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 103,
+      "Line": "    if \"COM5\" not in port_names:"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 104,
+      "Line": "        blockers.append(\"pyserial 기준으로 COM5가 현재 열거되지 않아 LCR meter 자동 bench를 시작할 수 없습니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 107,
+      "Line": "    if not any(\"COM5\" in item or \"USB\" in item or \"GPIB\" in item for item in resources):"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 108,
+      "Line": "        blockers.append(\"VISA 자원 목록에 bench 계측기나 COM5가 보이지 않습니다.\")"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 120,
+      "Line": "        \"nidaqmx\": nidaq_info,"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 141,
+      "Line": "        \"## USB-6451\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 148,
+      "Line": "        \"## LCR Meter COM5\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 155,
+      "Line": "        \"## NI-DAQmx Python\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 182,
+      "Line": "            \"- USB-6451와 LCR meter를 실제로 다시 연결하고, Windows Device Manager/NI MAX에서 Present 상태인지 확인\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 183,
+      "Line": "            \"- COM5가 pyserial에서 다시 보이면 LCR meter handshake를 별도로 점검\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\diagnose_hardware_bench_environment.py",
+      "LineNumber": 184,
+      "Line": "            \"- USB-6451가 NI-DAQmx `System.devices`에 나타나면 그 다음에야 bench runner 자동화 또는 수동 smoke test를 실행 가능\","
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\__pycache__\\diagnose_hardware_bench_environment.cpython-313.pyc",
+      "LineNumber": 32,
+      "Line": "\u000e\u0000S#3\u0003P\u0001S9U\u0010R\u0017\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000S\u0006/\u00005\u0002\u0000\u0000\u0000\u0000\u0000\u0000\u000e\u0000S#3\u0003P\u0001S!P\u0001S:P\u0001S!P\u0001S;U\u0017\u000e\u0000S#3\u0003P\u0001S!P\u0001S<P\u0001S!P\u0001n\u001dU\u0018\u0013\u0000H\u0017\u0000\u0000n\u001eU\u001dR\u0015\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000S=U\u001e\u000e\u00003\u00025\u0001\u0000\u0000\u0000\u0000\u0000\u0000 \u0000M\u0019\u0000\u0000\u000b\u0000 \u0000U\u0018(\u0000\u0000\u0000\u0000\u0000\u0000\u0000d\u0011\u0000\u0000U\u001dR\u0015\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000S>5\u0001\u0000\u0000\u0000\u0000\u0000\u0000 \u0000U\u001dR'\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000/\u0000S?Q\u00015\u0001\u0000\u0000\u0000\u0000\u0000\u0000 \u0000[(\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000R#\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000S@R+\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000U\u001d5\u0001\u0000\u0000\u0000\u0000\u0000\u0000SAS\u001f9\u0002 \u0000[-\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000SB[(\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u000e\u00003\u00025\u0001\u0000\u0000\u0000\u0000\u0000\u0000 \u0000[-\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000SB[ \u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u000e\u00003\u00025\u0001\u0000\u0000\u0000\u0000\u0000\u0000 \u0000gCs\u0002 \u0000s\u0002n\u0019f\u0000)DNz�Get-PnpDevice | Where-Object { $_.FriendlyName -eq 'USB-6451' } | Select-Object Status,Present,Class,FriendlyName,InstanceId,Problem,ConfigManagerErrorCode,Service | ConvertTo-Json -Depth 3z�Get-PnpDevice | Where-Object { $_.FriendlyName -like '*LCR Meter*' } | Select-Object Status,Present,Class,FriendlyName,InstanceId,Problem,ConfigManagerErrorCode,Service | ConvertTo-Json -Depth 3z�Get-Service | Where-Object { $_.DisplayName -match 'National Instruments|NI ' -or $_.Name -match '^ni' } | Select-Object Status,Name,DisplayName | ConvertTo-Json -Depth 3z�import json, serial.tools.list_ports; ports=[{'device':p.device,'description':p.description,'hwid':p.hwid} for p in serial.tools.list_ports.comports()]; print(json.dumps(ports, ensure_ascii=False))zzimport json, pyvisa; rm=pyvisa.ResourceManager(); print(json.dumps({'resources':rm.list_resources()}, ensure_ascii=False))�\tresourcesa[\u0001\u0000\u0000import json; from nidaqmx.system import System; sys=System.local(); print(json.dumps({'driver_version':{'major':sys.driver_version.major_version,'minor':sys.driver_version.minor_version,'update':sys.driver_version.update_version},'devices':[{'name':d.name,'product_type':getattr(d,'product_type',None)} for d in sys.devices]}, ensure_ascii=False))z�Get-ChildItem -Recurse -File | Select-String -Pattern 'nidaqmx|DAQmx|pyvisa|serial\\.Serial|ResourceManager|COM5|USB-6451|LCR Meter' | Select-Object Path,LineNumber,Line | ConvertTo-Json -Depth 3u.\u0000\u0000\u0000USB-6451가 PnP 조회 결과에 없습니다.�\u0007PresentFu[\u0000\u0000\u0000USB-6451가 Windows에서는 phantom device로 남아 있고 Present=False 상태입니다.�\u0007devicesuJ\u0000\u0000\u0000NI-DAQmx Python API에서 인식되는 실제 DAQ device가 0개입니다.u=\u0000\u0000\u0000LCR Meter COM 포트가 현재 조회 결과에 없습니다.ue\u0000\u0000\u0000LCR Meter Virtual COM Port(COM5)가 Windows에서 phantom device이며 Present=False 상태입니다.�\u0006device�\u0004COM5un\u0000\u0000\u0000pyserial 기준으로 COM5가 현재 열거되지 않아 LCR meter 자동 bench를 시작할 수 없습니다.c\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0003\u0000\u0000\u00003\u0000\u0000\u0001�\\\u0000\u0000\u0000#\u0000 \u0000�\u0000U\u0000\u0013\u0000H\"\u0000\u0000n\u0001S\u0000U\u0001;\u0000\u0000\u0000=\u0001(\u0000\u0000\u0000\u0000\u0000\u0000\u0000d\u0011\u0000\u0000 \u0000S\u0001U\u0001;\u0000\u0000\u0000=\u0001(\u0000\u0000\u0000\u0000\u0000\u0000\u0000d\u0005\u0000\u0000 \u0000S\u0002U\u0001;\u0000\u0000\u0000v\u0000�\u0005 \u0000M$\u0000\u0000\u000b\u0000 \u0000g\u00037\u0003f\u0001)\u0004r$\u0000\u0000\u0000�\u0003USB�\u0004GPIBN�\u0000)\u0002�\u0002.0�\u0004items\u0002\u0000\u0000\u0000  r\u0019\u0000\u0000\u0000�\t<genexpr>�\u0017main.<locals>.<genexpr>k\u0000\u0000\u0000s)\u0000\u0000\u0000�\u0000�\u0000�\u000eW�Y�T�v�\u0014�~�\u000f@�\u0015�$�\u001d�\u000f@�&�D�.�\u000f@�Y�s\u0004\u0000\u0000\u0000�*,\u0001uH\u0000\u0000\u0000VISA 자원 목록에 bench 계측기나 COM5가 보이지 않습니다.u�\u0000\u0000\u0000현재 워크스페이스에는 export 파일을 장비에 인가하고 계측까지 수행하는 bench runner 코드가 없습니다.T�%physical_device_absent_or_not_present�\u0004none)\u0002�\u0016can_execute_bench_here�"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\__pycache__\\diagnose_hardware_bench_environment.cpython-313.pyc",
+      "LineNumber": 33,
+      "Line": "root_cause)\u000b�\u0010generated_at_utc�\busb_6451�\tlcr_meter�\u0013ni_services_running�\u000epyserial_ports�\u000evisa_resources�\u0007nidaqmx�\u001drepo_has_bench_runner_signals�\trepo_hits�\bblockers�\u0007summary�\u0002\u0000\u0000\u0000)\u0002�\fensure_ascii�\u0006indentr\t\u0000\u0000\u0000)\u0001r\u000e\u0000\u0000\u0000z\"# Hardware Environment Diagnostics�\u0000z\u0015- generated_at_utc: `�\u0001`z"
+    },
+    {
+      "Path": "D:\\programs\\Codex\\Coil Analyzing\\tools\\__pycache__\\diagnose_hardware_bench_environment.cpython-313.pyc",
+      "LineNumber": 34,
+      "Line": "## Summaryz\u001b- can_execute_bench_here: `r;\u0000\u0000\u0000r/\u0000\u0000\u0000z\u000f- root_cause: `r0\u0000\u0000\u0000z\u000b## USB-6451z\u000b- status: `�\u0006Statusz\f- present: `z\f- problem: `�\u0007Problemz\f- service: `�\u0007Servicez\u0011## LCR Meter COM5z\u0012## NI-DAQmx Pythonz\u0013- driver_version: `�\u000edriver_versionz\u0015- detected_devices: `z\u0012## pyserial / VISAz\u0013- pyserial_ports: `z\u0013- visa_resources: `z\u0014## Bench Runner Codez\"- repo_has_bench_runner_signals: `z\u000b## Blockersz\u0002- z\u001c- no blocking issue detected)\u0006r?\u0000\u0000\u0000z\u0017## Immediate Next Stepsr?\u0000\u0000\u0000uy\u0000\u0000\u0000- USB-6451와 LCR meter를 실제로 다시 연결하고, Windows Device Manager/NI MAX에서 Present 상태인지 확인uQ\u0000\u0000\u0000- COM5가 pyserial에서 다시 보이면 LCR meter handshake를 별도로 점검u�\u0000\u0000\u0000- USB-6451가 NI-DAQmx `System.devices`에 나타나면 그 다음에야 bench runner 자동화 또는 수동 smoke test를 실행 가능�\u0001"
+    }
+  ],
+  "blockers": [
+    "USB-6451가 Windows에서는 phantom device로 남아 있고 Present=False 상태입니다.",
+    "NI-DAQmx Python API에서 인식되는 실제 DAQ device가 0개입니다.",
+    "LCR Meter Virtual COM Port(COM5)가 Windows에서 phantom device이며 Present=False 상태입니다.",
+    "pyserial 기준으로 COM5가 현재 열거되지 않아 LCR meter 자동 bench를 시작할 수 없습니다.",
+    "VISA 자원 목록에 bench 계측기나 COM5가 보이지 않습니다."
+  ],
+  "summary": {
+    "can_execute_bench_here": false,
+    "root_cause": "physical_device_absent_or_not_present"
+  }
+}

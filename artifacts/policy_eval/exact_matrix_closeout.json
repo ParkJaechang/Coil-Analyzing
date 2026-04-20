@@ -1,0 +1,570 @@
+{
+  "generated_at_utc": "2026-04-16T02:43:41.605147+00:00",
+  "official_support_band_hz": {
+    "min": 0.25,
+    "max": 5.0
+  },
+  "continuous_support": {
+    "current_exact_auto": {
+      "status": "operational",
+      "scope": "continuous/current exact support only, <= 5 Hz",
+      "policy_version": "v2"
+    },
+    "field_exact_status": {
+      "status": "software_ready_bench_pending",
+      "scope": "continuous/field exact support only, <= 5 Hz",
+      "remaining_gate": "bench smoke test sign-off"
+    },
+    "interpolated_auto_enabled": {
+      "status": "closed",
+      "scope": "preview-only",
+      "reason": "interpolated auto remains disabled"
+    },
+    "continuous_exact_grid_candidates": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.75,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 4.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.75,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      }
+    ]
+  },
+  "finite_support": {
+    "official_recipe_total": 95,
+    "sine_exact_total": 47,
+    "triangle_exact_total": 48,
+    "remaining_exact_gaps": {
+      "sine": [
+        {
+          "freq_hz": 1.0,
+          "cycles": 1.0,
+          "level_pp_a": 20
+        }
+      ],
+      "triangle": []
+    },
+    "provisional_preview_combinations": [
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "target_level_pp_a": 20,
+        "source_exact_level_pp_a": 10,
+        "scale_ratio": 2.0
+      }
+    ],
+    "nearest_recipe_guidance_enabled": true
+  },
+  "ui_state_validation": [
+    {
+      "name": "continuous_exact_current_auto",
+      "support_state": "exact",
+      "preview_only": false,
+      "allow_auto_download": true,
+      "policy_version": "v2",
+      "warning_messages": [],
+      "info_messages": [],
+      "success_messages": [
+        "자동 추천 가능: 현재 요청은 공식 exact 지원 범위 안에 있습니다. LUT / 제어 수식 / 보정 파형을 바로 다운로드할 수 있습니다."
+      ],
+      "caption_messages": [
+        "가장 가까운 exact 조합으로 전환",
+        "추가 측정 추천: sine 0.75 Hz 20 A / sine 0.75 Hz 10 A / sine 0.75 Hz 5 A"
+      ],
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환"
+      ],
+      "command_profile_rows": 256,
+      "validation_report_reasons": [],
+      "pass_status": true
+    },
+    {
+      "name": "continuous_exact_field_ready",
+      "support_state": "exact",
+      "preview_only": false,
+      "allow_auto_download": true,
+      "policy_version": "v2",
+      "warning_messages": [],
+      "info_messages": [],
+      "success_messages": [
+        "자동 추천 가능: exact field support입니다. 소프트웨어 경로는 준비되었고 bench sign-off 후 공식 승격됩니다.",
+        "Field Bz-effective (stored as bz_mT) exact는 software-ready이며 bench sign-off 전 단계입니다."
+      ],
+      "caption_messages": [
+        "추가 측정 추천: sine 0.75 Hz 20 A / sine 0.75 Hz 10 A / sine 0.75 Hz 5 A"
+      ],
+      "button_labels": [],
+      "command_profile_rows": 256,
+      "validation_report_reasons": [],
+      "pass_status": true
+    },
+    {
+      "name": "continuous_interpolated_preview",
+      "support_state": "interpolated_in_hull",
+      "preview_only": true,
+      "allow_auto_download": false,
+      "policy_version": "v2",
+      "warning_messages": [],
+      "info_messages": [
+        "미리보기 전용: exact frequency support 없음"
+      ],
+      "success_messages": [],
+      "caption_messages": [
+        "가장 가까운 exact 조합으로 전환",
+        "추가 측정 추천: sine 0.75 Hz 20 A / sine 0.75 Hz 20 A / sine 0.75 Hz 10 A"
+      ],
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환"
+      ],
+      "command_profile_rows": 0,
+      "validation_report_reasons": [
+        "exact frequency support 없음"
+      ],
+      "pass_status": true
+    },
+    {
+      "name": "finite_provisional_sine_preview",
+      "support_state": "provisional_preview",
+      "preview_only": true,
+      "allow_auto_download": false,
+      "policy_version": "v2",
+      "warning_messages": [
+        "임시 대체 조합: official finite exact matrix에서 이 요청은 provisional 셀입니다. 10 pp exact recipe를 20 pp로 스케일한 임시 셀"
+      ],
+      "info_messages": [],
+      "success_messages": [],
+      "caption_messages": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기",
+        "추가 측정 추천: sine 1 Hz 1 cycle 20 A / sine 1 Hz 1 cycle 20 A"
+      ],
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기"
+      ],
+      "command_profile_rows": 256,
+      "validation_report_reasons": [],
+      "pass_status": true
+    }
+  ],
+  "request_router_validation": [
+    {
+      "name": "continuous_preview_apply_exact",
+      "freq_hz_before": 0.75,
+      "freq_hz_after": 0.5,
+      "target_before": 20.0,
+      "target_after": 20.0,
+      "finite_mode_after": false,
+      "cycle_after": null,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환"
+      ],
+      "info_messages": [
+        "미리보기 전용: exact frequency support 없음"
+      ],
+      "warning_messages": [],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 exact 조합으로 전환",
+      "pass_status": true
+    },
+    {
+      "name": "finite_provisional_apply_exact",
+      "freq_hz_before": 1.0,
+      "freq_hz_after": 1.0,
+      "target_before": 20.0,
+      "target_after": 10.0,
+      "finite_mode_after": true,
+      "cycle_after": 1.0,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기"
+      ],
+      "info_messages": [],
+      "warning_messages": [
+        "임시 대체 조합: official finite exact matrix에서 이 요청은 provisional 셀입니다. 10 pp exact recipe를 20 pp로 스케일한 임시 셀"
+      ],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 exact 조합으로 전환",
+      "pass_status": true
+    },
+    {
+      "name": "finite_provisional_apply_provisional",
+      "freq_hz_before": 1.0,
+      "freq_hz_after": 1.0,
+      "target_before": 20.0,
+      "target_after": 20.0,
+      "finite_mode_after": true,
+      "cycle_after": 1.0,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기"
+      ],
+      "info_messages": [],
+      "warning_messages": [
+        "임시 대체 조합: official finite exact matrix에서 이 요청은 provisional 셀입니다. 10 pp exact recipe를 20 pp로 스케일한 임시 셀"
+      ],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 provisional 조합으로 미리보기",
+      "pass_status": true
+    }
+  ],
+  "export_validation_cases": {
+    "continuous_exact_current": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current.csv",
+      "csv_size_bytes": 166484,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_formula.txt",
+      "formula_size_bytes": 580,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_coefficients.csv",
+      "coeff_size_bytes": 1066,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_control_lut.csv",
+      "lut_size_bytes": 8721,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "cycle_progress",
+      "lut_voltage_pk_v": 0.6322241798907676,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 0.6322496247566279,
+      "limited_voltage_pp_v": 1.2433356468681762,
+      "profile_freq_hz": 0.5,
+      "target_waveform": "sine",
+      "target_type": "current",
+      "finite_cycle_mode": false,
+      "time_start_s": 0.0,
+      "time_end_s": 2.0
+    },
+    "continuous_exact_field": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field.csv",
+      "csv_size_bytes": 168789,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_formula.txt",
+      "formula_size_bytes": 570,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_coefficients.csv",
+      "coeff_size_bytes": 1071,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_control_lut.csv",
+      "lut_size_bytes": 8645,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "cycle_progress",
+      "lut_voltage_pk_v": 1.7419790122202075,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 1.742152922987615,
+      "limited_voltage_pp_v": 3.4760114925394725,
+      "profile_freq_hz": 0.25,
+      "target_waveform": "sine",
+      "target_type": "field",
+      "finite_cycle_mode": false,
+      "time_start_s": 0.0,
+      "time_end_s": 4.0
+    },
+    "finite_exact_sine": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine.csv",
+      "csv_size_bytes": 130323,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_formula.txt",
+      "formula_size_bytes": 618,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_coefficients.csv",
+      "coeff_size_bytes": 1050,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_control_lut.csv",
+      "lut_size_bytes": 8338,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "time_fraction",
+      "lut_voltage_pk_v": 1.599939496570522,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 1.6000922937565898,
+      "limited_voltage_pp_v": 3.171268444167472,
+      "profile_freq_hz": 0.5,
+      "target_waveform": "sine",
+      "target_type": "current",
+      "finite_cycle_mode": true,
+      "time_start_s": 0.0,
+      "time_end_s": 2.5
+    },
+    "finite_exact_triangle_0p5hz_1p0cycle_20pp": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp.csv",
+      "csv_size_bytes": 128169,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp_formula.txt",
+      "formula_size_bytes": 627,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp_coefficients.csv",
+      "coeff_size_bytes": 1041,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp_control_lut.csv",
+      "lut_size_bytes": 8133,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "time_fraction",
+      "lut_voltage_pk_v": 0.8759509956359227,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 0.8770517969405973,
+      "limited_voltage_pp_v": 1.7194690685807505,
+      "profile_freq_hz": 0.5,
+      "target_waveform": "triangle",
+      "target_type": "current",
+      "finite_cycle_mode": true,
+      "time_start_s": 0.0,
+      "time_end_s": 2.5
+    },
+    "finite_exact_triangle_1p25hz_1p25cycle_10pp": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp.csv",
+      "csv_size_bytes": 130285,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp_formula.txt",
+      "formula_size_bytes": 620,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp_coefficients.csv",
+      "coeff_size_bytes": 1034,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp_control_lut.csv",
+      "lut_size_bytes": 7913,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "time_fraction",
+      "lut_voltage_pk_v": 0.6267773795412286,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 0.6268074139362318,
+      "limited_voltage_pp_v": 1.234844561789825,
+      "profile_freq_hz": 1.25,
+      "target_waveform": "triangle",
+      "target_type": "current",
+      "finite_cycle_mode": true,
+      "time_start_s": 0.0,
+      "time_end_s": 1.2
+    },
+    "finite_exact_triangle_3hz_1p5cycle_20pp": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_version": "v2",
+      "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp.csv",
+      "csv_size_bytes": 125416,
+      "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp_formula.txt",
+      "formula_size_bytes": 703,
+      "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp_coefficients.csv",
+      "coeff_size_bytes": 1016,
+      "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp_control_lut.csv",
+      "lut_size_bytes": 7517,
+      "formula_text_nonempty": true,
+      "coeff_row_count": 10,
+      "lut_row_count": 128,
+      "lut_progress_column": "time_fraction",
+      "lut_voltage_pk_v": 2.4622986880776834,
+      "lut_voltage_within_waveform_envelope": true,
+      "lut_cycle_progress_in_unit_interval": true,
+      "line_count": 257,
+      "sample_count": 256,
+      "limited_voltage_pk_v": 2.4858230978944205,
+      "limited_voltage_pp_v": 4.895370821912099,
+      "profile_freq_hz": 3.0,
+      "target_waveform": "triangle",
+      "target_type": "current",
+      "finite_cycle_mode": true,
+      "time_start_s": 0.0,
+      "time_end_s": 0.5833333333333334
+    }
+  },
+  "triangle_exact_productization": {
+    "generated_at_utc": "2026-04-16T02:42:46.490005+00:00",
+    "official_support_band_hz": {
+      "min": 0.25,
+      "max": 5.0
+    },
+    "finite_exact_totals": {
+      "official_recipe_total": 96,
+      "sine_total": 48,
+      "triangle_total": 48
+    },
+    "remaining_exact_gaps": {
+      "sine": [],
+      "triangle": []
+    },
+    "provisional_preview_combinations": [],
+    "triangle_representative_export_validation": {
+      "finite_exact_triangle_0p5hz_1p0cycle_20pp": {
+        "support_state": "exact",
+        "preview_only": false,
+        "allow_auto_download": true,
+        "profile_freq_hz": 0.5,
+        "target_waveform": "triangle",
+        "target_type": "current",
+        "lut_row_count": 128,
+        "limited_voltage_pp_v": 1.7194690685807505,
+        "time_end_s": 2.5,
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp.csv",
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp_control_lut.csv",
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_0p5hz_1p0cycle_20pp_formula.txt"
+      },
+      "finite_exact_triangle_1p25hz_1p25cycle_10pp": {
+        "support_state": "exact",
+        "preview_only": false,
+        "allow_auto_download": true,
+        "profile_freq_hz": 1.25,
+        "target_waveform": "triangle",
+        "target_type": "current",
+        "lut_row_count": 128,
+        "limited_voltage_pp_v": 1.234844561789825,
+        "time_end_s": 1.2,
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp.csv",
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp_control_lut.csv",
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_1p25hz_1p25cycle_10pp_formula.txt"
+      },
+      "finite_exact_triangle_3hz_1p5cycle_20pp": {
+        "support_state": "exact",
+        "preview_only": false,
+        "allow_auto_download": true,
+        "profile_freq_hz": 3.0,
+        "target_waveform": "triangle",
+        "target_type": "current",
+        "lut_row_count": 128,
+        "limited_voltage_pp_v": 4.895370821912099,
+        "time_end_s": 0.5833333333333334,
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp.csv",
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp_control_lut.csv",
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_triangle_3hz_1p5cycle_20pp_formula.txt"
+      }
+    },
+    "triangle_exact_ui_state": {
+      "support_state": "provisional_preview",
+      "preview_only": true,
+      "allow_auto_download": false,
+      "warnings": [
+        "임시 대체 조합: official finite exact matrix에서 이 요청은 provisional 셀입니다. 10 pp exact recipe를 20 pp로 스케일한 임시 셀"
+      ],
+      "infos": []
+    },
+    "triangle_missing_recipe_ui_state": {
+      "support_state": "not_evaluated",
+      "preview_only": false,
+      "allow_auto_download": false,
+      "warnings": [],
+      "infos": []
+    },
+    "provisional_gap_ui_state": {
+      "support_state": "provisional_preview",
+      "preview_only": true,
+      "allow_auto_download": false,
+      "warnings": [
+        "임시 대체 조합: official finite exact matrix에서 이 요청은 provisional 셀입니다. 10 pp exact recipe를 20 pp로 스케일한 임시 셀"
+      ],
+      "infos": []
+    }
+  },
+  "browser_export_validation": {
+    "scope": "default exact field path export rendering + selected file downloads",
+    "download_content_validation_passed": true,
+    "clicked_download_buttons": [
+      "제어 LUT CSV 다운로드",
+      "보정 전압 파형 CSV 다운로드"
+    ],
+    "downloaded_files": [
+      {
+        "name": "compensated_voltage_waveform_sine_0.25Hz_field_20_steadycycle.csv",
+        "size_bytes": 166274,
+        "line_count": 257,
+        "header": "cycle_progress,time_s,target_output,used_target_output,target_field_mT,used_target_field_mT,recommended_voltage_v,recommended_voltage_pp,limited_voltage_v,limited_voltage_pp,max_daq_voltage_pp,max_daq_voltage_pk_v,peak_input_limit_margin,p95_input_limit_margin,required_amp_gain_multiplier,support_amp_gain_pct,required_amp_gain_pct,amp_gain_limit_pct,max_gain_pct_by_output,available_amp_gain_pct,amp_gain_at_100_pct,amp_max_output_pk_v,amp_output_pp_at_required,amp_output_pk_at_required,within_daq_limit,within_amp_gain_limit,within_amp_output_limit,within_hardware_limits,expected_current_a,expected_field_mT,expected_output,support_scaled_current_a,support_scaled_field_mT,modeled_current_a,modeled_field_mT,modeled_output,aligned_target_output,aligned_used_target_output,aligned_target_field_mT,aligned_used_target_field_mT,target_output_pp,waveform_type,freq_hz,finite_cycle_mode,target_cycle_count,preview_tail_cycles,estimated_output_lag_seconds,estimated_output_lag_cycles",
+        "has_comma_header": true
+      },
+      {
+        "name": "control_formula_sine_0.25Hz_field_20_control_lut.csv",
+        "size_bytes": 8526,
+        "line_count": 129,
+        "header": "lut_index,time_s,command_voltage_v,finite_cycle_mode,cycle_progress",
+        "has_comma_header": true
+      }
+    ],
+    "limitations": [
+      "Current-target browser rerender was not stabilized in this headless path; current-target state validation remains covered by AppTest artifact.",
+      "Validation confirms rendered export buttons and downloaded file presence/basic content, not full numerical golden-file comparison."
+    ]
+  },
+  "recommended_next_measurements": [
+    "continuous sine exact grid: 0.75 Hz @ 5/10/20 A",
+    "continuous sine exact grid: 1.5 Hz @ 5/10/20 A",
+    "continuous sine exact grid: 3.0 Hz @ 5/10/20 A",
+    "continuous sine exact grid: 4.0 Hz @ 5/10/20 A"
+  ]
+}

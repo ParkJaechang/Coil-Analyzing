@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-04-14T02:13:51.472135Z",
+  "cases": {
+    "finite_exact_ok": {
+      "preview_only": false,
+      "allow_auto_download": true,
+      "support_state": "exact",
+      "policy_reasons": [],
+      "policy_flags": [
+        "exact_support_auto"
+      ]
+    },
+    "finite_missing_exact_recipe": {
+      "preview_only": true,
+      "allow_auto_download": false,
+      "support_state": "exact",
+      "policy_reasons": [
+        "exact level support 없음"
+      ],
+      "policy_flags": [
+        "exact_support_validation_block"
+      ]
+    }
+  }
+}

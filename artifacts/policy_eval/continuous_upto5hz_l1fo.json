@@ -1,0 +1,195 @@
+{
+  "generated_at_utc": "2026-04-14T05:50:52.558176+00:00",
+  "official_support_band_hz": {
+    "min": 0.25,
+    "max": 5.0
+  },
+  "official_continuous_scope": {
+    "total_files": 48,
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ]
+      }
+    ],
+    "operational_status": {
+      "usable_auto": "continuous + current target + exact support only, <= 5 Hz",
+      "preview_only": [
+        "continuous + current target + interpolated_in_hull",
+        "continuous + field target + interpolated_in_hull",
+        "continuous exact support above 5 Hz"
+      ],
+      "unsupported_or_blocked": [
+        "continuous + interpolated_edge",
+        "continuous + out_of_hull",
+        "continuous + field target auto promotion"
+      ]
+    }
+  },
+  "all_band_subset_reference": {
+    "source_policy_version": "v2_continuous_corpus_l1fo",
+    "metrics": {
+      "case_count": 38,
+      "auto_count": 0,
+      "false_auto_count": 0,
+      "false_block_count": 3,
+      "mean_shape_corr": 0.787036842532,
+      "mean_nrmse": 0.23225973485534224,
+      "mean_phase_lag_cycles": -0.2618215460526316,
+      "mean_predicted_error_band": 0.1633870967741935,
+      "support_state_counts": {
+        "interpolated_in_hull": 38
+      }
+    }
+  },
+  "upto5hz_refit": {
+    "source_policy_version": "v2_upto5hz_continuous_corpus_l1fo",
+    "metrics": {
+      "case_count": 30,
+      "auto_count": 0,
+      "false_auto_count": 0,
+      "false_block_count": 3,
+      "mean_shape_corr": 0.8335029387398395,
+      "mean_nrmse": 0.20042313166364503,
+      "mean_phase_lag_cycles": -0.14231770833333332,
+      "mean_predicted_error_band": 0.186569473849344,
+      "support_state_counts": {
+        "interpolated_in_hull": 30
+      }
+    }
+  },
+  "delta": {
+    "case_count_delta": -8,
+    "mean_shape_corr_delta": 0.04646609620783948,
+    "mean_nrmse_delta": -0.031836603191697205,
+    "mean_phase_lag_cycles_delta": 0.11950383771929826
+  },
+  "bench_case_proposal": [
+    {
+      "case": "continuous exact current",
+      "recommended_freq_hz": 0.5,
+      "note": "inside official band and already matched by the validated exact-current export bundle"
+    },
+    {
+      "case": "continuous exact field",
+      "recommended_freq_hz": 0.25,
+      "note": "inside official band and already matched by the validated exact-field export bundle"
+    },
+    {
+      "case": "finite exact sine",
+      "recommended_freq_hz": 0.5,
+      "recommended_cycles": 1.0,
+      "recommended_level_pp_a": 20,
+      "note": "inside official band and already matched by the validated finite exact export bundle"
+    }
+  ],
+  "conclusion": "Narrowing the steady-state evaluation corpus to <= 5 Hz improves product focus, but interpolated preview quality still needs model-side improvement before any auto rollout can be reconsidered."
+}

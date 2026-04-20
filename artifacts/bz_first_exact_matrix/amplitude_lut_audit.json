@@ -1,0 +1,2366 @@
+{
+  "generated_at": "2026-04-17T08:19:29.545116+00:00",
+  "amplitude_lut_meaning": "mixed",
+  "observed_behavior_classification": "mixed",
+  "current_lut_inputs": [
+    "waveform_type",
+    "freq_hz",
+    "target_metric",
+    "target_value",
+    "frequency_mode",
+    "finite_cycle_mode",
+    "target_cycle_count",
+    "preview_tail_cycles",
+    "max_daq_voltage_pp",
+    "amp_gain_at_100_pct",
+    "amp_gain_limit_pct",
+    "amp_max_output_pk_v"
+  ],
+  "current_lut_outputs": [
+    "estimated_voltage_pp",
+    "limited_voltage_pp",
+    "required_amp_gain_pct",
+    "support_amp_gain_pct",
+    "estimated_current_pp",
+    "estimated_bz_pp",
+    "estimated_bmag_pp",
+    "template_test_id",
+    "template_waveform",
+    "command_waveform"
+  ],
+  "groups": [
+    {
+      "waveform_type": "sine",
+      "freq_hz": 0.25,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+        "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+        "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+        "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+        "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 4.098296717848884,
+          "estimated_voltage_pp": 1.4004010350681972,
+          "limited_voltage_pp": 1.4004010350681968,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App"
+        },
+        {
+          "target_value": 8.976279487952613,
+          "estimated_voltage_pp": 2.600249930124602,
+          "limited_voltage_pp": 2.600249930124601,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App"
+        },
+        {
+          "target_value": 16.376656758761364,
+          "estimated_voltage_pp": 4.199590806718884,
+          "limited_voltage_pp": 4.1995908067188825,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App"
+        },
+        {
+          "target_value": 22.2057420336504,
+          "estimated_voltage_pp": 5.599911336616565,
+          "limited_voltage_pp": 5.599911336616564,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App"
+        },
+        {
+          "target_value": 34.358542700443934,
+          "estimated_voltage_pp": 3.9995950567755383,
+          "limited_voltage_pp": 3.9995950567755374,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "shape_corr": 0.9999942950774457,
+          "shape_nrmse": 0.002656388318017892
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "shape_corr": 0.9999939420077765,
+          "shape_nrmse": 0.0026480377280201682
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.9999947358758124,
+          "shape_nrmse": 0.002588442716848617
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999940732200874,
+          "shape_nrmse": 0.0027058900058698713
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "shape_corr": 0.9999994757726636,
+          "shape_nrmse": 0.0007458451870899134
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.999998891759547,
+          "shape_nrmse": 0.0010510318874452581
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999993104462869,
+          "shape_nrmse": 0.0008288122679562368
+        },
+        {
+          "left_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.9999986921430227,
+          "shape_nrmse": 0.0011623007327152283
+        },
+        {
+          "left_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999993484310303,
+          "shape_nrmse": 0.0008309052486068381
+        },
+        {
+          "left_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999987070453703,
+          "shape_nrmse": 0.0011347139113200364
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 0.25,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+        "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+        "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+        "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+        "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 3.9995950567755383,
+          "limited_voltage_pp": 3.9995950567755374,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App"
+        },
+        {
+          "target_value": 48.88735568727081,
+          "estimated_voltage_pp": 1.4004010350681972,
+          "limited_voltage_pp": 1.4004010350681968,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App"
+        },
+        {
+          "target_value": 91.21721762947975,
+          "estimated_voltage_pp": 2.600249930124602,
+          "limited_voltage_pp": 2.600249930124601,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App"
+        },
+        {
+          "target_value": 146.73719687474176,
+          "estimated_voltage_pp": 4.199590806718884,
+          "limited_voltage_pp": 4.1995908067188825,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App"
+        },
+        {
+          "target_value": 192.09783560360785,
+          "estimated_voltage_pp": 5.599911336616565,
+          "limited_voltage_pp": 5.599911336616564,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "shape_corr": 0.9999942950774457,
+          "shape_nrmse": 0.002656388318017892
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "shape_corr": 0.9999939420077765,
+          "shape_nrmse": 0.0026480377280201682
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.9999947358758124,
+          "shape_nrmse": 0.002588442716848617
+        },
+        {
+          "left_template_id": "5263f7a6ac112f7a_sine_0.25_20__sine__0.25Hz__20App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999940732200874,
+          "shape_nrmse": 0.0027058900058698713
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "shape_corr": 0.9999994757726636,
+          "shape_nrmse": 0.0007458451870899134
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.999998891759547,
+          "shape_nrmse": 0.0010510318874452581
+        },
+        {
+          "left_template_id": "6954cbd4a93dd57f_sine_0.25_15__sine__0.25Hz__15App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999993104462869,
+          "shape_nrmse": 0.0008288122679562368
+        },
+        {
+          "left_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "right_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "shape_corr": 0.9999986921430227,
+          "shape_nrmse": 0.0011623007327152283
+        },
+        {
+          "left_template_id": "aff1e72e2b9707c7_sine_0.25_30__sine__0.25Hz__30App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999993484310303,
+          "shape_nrmse": 0.0008309052486068381
+        },
+        {
+          "left_template_id": "bdf6e594a99ce4f0_sine_0.25_10__sine__0.25Hz__10App",
+          "right_template_id": "d0c3732104a94580_sine_0.25_5__sine__0.25Hz__5App",
+          "shape_corr": 0.9999987070453703,
+          "shape_nrmse": 0.0011347139113200364
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 0.5,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+        "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+        "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+        "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+        "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 3.3484028423240426,
+          "estimated_voltage_pp": 1.4994948274455682,
+          "limited_voltage_pp": 1.4994948274455675,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App"
+        },
+        {
+          "target_value": 7.373399576045559,
+          "estimated_voltage_pp": 2.9989091225480555,
+          "limited_voltage_pp": 2.9989091225480538,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App"
+        },
+        {
+          "target_value": 11.47357086375182,
+          "estimated_voltage_pp": 4.498329739256534,
+          "limited_voltage_pp": 4.498329739256531,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App"
+        },
+        {
+          "target_value": 15.964727901885448,
+          "estimated_voltage_pp": 5.997611571429026,
+          "limited_voltage_pp": 5.997611571429026,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App"
+        },
+        {
+          "target_value": 26.298577265952435,
+          "estimated_voltage_pp": 4.358876847083207,
+          "limited_voltage_pp": 4.358876847083206,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "shape_corr": 0.9999976489422834,
+          "shape_nrmse": 0.0016679458871888422
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "shape_corr": 0.9999985663673445,
+          "shape_nrmse": 0.0013522347194393242
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999982796878474,
+          "shape_nrmse": 0.0013768215561885862
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999975444071119,
+          "shape_nrmse": 0.0015649984313569321
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "shape_corr": 0.9999981556516161,
+          "shape_nrmse": 0.0013549686430144926
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999979924598491,
+          "shape_nrmse": 0.0014332809817016962
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999975502132052,
+          "shape_nrmse": 0.0017125078939870886
+        },
+        {
+          "left_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999982894765027,
+          "shape_nrmse": 0.0013210180851248269
+        },
+        {
+          "left_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999980387267059,
+          "shape_nrmse": 0.0015504639126905926
+        },
+        {
+          "left_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999973074118947,
+          "shape_nrmse": 0.0017024604774448237
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 0.5,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+        "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+        "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+        "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+        "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 4.358876847083207,
+          "limited_voltage_pp": 4.358876847083206,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App"
+        },
+        {
+          "target_value": 47.262231990972644,
+          "estimated_voltage_pp": 1.4994948274455682,
+          "limited_voltage_pp": 1.4994948274455675,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App"
+        },
+        {
+          "target_value": 95.04629368994327,
+          "estimated_voltage_pp": 2.9989091225480555,
+          "limited_voltage_pp": 2.9989091225480538,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App"
+        },
+        {
+          "target_value": 142.3219084963098,
+          "estimated_voltage_pp": 4.498329739256534,
+          "limited_voltage_pp": 4.498329739256531,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App"
+        },
+        {
+          "target_value": 188.0418902383722,
+          "estimated_voltage_pp": 5.997611571429026,
+          "limited_voltage_pp": 5.997611571429026,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "shape_corr": 0.9999976489422834,
+          "shape_nrmse": 0.0016679458871888422
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "shape_corr": 0.9999985663673445,
+          "shape_nrmse": 0.0013522347194393242
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999982796878474,
+          "shape_nrmse": 0.0013768215561885862
+        },
+        {
+          "left_template_id": "4816a91ef9d87e20_sine_0.5_20__sine__0.5Hz__20App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999975444071119,
+          "shape_nrmse": 0.0015649984313569321
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "shape_corr": 0.9999981556516161,
+          "shape_nrmse": 0.0013549686430144926
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999979924598491,
+          "shape_nrmse": 0.0014332809817016962
+        },
+        {
+          "left_template_id": "7b60346ff50fb380_sine_0.5_30__sine__0.5Hz__30App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999975502132052,
+          "shape_nrmse": 0.0017125078939870886
+        },
+        {
+          "left_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "right_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "shape_corr": 0.9999982894765027,
+          "shape_nrmse": 0.0013210180851248269
+        },
+        {
+          "left_template_id": "848b2b846f12c6df_sine_0.5_10__sine__0.5Hz__10App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999980387267059,
+          "shape_nrmse": 0.0015504639126905926
+        },
+        {
+          "left_template_id": "8e8715b5b45002bb_sine_0.5_5__sine__0.5Hz__5App",
+          "right_template_id": "ab3a8bc2df4ebd59_sine_0.5_15__sine__0.5Hz__15App",
+          "shape_corr": 0.9999973074118947,
+          "shape_nrmse": 0.0017024604774448237
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 1.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+        "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+        "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+        "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+        "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 2.0466089999188366,
+          "estimated_voltage_pp": 1.9975778463546199,
+          "limited_voltage_pp": 1.9975778463546197,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App"
+        },
+        {
+          "target_value": 3.873852034331919,
+          "estimated_voltage_pp": 3.9944303415102467,
+          "limited_voltage_pp": 3.9944303415102413,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App"
+        },
+        {
+          "target_value": 6.312023373501374,
+          "estimated_voltage_pp": 5.991086379343654,
+          "limited_voltage_pp": 5.991086379343654,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App"
+        },
+        {
+          "target_value": 8.821139338088724,
+          "estimated_voltage_pp": 7.9882703415534895,
+          "limited_voltage_pp": 7.988270341553488,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App"
+        },
+        {
+          "target_value": 16.310606310278807,
+          "estimated_voltage_pp": 5.413533985390028,
+          "limited_voltage_pp": 5.413533985390027,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "shape_corr": 0.999988852304888,
+          "shape_nrmse": 0.0035976262407588686
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "shape_corr": 0.9999824452738332,
+          "shape_nrmse": 0.00433077773343919
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.9999912770122852,
+          "shape_nrmse": 0.0029841537491456707
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.999990046998838,
+          "shape_nrmse": 0.003476429315876406
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "shape_corr": 0.9999955035553585,
+          "shape_nrmse": 0.002128796947269965
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.999994704840296,
+          "shape_nrmse": 0.002470282674305894
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999930755115972,
+          "shape_nrmse": 0.0026275634715316443
+        },
+        {
+          "left_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.9999905294795883,
+          "shape_nrmse": 0.0031453688011124576
+        },
+        {
+          "left_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999918353525028,
+          "shape_nrmse": 0.002872680421571487
+        },
+        {
+          "left_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999903436450744,
+          "shape_nrmse": 0.0032675108523201003
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 1.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+        "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+        "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+        "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+        "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 5.413533985390028,
+          "limited_voltage_pp": 5.413533985390027,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App"
+        },
+        {
+          "target_value": 48.302813558452996,
+          "estimated_voltage_pp": 1.9975778463546199,
+          "limited_voltage_pp": 1.9975778463546197,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App"
+        },
+        {
+          "target_value": 97.10748700505306,
+          "estimated_voltage_pp": 3.9944303415102467,
+          "limited_voltage_pp": 3.9944303415102413,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App"
+        },
+        {
+          "target_value": 145.61577943817275,
+          "estimated_voltage_pp": 5.991086379343654,
+          "limited_voltage_pp": 5.991086379343654,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App"
+        },
+        {
+          "target_value": 193.04849343073255,
+          "estimated_voltage_pp": 7.9882703415534895,
+          "limited_voltage_pp": 7.988270341553488,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "shape_corr": 0.999988852304888,
+          "shape_nrmse": 0.0035976262407588686
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "shape_corr": 0.9999824452738332,
+          "shape_nrmse": 0.00433077773343919
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.9999912770122852,
+          "shape_nrmse": 0.0029841537491456707
+        },
+        {
+          "left_template_id": "1305fe61d37f8a0b_sine_1_10__sine__1Hz__20App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.999990046998838,
+          "shape_nrmse": 0.003476429315876406
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "shape_corr": 0.9999955035553585,
+          "shape_nrmse": 0.002128796947269965
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.999994704840296,
+          "shape_nrmse": 0.002470282674305894
+        },
+        {
+          "left_template_id": "220c4379b533be5a_sine_1_20__sine__1Hz__40App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999930755115972,
+          "shape_nrmse": 0.0026275634715316443
+        },
+        {
+          "left_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "right_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "shape_corr": 0.9999905294795883,
+          "shape_nrmse": 0.0031453688011124576
+        },
+        {
+          "left_template_id": "ab7f52c0a7dcae34_sine_1_30__sine__1Hz__60App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999918353525028,
+          "shape_nrmse": 0.002872680421571487
+        },
+        {
+          "left_template_id": "bcc3a16085417051_sine_1_15__sine__1Hz__30App",
+          "right_template_id": "eb2fc64e4d61fd20_sine_1_5__sine__1Hz__10App",
+          "shape_corr": 0.9999903436450744,
+          "shape_nrmse": 0.0032675108523201003
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 2.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+        "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+        "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+        "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+        "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.8187729141448938,
+          "estimated_voltage_pp": 3.179084327420623,
+          "limited_voltage_pp": 3.1790843274206164,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App"
+        },
+        {
+          "target_value": 1.1663734768390277,
+          "estimated_voltage_pp": 6.35792511800255,
+          "limited_voltage_pp": 6.357925118002529,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App"
+        },
+        {
+          "target_value": 1.9643620652819234,
+          "estimated_voltage_pp": 9.54437226169117,
+          "limited_voltage_pp": 9.544372261691166,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App"
+        },
+        {
+          "target_value": 2.368347223873433,
+          "estimated_voltage_pp": 12.72868732004898,
+          "limited_voltage_pp": 12.728687320048937,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App"
+        },
+        {
+          "target_value": 6.244522033708985,
+          "estimated_voltage_pp": 8.350705978133238,
+          "limited_voltage_pp": 8.350705978133215,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "shape_corr": 0.9999680971527143,
+          "shape_nrmse": 0.005797562477184527
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "shape_corr": 0.9999402752380694,
+          "shape_nrmse": 0.00796012879409941
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999113122079147,
+          "shape_nrmse": 0.011487207190934047
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.9999493134738385,
+          "shape_nrmse": 0.007707379117717167
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "shape_corr": 0.9999583924286347,
+          "shape_nrmse": 0.00645766354494225
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999514136003621,
+          "shape_nrmse": 0.00867832519541004
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.99998994066357,
+          "shape_nrmse": 0.003541933807956735
+        },
+        {
+          "left_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999699320206624,
+          "shape_nrmse": 0.007126929919130693
+        },
+        {
+          "left_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.9999627162006238,
+          "shape_nrmse": 0.006168776945312479
+        },
+        {
+          "left_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.999972953742455,
+          "shape_nrmse": 0.0063161359636021075
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 2.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+        "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+        "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+        "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+        "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 8.350705978133238,
+          "limited_voltage_pp": 8.350705978133215,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App"
+        },
+        {
+          "target_value": 47.13835980817722,
+          "estimated_voltage_pp": 3.179084327420623,
+          "limited_voltage_pp": 3.1790843274206164,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App"
+        },
+        {
+          "target_value": 94.9633476154066,
+          "estimated_voltage_pp": 6.35792511800255,
+          "limited_voltage_pp": 6.357925118002529,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App"
+        },
+        {
+          "target_value": 142.5535287143049,
+          "estimated_voltage_pp": 9.54437226169117,
+          "limited_voltage_pp": 9.544372261691166,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App"
+        },
+        {
+          "target_value": 189.82257240215753,
+          "estimated_voltage_pp": 12.72868732004898,
+          "limited_voltage_pp": 12.728687320048937,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "shape_corr": 0.9999680971527143,
+          "shape_nrmse": 0.005797562477184527
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "shape_corr": 0.9999402752380694,
+          "shape_nrmse": 0.00796012879409941
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999113122079147,
+          "shape_nrmse": 0.011487207190934047
+        },
+        {
+          "left_template_id": "10d2317e131196fe_sine_2_20__sine__2Hz__20App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.9999493134738385,
+          "shape_nrmse": 0.007707379117717167
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "shape_corr": 0.9999583924286347,
+          "shape_nrmse": 0.00645766354494225
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999514136003621,
+          "shape_nrmse": 0.00867832519541004
+        },
+        {
+          "left_template_id": "3d989442a9c08554_sine_2_30__sine__2Hz__60App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.99998994066357,
+          "shape_nrmse": 0.003541933807956735
+        },
+        {
+          "left_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "right_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "shape_corr": 0.9999699320206624,
+          "shape_nrmse": 0.007126929919130693
+        },
+        {
+          "left_template_id": "4574e84518cd937d_sine_2_5__sine__2Hz__5App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.9999627162006238,
+          "shape_nrmse": 0.006168776945312479
+        },
+        {
+          "left_template_id": "7cdf73e1ae9ad859_sine_2_15__sine__2Hz__15App",
+          "right_template_id": "9a1b9d5454c6ea35_sine_2_10__sine__2Hz__20App",
+          "shape_corr": 0.999972953742455,
+          "shape_nrmse": 0.0063161359636021075
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 5.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+        "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+        "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+        "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App"
+      ],
+      "evaluation_count": 4,
+      "evaluations": [
+        {
+          "target_value": 0.6680343240606469,
+          "estimated_voltage_pp": 6.333835753860882,
+          "limited_voltage_pp": 6.333835753860841,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App"
+        },
+        {
+          "target_value": 1.0862607814675438,
+          "estimated_voltage_pp": 12.76572691983807,
+          "limited_voltage_pp": 12.76572691983798,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App"
+        },
+        {
+          "target_value": 1.7103450795543442,
+          "estimated_voltage_pp": 19.104797520403558,
+          "limited_voltage_pp": 19.10479752040352,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App"
+        },
+        {
+          "target_value": 2.1093528228591296,
+          "estimated_voltage_pp": 13.297908882504194,
+          "limited_voltage_pp": 13.297908882504103,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "shape_corr": 0.9998402138112911,
+          "shape_nrmse": 0.012992093261119898
+        },
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "shape_corr": 0.9999118517914223,
+          "shape_nrmse": 0.01016276055513328
+        },
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9999303301780001,
+          "shape_nrmse": 0.008608385745997772
+        },
+        {
+          "left_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "right_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "shape_corr": 0.999908240917394,
+          "shape_nrmse": 0.012012536180615208
+        },
+        {
+          "left_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9998787072291427,
+          "shape_nrmse": 0.011022346876050412
+        },
+        {
+          "left_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9998439964193723,
+          "shape_nrmse": 0.013933763658910175
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    },
+    {
+      "waveform_type": "sine",
+      "freq_hz": 5.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+        "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+        "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+        "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App"
+      ],
+      "evaluation_count": 4,
+      "evaluations": [
+        {
+          "target_value": 38.77723491498584,
+          "estimated_voltage_pp": 6.333835753860882,
+          "limited_voltage_pp": 6.333835753860841,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App"
+        },
+        {
+          "target_value": 77.72897089205247,
+          "estimated_voltage_pp": 12.76572691983807,
+          "limited_voltage_pp": 12.76572691983798,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App"
+        },
+        {
+          "target_value": 117.19387862289095,
+          "estimated_voltage_pp": 19.104797520403558,
+          "limited_voltage_pp": 19.10479752040352,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App"
+        },
+        {
+          "target_value": 162.60936909184522,
+          "estimated_voltage_pp": 13.297908882504194,
+          "limited_voltage_pp": 13.297908882504103,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "shape_corr": 0.9998402138112911,
+          "shape_nrmse": 0.012992093261119898
+        },
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "shape_corr": 0.9999118517914223,
+          "shape_nrmse": 0.01016276055513328
+        },
+        {
+          "left_template_id": "142bbf65b91ca399_sine_5_20__sine__5Hz__20App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9999303301780001,
+          "shape_nrmse": 0.008608385745997772
+        },
+        {
+          "left_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "right_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "shape_corr": 0.999908240917394,
+          "shape_nrmse": 0.012012536180615208
+        },
+        {
+          "left_template_id": "477605cdbe963692_sine_5_5__sine__5Hz__10App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9998787072291427,
+          "shape_nrmse": 0.011022346876050412
+        },
+        {
+          "left_template_id": "c32e34d64fc05010_sine_5_10__sine__5Hz__10App",
+          "right_template_id": "edb4ea7b2fbd68b2_sine_5_15__sine__5Hz__15App",
+          "shape_corr": 0.9998439964193723,
+          "shape_nrmse": 0.013933763658910175
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 0.25,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+        "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+        "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+        "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+        "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 3.983269589765608,
+          "estimated_voltage_pp": 1.4882826120705746,
+          "limited_voltage_pp": 1.4875735151683571,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App"
+        },
+        {
+          "target_value": 9.898087455664102,
+          "estimated_voltage_pp": 2.978108980857486,
+          "limited_voltage_pp": 2.974062142464422,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App"
+        },
+        {
+          "target_value": 16.13945427533433,
+          "estimated_voltage_pp": 4.467319702708816,
+          "limited_voltage_pp": 4.466004356051264,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App"
+        },
+        {
+          "target_value": 22.60914431170164,
+          "estimated_voltage_pp": 5.959683926475015,
+          "limited_voltage_pp": 5.958524322487342,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App"
+        },
+        {
+          "target_value": 35.63434556006829,
+          "estimated_voltage_pp": 4.505933831171753,
+          "limited_voltage_pp": 4.5008631470446865,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "shape_corr": 0.9999984451037034,
+          "shape_nrmse": 0.0011753824756132226
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999985412895221,
+          "shape_nrmse": 0.0011054336481208524
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999983086294447,
+          "shape_nrmse": 0.001335066120699549
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.9999983201436607,
+          "shape_nrmse": 0.0013676258426606215
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999987983742865,
+          "shape_nrmse": 0.0014002034909626046
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.999998900584032,
+          "shape_nrmse": 0.0008885078320609727
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.9999989189954737,
+          "shape_nrmse": 0.0008977864110525999
+        },
+        {
+          "left_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999988022024694,
+          "shape_nrmse": 0.0015771685333739384
+        },
+        {
+          "left_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.999998736874633,
+          "shape_nrmse": 0.0016382145780149452
+        },
+        {
+          "left_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.999998654159469,
+          "shape_nrmse": 0.0009534857542387085
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 0.25,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+        "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+        "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+        "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+        "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 4.505933831171753,
+          "limited_voltage_pp": 4.5008631470446865,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App"
+        },
+        {
+          "target_value": 47.907288489508076,
+          "estimated_voltage_pp": 1.4882826120705746,
+          "limited_voltage_pp": 1.4875735151683571,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App"
+        },
+        {
+          "target_value": 96.28618484815209,
+          "estimated_voltage_pp": 2.978108980857486,
+          "limited_voltage_pp": 2.974062142464422,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App"
+        },
+        {
+          "target_value": 144.06564795581377,
+          "estimated_voltage_pp": 4.467319702708816,
+          "limited_voltage_pp": 4.466004356051264,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App"
+        },
+        {
+          "target_value": 189.82428307528414,
+          "estimated_voltage_pp": 5.959683926475015,
+          "limited_voltage_pp": 5.958524322487342,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "shape_corr": 0.9999984451037034,
+          "shape_nrmse": 0.0011753824756132226
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999985412895221,
+          "shape_nrmse": 0.0011054336481208524
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999983086294447,
+          "shape_nrmse": 0.001335066120699549
+        },
+        {
+          "left_template_id": "1887e863c03e5e46_tri_0.25_30__triangle__0.25Hz__30App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.9999983201436607,
+          "shape_nrmse": 0.0013676258426606215
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999987983742865,
+          "shape_nrmse": 0.0014002034909626046
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.999998900584032,
+          "shape_nrmse": 0.0008885078320609727
+        },
+        {
+          "left_template_id": "26f86e1826c3b4d8_tri_0.25_15__triangle__0.25Hz__15App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.9999989189954737,
+          "shape_nrmse": 0.0008977864110525999
+        },
+        {
+          "left_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "right_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "shape_corr": 0.9999988022024694,
+          "shape_nrmse": 0.0015771685333739384
+        },
+        {
+          "left_template_id": "dad55bf02f9b1ad2_tri_0.25_10__triangle__0.25Hz__10App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.999998736874633,
+          "shape_nrmse": 0.0016382145780149452
+        },
+        {
+          "left_template_id": "e5c7f147d60b0e67_tri_0.25_5__triangle__0.25Hz__10App",
+          "right_template_id": "f28253678326ca20_tri_0.25_20__triangle__0.25Hz__20App",
+          "shape_corr": 0.999998654159469,
+          "shape_nrmse": 0.0009534857542387085
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 0.5,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+        "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+        "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+        "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+        "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 3.501255130764606,
+          "estimated_voltage_pp": 1.7346739807787646,
+          "limited_voltage_pp": 1.7330071076826334,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App"
+        },
+        {
+          "target_value": 7.983017570988395,
+          "estimated_voltage_pp": 3.4626995904940836,
+          "limited_voltage_pp": 3.4614573801081523,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App"
+        },
+        {
+          "target_value": 12.760840097261713,
+          "estimated_voltage_pp": 5.202175917713032,
+          "limited_voltage_pp": 5.199784747140594,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App"
+        },
+        {
+          "target_value": 18.17851978077077,
+          "estimated_voltage_pp": 6.935395542235092,
+          "limited_voltage_pp": 6.927090013480479,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App"
+        },
+        {
+          "target_value": 28.00249477892935,
+          "estimated_voltage_pp": 4.95976076883514,
+          "limited_voltage_pp": 4.953104183994093,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "shape_corr": 0.9999959652925584,
+          "shape_nrmse": 0.002790050446848988
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "shape_corr": 0.9999964414664863,
+          "shape_nrmse": 0.001607324940004027
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999969342095191,
+          "shape_nrmse": 0.0019580030875806973
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.999996466692809,
+          "shape_nrmse": 0.003271467216730783
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "shape_corr": 0.9999961885329136,
+          "shape_nrmse": 0.002433713444189718
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999966841045955,
+          "shape_nrmse": 0.0017558004675561887
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999953351949998,
+          "shape_nrmse": 0.0018799211899765242
+        },
+        {
+          "left_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999955254833321,
+          "shape_nrmse": 0.001961422520286643
+        },
+        {
+          "left_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999952307118493,
+          "shape_nrmse": 0.0030483307084419923
+        },
+        {
+          "left_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999964047605487,
+          "shape_nrmse": 0.0022005319414361273
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 0.5,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+        "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+        "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+        "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+        "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 4.95976076883514,
+          "limited_voltage_pp": 4.953104183994093,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App"
+        },
+        {
+          "target_value": 48.33899357043164,
+          "estimated_voltage_pp": 1.7346739807787646,
+          "limited_voltage_pp": 1.7330071076826334,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App"
+        },
+        {
+          "target_value": 97.13528489253744,
+          "estimated_voltage_pp": 3.4626995904940836,
+          "limited_voltage_pp": 3.4614573801081523,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App"
+        },
+        {
+          "target_value": 145.55984985268464,
+          "estimated_voltage_pp": 5.202175917713032,
+          "limited_voltage_pp": 5.199784747140594,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App"
+        },
+        {
+          "target_value": 192.11212685882714,
+          "estimated_voltage_pp": 6.935395542235092,
+          "limited_voltage_pp": 6.927090013480479,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "shape_corr": 0.9999959652925584,
+          "shape_nrmse": 0.002790050446848988
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "shape_corr": 0.9999964414664863,
+          "shape_nrmse": 0.001607324940004027
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999969342095191,
+          "shape_nrmse": 0.0019580030875806973
+        },
+        {
+          "left_template_id": "29b6e5483ce9e6bd_tri_0.5_10__triangle__0.5Hz__10App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.999996466692809,
+          "shape_nrmse": 0.003271467216730783
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "shape_corr": 0.9999961885329136,
+          "shape_nrmse": 0.002433713444189718
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999966841045955,
+          "shape_nrmse": 0.0017558004675561887
+        },
+        {
+          "left_template_id": "33219fd9ba54644a_tri_0.5_15__triangle__0.5Hz__15App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999953351949998,
+          "shape_nrmse": 0.0018799211899765242
+        },
+        {
+          "left_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "right_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "shape_corr": 0.9999955254833321,
+          "shape_nrmse": 0.001961422520286643
+        },
+        {
+          "left_template_id": "76508f47416148cb_tri_0.5_30__triangle__0.5Hz__30App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999952307118493,
+          "shape_nrmse": 0.0030483307084419923
+        },
+        {
+          "left_template_id": "c9e0eed63f4a71df_tri_0.5_20__triangle__0.5Hz__20App",
+          "right_template_id": "cb0b5738ca496147_tri_0.5_5__triangle__0.5Hz__5App",
+          "shape_corr": 0.9999964047605487,
+          "shape_nrmse": 0.0022005319414361273
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 1.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+        "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+        "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+        "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+        "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 2.085288391927336,
+          "estimated_voltage_pp": 2.199555216900044,
+          "limited_voltage_pp": 2.191988631980285,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App"
+        },
+        {
+          "target_value": 4.157319513161555,
+          "estimated_voltage_pp": 4.408018740402343,
+          "limited_voltage_pp": 4.407479652845723,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App"
+        },
+        {
+          "target_value": 6.838246660980355,
+          "estimated_voltage_pp": 6.608657887329464,
+          "limited_voltage_pp": 6.604323170147938,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App"
+        },
+        {
+          "target_value": 9.14075840985168,
+          "estimated_voltage_pp": 8.754678560506749,
+          "limited_voltage_pp": 8.732488662877554,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App"
+        },
+        {
+          "target_value": 18.88719983272699,
+          "estimated_voltage_pp": 6.40124630809662,
+          "limited_voltage_pp": 6.396032717946331,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "shape_corr": 0.9999846165753408,
+          "shape_nrmse": 0.005005099063297183
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "shape_corr": 0.9999854835502795,
+          "shape_nrmse": 0.0034938645786434697
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.9999870356467772,
+          "shape_nrmse": 0.0035231443693119874
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999986107698499,
+          "shape_nrmse": 0.0047967867496052806
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "shape_corr": 0.9999741841542464,
+          "shape_nrmse": 0.00474999314246818
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.999980279723613,
+          "shape_nrmse": 0.004114300491577744
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999980402985351,
+          "shape_nrmse": 0.0036236775441519085
+        },
+        {
+          "left_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.9999875291432954,
+          "shape_nrmse": 0.0029215653384969636
+        },
+        {
+          "left_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999986684643544,
+          "shape_nrmse": 0.0036819973453205007
+        },
+        {
+          "left_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.9999869663618809,
+          "shape_nrmse": 0.0034539812318345057
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 1.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+        "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+        "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+        "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+        "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 6.40124630809662,
+          "limited_voltage_pp": 6.396032717946331,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App"
+        },
+        {
+          "target_value": 45.10095563968888,
+          "estimated_voltage_pp": 2.199555216900044,
+          "limited_voltage_pp": 2.191988631980285,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App"
+        },
+        {
+          "target_value": 90.51597129565288,
+          "estimated_voltage_pp": 4.408018740402343,
+          "limited_voltage_pp": 4.407479652845723,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App"
+        },
+        {
+          "target_value": 135.91155080368344,
+          "estimated_voltage_pp": 6.608657887329464,
+          "limited_voltage_pp": 6.604323170147938,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App"
+        },
+        {
+          "target_value": 180.83073668896802,
+          "estimated_voltage_pp": 8.754678560506749,
+          "limited_voltage_pp": 8.732488662877554,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "shape_corr": 0.9999846165753408,
+          "shape_nrmse": 0.005005099063297183
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "shape_corr": 0.9999854835502795,
+          "shape_nrmse": 0.0034938645786434697
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.9999870356467772,
+          "shape_nrmse": 0.0035231443693119874
+        },
+        {
+          "left_template_id": "325eae9131e34cd2_tri_1_30__triangle__1Hz__30App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999986107698499,
+          "shape_nrmse": 0.0047967867496052806
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "shape_corr": 0.9999741841542464,
+          "shape_nrmse": 0.00474999314246818
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.999980279723613,
+          "shape_nrmse": 0.004114300491577744
+        },
+        {
+          "left_template_id": "4523b40275cf95ee_tri_1_5__triangle__1Hz__5App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999980402985351,
+          "shape_nrmse": 0.0036236775441519085
+        },
+        {
+          "left_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "right_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "shape_corr": 0.9999875291432954,
+          "shape_nrmse": 0.0029215653384969636
+        },
+        {
+          "left_template_id": "87e889e4528513fb_tri_1_10__triangle__1Hz__20App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.999986684643544,
+          "shape_nrmse": 0.0036819973453205007
+        },
+        {
+          "left_template_id": "cec30e93dbb40242_tri_1_15__triangle__1Hz__30App",
+          "right_template_id": "e544b2f7a9864fee_tri_1_20__triangle__1Hz__40App",
+          "shape_corr": 0.9999869663618809,
+          "shape_nrmse": 0.0034539812318345057
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 2.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+        "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+        "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+        "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+        "e95cec0b66942661_tri_2_20__triangle__2Hz__40App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.9478964824200989,
+          "estimated_voltage_pp": 3.53582957916876,
+          "limited_voltage_pp": 3.5298839008474987,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App"
+        },
+        {
+          "target_value": 1.5179099260071063,
+          "estimated_voltage_pp": 7.142569567831323,
+          "limited_voltage_pp": 7.139832091049627,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App"
+        },
+        {
+          "target_value": 2.3667942252181766,
+          "estimated_voltage_pp": 10.590650029267705,
+          "limited_voltage_pp": 10.554612968504646,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App"
+        },
+        {
+          "target_value": 3.207815892475689,
+          "estimated_voltage_pp": 14.219189022966631,
+          "limited_voltage_pp": 14.197480067752739,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App"
+        },
+        {
+          "target_value": 8.31965248296472,
+          "estimated_voltage_pp": 9.924136229025985,
+          "limited_voltage_pp": 9.88274908487174,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "shape_corr": 0.9999622615746926,
+          "shape_nrmse": 0.0065616759691994936
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "shape_corr": 0.9999685365048977,
+          "shape_nrmse": 0.008519893277834732
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999308646155728,
+          "shape_nrmse": 0.00881951325413075
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999704900657755,
+          "shape_nrmse": 0.006482882946753875
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "shape_corr": 0.9999594366557774,
+          "shape_nrmse": 0.005934448577813472
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999400524703006,
+          "shape_nrmse": 0.0064359147571574115
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999501880526868,
+          "shape_nrmse": 0.0057380507572530205
+        },
+        {
+          "left_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999699276721199,
+          "shape_nrmse": 0.004702354615712796
+        },
+        {
+          "left_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999662778331267,
+          "shape_nrmse": 0.005309146534750343
+        },
+        {
+          "left_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.999957571898392,
+          "shape_nrmse": 0.0053670664702566324
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 2.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "amplitude_only",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+        "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+        "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+        "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+        "e95cec0b66942661_tri_2_20__triangle__2Hz__40App"
+      ],
+      "evaluation_count": 5,
+      "evaluations": [
+        {
+          "target_value": 0.0,
+          "estimated_voltage_pp": 9.924136229025985,
+          "limited_voltage_pp": 9.88274908487174,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App"
+        },
+        {
+          "target_value": 44.350303541833,
+          "estimated_voltage_pp": 3.53582957916876,
+          "limited_voltage_pp": 3.5298839008474987,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App"
+        },
+        {
+          "target_value": 89.02193699111355,
+          "estimated_voltage_pp": 7.142569567831323,
+          "limited_voltage_pp": 7.139832091049627,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App"
+        },
+        {
+          "target_value": 133.82049035425507,
+          "estimated_voltage_pp": 10.590650029267705,
+          "limited_voltage_pp": 10.554612968504646,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App"
+        },
+        {
+          "target_value": 178.49132842506944,
+          "estimated_voltage_pp": 14.219189022966631,
+          "limited_voltage_pp": 14.197480067752739,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "shape_corr": 0.9999622615746926,
+          "shape_nrmse": 0.0065616759691994936
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "shape_corr": 0.9999685365048977,
+          "shape_nrmse": 0.008519893277834732
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999308646155728,
+          "shape_nrmse": 0.00881951325413075
+        },
+        {
+          "left_template_id": "2149600cf3365e3a_tri_2_15__triangle__2Hz__30App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999704900657755,
+          "shape_nrmse": 0.006482882946753875
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "shape_corr": 0.9999594366557774,
+          "shape_nrmse": 0.005934448577813472
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999400524703006,
+          "shape_nrmse": 0.0064359147571574115
+        },
+        {
+          "left_template_id": "2959bb04129a980e_tri_2_5__triangle__2Hz__10App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999501880526868,
+          "shape_nrmse": 0.0057380507572530205
+        },
+        {
+          "left_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "right_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "shape_corr": 0.9999699276721199,
+          "shape_nrmse": 0.004702354615712796
+        },
+        {
+          "left_template_id": "79c13b07607ce774_tri_2_30__triangle__2Hz__60App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.9999662778331267,
+          "shape_nrmse": 0.005309146534750343
+        },
+        {
+          "left_template_id": "aaa3fe887093bd7d_tri_2_10__triangle__2Hz__20App",
+          "right_template_id": "e95cec0b66942661_tri_2_20__triangle__2Hz__40App",
+          "shape_corr": 0.999957571898392,
+          "shape_nrmse": 0.0053670664702566324
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": false
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 5.0,
+      "target_metric": "achieved_current_pp_a_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+        "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+        "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+        "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App"
+      ],
+      "evaluation_count": 4,
+      "evaluations": [
+        {
+          "target_value": 0.6988882748460141,
+          "estimated_voltage_pp": 7.760441091892309,
+          "limited_voltage_pp": 7.752694873960586,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App"
+        },
+        {
+          "target_value": 1.1140816605973485,
+          "estimated_voltage_pp": 15.474670482527506,
+          "limited_voltage_pp": 15.348854809829202,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App"
+        },
+        {
+          "target_value": 1.6860822723559372,
+          "estimated_voltage_pp": 11.679672903118512,
+          "limited_voltage_pp": 11.650881354243623,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App"
+        },
+        {
+          "target_value": 3.399571498786419,
+          "estimated_voltage_pp": 15.999776925501275,
+          "limited_voltage_pp": 15.860567719245603,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "shape_corr": 0.9996552535163642,
+          "shape_nrmse": 0.013844321686893672
+        },
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "shape_corr": 0.9998087716627242,
+          "shape_nrmse": 0.012560015734773503
+        },
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9997041314942439,
+          "shape_nrmse": 0.013007597384503303
+        },
+        {
+          "left_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "right_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "shape_corr": 0.999926395895911,
+          "shape_nrmse": 0.011365898026098867
+        },
+        {
+          "left_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9996732697184283,
+          "shape_nrmse": 0.013394021002964138
+        },
+        {
+          "left_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9996611514949698,
+          "shape_nrmse": 0.01695829144013692
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    },
+    {
+      "waveform_type": "triangle",
+      "freq_hz": 5.0,
+      "target_metric": "achieved_bz_mT_pp_mean",
+      "implementation_meaning": "mixed",
+      "observed_shape_meaning": "mixed",
+      "pp_influences_template_selection": true,
+      "template_test_ids": [
+        "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+        "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+        "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+        "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App"
+      ],
+      "evaluation_count": 4,
+      "evaluations": [
+        {
+          "target_value": 42.26568052007359,
+          "estimated_voltage_pp": 7.760441091892309,
+          "limited_voltage_pp": 7.752694873960586,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App"
+        },
+        {
+          "target_value": 85.51125935785689,
+          "estimated_voltage_pp": 15.474670482527506,
+          "limited_voltage_pp": 15.348854809829202,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App"
+        },
+        {
+          "target_value": 125.65691761870183,
+          "estimated_voltage_pp": 11.679672903118512,
+          "limited_voltage_pp": 11.650881354243623,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App"
+        },
+        {
+          "target_value": 160.9473555205736,
+          "estimated_voltage_pp": 15.999776925501275,
+          "limited_voltage_pp": 15.860567719245603,
+          "required_amp_gain_pct": 100.0,
+          "support_amp_gain_pct": 100.0,
+          "template_test_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App"
+        }
+      ],
+      "template_pairwise_metrics": [
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "shape_corr": 0.9996552535163642,
+          "shape_nrmse": 0.013844321686893672
+        },
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "shape_corr": 0.9998087716627242,
+          "shape_nrmse": 0.012560015734773503
+        },
+        {
+          "left_template_id": "16d6f09e3c4e873f_tri_5_5__triangle__5Hz__5App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9997041314942439,
+          "shape_nrmse": 0.013007597384503303
+        },
+        {
+          "left_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "right_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "shape_corr": 0.999926395895911,
+          "shape_nrmse": 0.011365898026098867
+        },
+        {
+          "left_template_id": "1ab165e41ab56d60_tri_5_10__triangle__5Hz__10App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9996732697184283,
+          "shape_nrmse": 0.013394021002964138
+        },
+        {
+          "left_template_id": "6d781352f9cabcf1_tri_5_15__triangle__5Hz__15App",
+          "right_template_id": "8a1b7b06ba7953c4_tri_5_20__triangle__5Hz__20App",
+          "shape_corr": 0.9996611514949698,
+          "shape_nrmse": 0.01695829144013692
+        }
+      ],
+      "affects_support_selection": true,
+      "affects_route": false,
+      "affects_shape_prediction": true
+    }
+  ],
+  "summary": {
+    "group_count": 20,
+    "mixed_observed_group_count": 6,
+    "template_switch_group_count": 20
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "generated_at_utc": "2026-04-17T08:02:18.834584+00:00",
+  "success": true,
+  "records": [
+    {
+      "scenario_id": "continuous_field_exact_support",
+      "request_freq_hz": 0.5,
+      "frequency_mode": "exact",
+      "request_route": "exact",
+      "solver_route": "harmonic_surface_inverse_exact",
+      "lcr_usage_mode": "audit_only",
+      "lcr_weight": 0.0,
+      "requested_lcr_weight": 0.6,
+      "exact_field_support_present": true,
+      "lcr_phase_anchor_used": false,
+      "lcr_gain_prior_used": false,
+      "predicted_metric_name": "predicted_bz_pp_delta_mT",
+      "predicted_metric_delta_with_lcr": -0.03668460180310262,
+      "predicted_metric_delta_without_lcr": -0.03668460180310262,
+      "predicted_bz_pp_with_lcr": 19.963315398196897,
+      "predicted_bz_pp_without_lcr": 19.963315398196897,
+      "used_lcr_prior": false
+    },
+    {
+      "scenario_id": "continuous_field_preview_gap",
+      "request_freq_hz": 0.75,
+      "frequency_mode": "interpolate",
+      "request_route": "preview",
+      "solver_route": "harmonic_surface_inverse_interpolated_preview",
+      "lcr_usage_mode": "weak_prior",
+      "lcr_weight": 0.15,
+      "requested_lcr_weight": 0.6,
+      "exact_field_support_present": false,
+      "lcr_phase_anchor_used": true,
+      "lcr_gain_prior_used": true,
+      "predicted_metric_name": "predicted_bz_pp_delta_mT",
+      "predicted_metric_delta_with_lcr": -0.03668460180335842,
+      "predicted_metric_delta_without_lcr": -0.03668460180335842,
+      "predicted_bz_pp_with_lcr": 19.96331539819664,
+      "predicted_bz_pp_without_lcr": 19.96331539819664,
+      "used_lcr_prior": true
+    }
+  ],
+  "summary": {
+    "exact_field_mode": "audit_only",
+    "exact_field_weight": 0.0,
+    "preview_gap_mode": "weak_prior",
+    "preview_gap_weight": 0.15
+  }
+}

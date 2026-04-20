@@ -1,0 +1,35 @@
+{
+    "generated_at":  "2026-04-16T02:41:05.1508234Z",
+    "launchers":  [
+                      "launch_quick_lut.cmd",
+                      "launch_quick_lut_operational.cmd",
+                      "launch_quick_lut_example_bz_exact.cmd",
+                      "launch_quick_lut_example_current_exact.cmd",
+                      "launch_quick_lut_example_finite_triangle_exact.cmd"
+                  ],
+    "docs":  [
+                 "quick_start_summary.md",
+                 "release_candidate_summary.md",
+                 "operator_workflow.md",
+                 "operational_scope.md",
+                 "terminology.md",
+                 "validation_retune_overview.md",
+                 "exact_matrix_final.md",
+                 "lut_catalog.md",
+                 "lut_audit_report.md",
+                 "known_limitations.md",
+                 "next_steps.md"
+             ],
+    "real_validations":  [
+                             "finite exact",
+                             "continuous current exact",
+                             "continuous field exact"
+                         ],
+    "external_work":  [
+                          "bench sign-off",
+                          "missing exact 1칸 실측",
+                          "interpolated auto 재개",
+                          "finite generalization 운영 승격",
+                          "\u003e 5 Hz 공식 운영"
+                      ]
+}

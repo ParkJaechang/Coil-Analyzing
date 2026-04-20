@@ -11,8 +11,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from coil_analyzer.analysis.metrics import analyze_dataset, compute_lambda_metrics
-from coil_analyzer.io.data_loader import infer_column_roles, load_dataframe
+from coil_analyzer.analysis.metrics import analyze_dataset, compute_gain_requirement, compute_lambda_metrics
+from coil_analyzer.io.data_loader import infer_column_roles, load_dataframe, parse_metadata_from_name
+from coil_analyzer.io.reference_loader import build_reference_impedance_table
 from coil_analyzer.models import AnalysisWindow, ChannelConfig, ChannelMapping
 from coil_analyzer.preprocessing.channels import infer_time_unit, standardize_dataset
 from coil_analyzer.utils.example_data import build_example_waveform
@@ -105,3 +106,38 @@ def test_infer_column_roles_does_not_map_timestamp_as_current() -> None:
     assert roles["time"][0] == "Timestamp"
     assert roles["current"][0] == "Current1_A"
     assert "Timestamp" not in roles["current"]
+
+
+def test_parse_metadata_extracts_title_gain() -> None:
+    metadata = parse_metadata_from_name("0.25Hz_9V_36gain.csv")
+    assert metadata["frequency_hz"] == 0.25
+    assert metadata["title_gain_setting"] == 36.0
+
+
+def test_compute_gain_requirement_interprets_gain_percent_against_full_scale() -> None:
+    result = compute_gain_requirement(
+        frequency_hz=1.0,
+        target_ipp_a=20.0,
+        electrical_metrics={"|Z1|": 9.0},
+        achieved_ipp_a=20.0,
+        measured_vout_pk=90.0,
+        gain_mode_v_per_v=20.0,
+        vin_pk=9.0,
+        configured_gain_pct=50.0,
+    )
+    assert result["configured_gain_v_per_v"] == 10.0
+    assert result["configured_Vout_pk"] == 90.0
+    assert result["configured_Vout_pp"] == 180.0
+
+
+def test_build_reference_impedance_table_computes_z_from_r_l() -> None:
+    df = pd.DataFrame({"freq": [1.0], "R": [2.0], "L_mH": [1000.0]})
+    table = build_reference_impedance_table(
+        df,
+        frequency_col="freq",
+        r_col="R",
+        l_col="L_mH",
+        inductance_multiplier=1e-3,
+    )
+    expected = (2.0**2 + (2 * np.pi * 1.0 * 1.0) ** 2) ** 0.5
+    assert np.isclose(table.loc[0, "lcr_z_ohm"], expected)

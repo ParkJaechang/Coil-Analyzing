@@ -18,8 +18,8 @@ if str(SRC) not in sys.path:
 from coil_analyzer.analysis.metrics import analyze_dataset, compute_gain_requirement, compute_lambda_metrics  # noqa: E402
 from coil_analyzer.constants import APP_NAME, DEFAULT_INPUT_VIN_PK, DEFAULT_REQUEST_FREQUENCIES_HZ, DEFAULT_TARGET_IPP_A, GAIN_MODES  # noqa: E402
 from coil_analyzer.export.excel_export import build_export_bundle  # noqa: E402
-from coil_analyzer.io.data_loader import build_dataset_meta, infer_column_roles, list_excel_sheets, load_dataframe, normalize_headers  # noqa: E402
-from coil_analyzer.io.reference_loader import discover_reference_files, infer_reference_columns, load_reference_workbook, summarize_reference_sheet  # noqa: E402
+from coil_analyzer.io.data_loader import build_dataset_meta, infer_column_roles, list_excel_sheets, load_dataframe, normalize_headers, parse_metadata_from_name  # noqa: E402
+from coil_analyzer.io.reference_loader import build_reference_impedance_table, discover_reference_files, infer_reference_columns, load_reference_workbook, summarize_reference_sheet  # noqa: E402
 from coil_analyzer.io.workspace_store import WorkspaceStore  # noqa: E402
 from coil_analyzer.models import AnalysisWindow, ChannelConfig, ChannelMapping, DatasetMeta, RequestPoint  # noqa: E402
 from coil_analyzer.plotting.figures import frequency_summary_figure, loop_figure, phasor_summary_figure, reference_comparison_figure, status_heatmap, waveform_figure  # noqa: E402
@@ -54,6 +54,15 @@ def default_request_points() -> list[RequestPoint]:
     return [RequestPoint(frequency_hz=freq, target_ipp_a=DEFAULT_TARGET_IPP_A) for freq in DEFAULT_REQUEST_FREQUENCIES_HZ]
 
 
+def default_settings() -> dict[str, Any]:
+    return {
+        "vin_pk": DEFAULT_INPUT_VIN_PK,
+        "gain_mode": GAIN_MODES[0],
+        "representative_b": {},
+        "reference_workbook_path": None,
+    }
+
+
 def page_index(label: str) -> int:
     return PAGE_LABELS.index(label) + 1
 
@@ -81,12 +90,15 @@ def ensure_state() -> None:
     st.session_state.datasets = [DatasetMeta.from_dict(item) for item in manifest.get("datasets", [])]
     st.session_state.request_points = [RequestPoint(**item) for item in manifest.get("request_points", [])] or default_request_points()
     st.session_state.analysis_window = AnalysisWindow.from_dict(manifest.get("analysis_window", {}))
-    st.session_state.settings = manifest.get(
-        "settings",
-        {"vin_pk": DEFAULT_INPUT_VIN_PK, "gain_mode": GAIN_MODES[0], "representative_b": {}, "reference_workbook_path": None},
-    )
+    stored_settings = manifest.get("settings") or {}
+    merged_settings = default_settings()
+    merged_settings.update(stored_settings)
+    if not isinstance(merged_settings.get("representative_b"), dict):
+        merged_settings["representative_b"] = {}
+    st.session_state.settings = merged_settings
     st.session_state.analysis_results = {}
     st.session_state.app_state_initialized = True
+    persist_state()
 
 
 def persist_state() -> None:
@@ -174,6 +186,13 @@ def save_mapping_pattern(columns: list[str], mapping: ChannelMapping) -> None:
 
 def dataset_frequency(dataset: DatasetMeta) -> float | None:
     return dataset.request_frequency_hz or dataset.metadata.get("frequency_hz") or dataset.detected_frequency_hz
+
+
+def hydrate_dataset_metadata_from_filename(dataset: DatasetMeta) -> None:
+    inferred = parse_metadata_from_name(dataset.file_name)
+    for key, value in inferred.items():
+        if dataset.metadata.get(key) in (None, "", 0, 0.0):
+            dataset.metadata[key] = value
 
 
 def match_requests() -> pd.DataFrame:
@@ -312,7 +331,7 @@ def render_home(reference_statuses: list[Any]) -> None:
     ref_df = pd.DataFrame([asdict(item) for item in reference_statuses])
     if not ref_df.empty and "exists" in ref_df:
         ref_df["상태"] = ref_df["exists"].map({True: "찾음", False: "없음"})
-    st.dataframe(ref_df, use_container_width=True)
+    st.dataframe(ref_df, width="stretch")
     st.subheader("최근 데이터셋 요약")
     st.dataframe(
         pd.DataFrame(
@@ -321,7 +340,7 @@ def render_home(reference_statuses: list[Any]) -> None:
                 for item in st.session_state.datasets[-10:]
             ]
         ),
-        use_container_width=True,
+        width="stretch",
     )
     st.subheader("테스트 완성도")
     if not status_df.empty:
@@ -329,8 +348,8 @@ def render_home(reference_statuses: list[Any]) -> None:
         plot_df["status"] = plot_df["status"]
         view_df = status_df.copy()
         view_df["status"] = view_df["status"].map(localized_status)
-        st.plotly_chart(status_heatmap(plot_df), use_container_width=True)
-        st.dataframe(view_df, use_container_width=True)
+        st.plotly_chart(status_heatmap(plot_df), width="stretch")
+        st.dataframe(view_df, width="stretch")
 
 
 def render_import() -> None:
@@ -383,7 +402,7 @@ def render_import() -> None:
             dataset.metadata["measured_vout_pk"] = meta_col4.number_input("실측 Vout_pk [V]", min_value=0.0, value=float(dataset.metadata.get("measured_vout_pk") or 0.0), key=f"vout_{dataset.dataset_id}") or None
             dataset.metadata["gain_mode_v_per_v"] = meta_col5.selectbox("앰프 Gain 모드 [V/V]", [0.0, *list(GAIN_MODES)], index=[0.0, *list(GAIN_MODES)].index(float(dataset.metadata.get("gain_mode_v_per_v") or 0.0)), key=f"gain_{dataset.dataset_id}") or None
             dataset.metadata["vin_pk"] = meta_col6.number_input("입력 사인 Vin_pk [V]", min_value=0.0, value=float(dataset.metadata.get("vin_pk") or DEFAULT_INPUT_VIN_PK), key=f"vin_{dataset.dataset_id}") or None
-            st.dataframe(df.head(20), use_container_width=True)
+            st.dataframe(df.head(20), width="stretch")
             st.json(
                 {
                     "자동 추정 채널": infer_column_roles(list(df.columns)),
@@ -423,7 +442,7 @@ def render_requests() -> None:
     if not status_df.empty:
         status_df = status_df.copy()
         status_df["status"] = status_df["status"].map(localized_status)
-    editor_df = st.data_editor(status_df, num_rows="dynamic", use_container_width=True, key="request_editor")
+    editor_df = st.data_editor(status_df, num_rows="dynamic", width="stretch", key="request_editor")
     if st.button("요청표 저장"):
         reverse_map = {"미시험": "not tested", "데이터 로드됨": "data loaded", "분석 완료": "analyzed", "확인 필요": "flagged"}
         if "status" in editor_df.columns:
@@ -508,7 +527,7 @@ def render_mapping() -> None:
         save_mapping_pattern(list(df.columns), dataset.mapping)
         persist_state()
         st.success("매핑과 보정값을 저장했다.")
-    st.dataframe(df.head(20), use_container_width=True)
+    st.dataframe(df.head(20), width="stretch")
 
 
 def render_signal_analysis() -> None:
@@ -550,14 +569,15 @@ def render_signal_analysis() -> None:
     representative = None
     magnetic_columns = [column for column in standardized.columns if column.startswith("magnetic_")]
     if magnetic_columns:
+        representative_store = st.session_state.settings.setdefault("representative_b", {})
         representative = st.selectbox(
             "대표 자기장 채널",
             magnetic_columns,
-            index=magnetic_columns.index(st.session_state.settings["representative_b"].get(dataset.dataset_id, magnetic_columns[0]))
-            if st.session_state.settings["representative_b"].get(dataset.dataset_id) in magnetic_columns
+            index=magnetic_columns.index(representative_store.get(dataset.dataset_id, magnetic_columns[0]))
+            if representative_store.get(dataset.dataset_id) in magnetic_columns
             else 0,
         )
-        st.session_state.settings["representative_b"][dataset.dataset_id] = representative
+        representative_store[dataset.dataset_id] = representative
 
     if st.button("분석 실행 / 새로고침"):
         if freq_override > 0:
@@ -569,18 +589,18 @@ def render_signal_analysis() -> None:
     result = st.session_state.analysis_results.get(dataset.dataset_id)
     if result is None:
         st.info("분석을 실행하면 fitted waveform과 후속 지표가 채워진다.")
-        st.plotly_chart(waveform_figure(standardized), use_container_width=True)
+        st.plotly_chart(waveform_figure(standardized), width="stretch")
         persist_state()
         return
 
     fitted = {key: value["fitted"] for key, value in result["signals"].items()}
     mask = (standardized["time_s"] >= result["window_start_s"]) & (standardized["time_s"] <= result["window_end_s"])
     window_df = standardized.loc[mask].copy()
-    st.plotly_chart(waveform_figure(window_df, fitted_signals=fitted, title="원파형 + fundamental fit"), use_container_width=True)
+    st.plotly_chart(waveform_figure(window_df, fitted_signals=fitted, title="원파형 + fundamental fit"), width="stretch")
     if result["warnings"]:
         st.warning("\n".join(sorted(set(result["warnings"]))))
     signal_table = pd.DataFrame(result["signals"]).T.drop(columns=["fitted", "detrended", "warnings"], errors="ignore")
-    st.dataframe(signal_table, use_container_width=True)
+    st.dataframe(signal_table, width="stretch")
     persist_state()
 
 
@@ -595,8 +615,8 @@ def render_electrical() -> None:
         st.warning("전기 분석에는 전압과 전류 채널이 모두 필요하다.")
         return
     st.caption("large-signal 실측 결과이며, small-signal LCR reference 와 분리해서 표시한다.")
-    st.dataframe(pd.DataFrame([electrical]), use_container_width=True)
-    st.plotly_chart(phasor_summary_figure(electrical), use_container_width=True)
+    st.dataframe(pd.DataFrame([electrical]), width="stretch")
+    st.plotly_chart(phasor_summary_figure(electrical), width="stretch")
 
 
 def render_magnetic() -> None:
@@ -611,13 +631,13 @@ def render_magnetic() -> None:
     if not magnetic:
         st.warning("이 데이터셋에는 자기장 채널이 없다.")
         return
-    st.dataframe(pd.DataFrame([magnetic]), use_container_width=True)
+    st.dataframe(pd.DataFrame([magnetic]), width="stretch")
     representative = magnetic["representative_channel"]
     if "current_a" in standardized.columns:
         unit = dataset.mapping.magnetic[representative.replace("magnetic_", "")].unit
-        st.plotly_chart(loop_figure(standardized["current_a"], standardized[representative], "B-I loop", "Current [A]", f"{representative} [{unit}]"), use_container_width=True)
+        st.plotly_chart(loop_figure(standardized["current_a"], standardized[representative], "B-I loop", "Current [A]", f"{representative} [{unit}]"), width="stretch")
     if "voltage_v" in standardized.columns:
-        st.plotly_chart(loop_figure(standardized["voltage_v"], standardized[representative], "B-V plot", "Voltage [V]", representative), use_container_width=True)
+        st.plotly_chart(loop_figure(standardized["voltage_v"], standardized[representative], "B-V plot", "Voltage [V]", representative), width="stretch")
 
 
 def render_advanced() -> None:
@@ -640,56 +660,187 @@ def render_advanced() -> None:
     )
     st.info("결과 라벨: system-level inferred quantity. 가정과 한계를 함께 봐야 한다.")
     lambda_df = pd.DataFrame({"time_s": standardized["time_s"], "lambda": lambda_metrics["lambda"], "differential_inductance_h": lambda_metrics["differential_inductance_h"]})
-    st.plotly_chart(loop_figure(standardized["current_a"], pd.Series(lambda_metrics["lambda"]), "Lambda-I plot", "Current [A]", "Lambda [V*s]"), use_container_width=True)
-    st.dataframe(lambda_df.head(200), use_container_width=True)
+    st.plotly_chart(loop_figure(standardized["current_a"], pd.Series(lambda_metrics["lambda"]), "Lambda-I plot", "Current [A]", "Lambda [V*s]"), width="stretch")
+    st.dataframe(lambda_df.head(200), width="stretch")
 
 
-def render_gain() -> None:
+def render_gain(reference_statuses: list[Any]) -> None:
     st.header("Gain / 구동 요구 분석")
     render_quick_guide(
-        "이 페이지의 핵심",
-        "실측 Vout_pk가 있으면 그것을 우선 사용한다. 없으면 measured |Z1| 와 목표 Ipp로 required Vout_pk를 역산한다. "
-        "alpha = Vout_pk / (Vin_pk * Gain_mode) 로 계산하고 1을 넘으면 현재 설정으로 불가능한 포인트로 표시한다.",
+        "이 탭의 목적",
+        "파일명에 적힌 DC AMP gain 값을 먼저 정리하고, 같은 주파수의 LCR reference 시트로 필요한 전압을 계산해 "
+        "현재 설정/실측과 비교한다. 신호 분석이 있으면 measured large-signal 결과도 함께 비교한다.",
     )
-    if not st.session_state.analysis_results:
-        st.info("먼저 신호 분석을 실행해야 한다.")
+    if not st.session_state.datasets:
+        st.info("먼저 데이터 파일을 불러오면 파일명 기준 Gain 요약이 바로 보인다.")
         return
+
     g1, g2 = st.columns(2)
     st.session_state.settings["vin_pk"] = g1.number_input("기본 입력 Vin_pk [V]", min_value=0.1, value=float(st.session_state.settings.get("vin_pk", DEFAULT_INPUT_VIN_PK)))
     st.session_state.settings["gain_mode"] = g2.selectbox("기본 앰프 Gain 모드 [V/V]", list(GAIN_MODES), index=list(GAIN_MODES).index(float(st.session_state.settings.get("gain_mode", GAIN_MODES[0]))))
-    rows: list[dict[str, Any]] = []
-    for dataset_id, analysis in st.session_state.analysis_results.items():
-        dataset = dataset_by_id(dataset_id)
+
+    reference_file = next((item for item in reference_statuses if item.name == "all_bands_full.xlsx" and item.exists), None)
+    workbook_path = st.session_state.settings.get("reference_workbook_path") or (reference_file.path if reference_file else None)
+    uploaded_reference = st.file_uploader("Gain 비교용 LCR workbook 업로드", type=["xlsx"], key="gain_reference_upload")
+    if uploaded_reference is not None:
+        stored_path = STORE.save_upload_bytes(uploaded_reference.name, uploaded_reference.getvalue())
+        workbook_path = str(stored_path)
+        st.session_state.settings["reference_workbook_path"] = workbook_path
+        persist_state()
+
+    lcr_table = pd.DataFrame()
+    if workbook_path:
+        sheet_names, sheets = load_reference_workbook(Path(workbook_path))
+        if sheet_names:
+            ref_col1, ref_col2, ref_col3, ref_col4, ref_col5 = st.columns(5)
+            selected_sheet = ref_col1.selectbox("LCR 시트", sheet_names, key="gain_ref_sheet")
+            reference_df = sheets[selected_sheet]
+            detected = infer_reference_columns(reference_df)
+            frequency_col = ref_col2.selectbox("주파수 컬럼", reference_df.columns, index=list(reference_df.columns).index(detected["frequency"]) if detected["frequency"] in reference_df.columns else 0, key="gain_ref_freq")
+            z_options = [""] + list(reference_df.columns)
+            z_col = ref_col3.selectbox("|Z| 컬럼", z_options, index=z_options.index(detected["z"]) if detected["z"] in reference_df.columns else 0, key="gain_ref_z")
+            r_col = ref_col4.selectbox("R 컬럼", z_options, index=z_options.index(detected["r"]) if detected["r"] in reference_df.columns else 0, key="gain_ref_r")
+            l_col = ref_col5.selectbox("L 컬럼", z_options, index=z_options.index(detected["l"]) if detected["l"] in reference_df.columns else 0, key="gain_ref_l")
+            unit_col1, unit_col2 = st.columns(2)
+            inductance_unit = unit_col1.selectbox("L 단위", ["H", "mH", "uH"], index=1, key="gain_ref_l_unit")
+            inductance_multiplier = {"H": 1.0, "mH": 1e-3, "uH": 1e-6}[inductance_unit]
+            unit_col2.caption("LCR 비교는 small-signal reference 기반 계산이다.")
+            lcr_table = build_reference_impedance_table(
+                reference_df,
+                frequency_col=frequency_col,
+                z_col=z_col or None,
+                r_col=r_col or None,
+                l_col=l_col or None,
+                inductance_multiplier=inductance_multiplier,
+            )
+
+    overview_rows: list[dict[str, Any]] = []
+    requirement_rows: list[dict[str, Any]] = []
+    for dataset in st.session_state.datasets:
+        hydrate_dataset_metadata_from_filename(dataset)
+        analysis = st.session_state.analysis_results.get(dataset.dataset_id, {})
         electrical = analysis.get("electrical", {})
-        if not electrical:
-            continue
-        target_ipp = float(dataset.request_target_ipp_a or dataset.metadata.get("target_ipp_a") or DEFAULT_TARGET_IPP_A)
+        title_gain = dataset.metadata.get("title_gain_setting")
+        achieved_ipp = float(electrical["I1_pk"] * 2.0) if electrical.get("I1_pk") is not None else None
         measured_vout_pk = dataset.metadata.get("measured_vout_pk") or electrical.get("V1_pk")
-        gain_mode = float(dataset.metadata.get("gain_mode_v_per_v") or st.session_state.settings["gain_mode"])
-        vin_pk = float(dataset.metadata.get("vin_pk") or st.session_state.settings["vin_pk"])
-        source = "실측 Vout" if dataset.metadata.get("measured_vout_pk") else "파형 분석 V1_pk"
-        rows.append(
+        overview_rows.append(
             {
-                **compute_gain_requirement(
-                frequency_hz=float(analysis["frequency_hz"]),
-                target_ipp_a=target_ipp,
-                electrical_metrics=electrical,
-                achieved_ipp_a=float(electrical["I1_pk"] * 2.0) if electrical.get("I1_pk") is not None else None,
-                measured_vout_pk=measured_vout_pk,
-                gain_mode_v_per_v=gain_mode,
-                vin_pk=vin_pk,
-                notes=dataset.notes,
-                ),
-                "vout_source": source,
-                "dataset": dataset.file_name,
+                "frequency_hz": dataset_frequency(dataset),
+                "dc_amp_gain_from_title": title_gain,
+                "file_name": dataset.file_name,
+                "status": localized_status(dataset.status),
+                "target_Ipp_A": dataset.request_target_ipp_a or dataset.metadata.get("target_ipp_a") or DEFAULT_TARGET_IPP_A,
+                "achieved_Ipp_A": achieved_ipp,
+                "measured_Vout_pk": measured_vout_pk,
+                "voltage_source": "실측 입력" if dataset.metadata.get("measured_vout_pk") else ("파형 분석" if electrical.get("V1_pk") is not None else ""),
+                "notes": dataset.notes,
             }
         )
-    if not rows:
-        st.warning("Gain 계산에 필요한 전압/전류 분석 결과가 없다.")
+
+        if electrical:
+            gain_mode = float(dataset.metadata.get("gain_mode_v_per_v") or st.session_state.settings["gain_mode"])
+            vin_pk = float(dataset.metadata.get("vin_pk") or st.session_state.settings["vin_pk"])
+            configured_gain_pct = float(title_gain) if title_gain is not None else None
+            requirement_rows.append(
+                {
+                    **compute_gain_requirement(
+                        frequency_hz=float(analysis["frequency_hz"]),
+                        target_ipp_a=float(dataset.request_target_ipp_a or dataset.metadata.get("target_ipp_a") or DEFAULT_TARGET_IPP_A),
+                        electrical_metrics=electrical,
+                        achieved_ipp_a=achieved_ipp,
+                        measured_vout_pk=measured_vout_pk,
+                        gain_mode_v_per_v=gain_mode,
+                        vin_pk=vin_pk,
+                        configured_gain_pct=configured_gain_pct,
+                        notes=dataset.notes,
+                    ),
+                    "dataset": dataset.file_name,
+                    "dc_amp_gain_from_title": title_gain,
+                }
+            )
+
+    overview_df = pd.DataFrame(overview_rows).sort_values(["frequency_hz", "dc_amp_gain_from_title"], na_position="last")
+    top1, top2, top3 = st.columns(3)
+    top1.metric("등록 파일", len(overview_df))
+    top2.metric("파일명 Gain 인식", int(overview_df["dc_amp_gain_from_title"].notna().sum()) if not overview_df.empty else 0)
+    top3.metric("신호분석 완료", int(sum(1 for item in st.session_state.datasets if item.dataset_id in st.session_state.analysis_results)))
+
+    st.subheader("파일명 기반 DC AMP Gain 요약")
+    st.caption("이 표는 파일명에 들어 있는 `36gain`, `38gain` 같은 값을 우선 정리해서 보여준다.")
+    st.dataframe(overview_df, width="stretch")
+    if not overview_df.empty and overview_df["dc_amp_gain_from_title"].notna().any():
+        plot_df = overview_df.dropna(subset=["frequency_hz", "dc_amp_gain_from_title"])
+        if not plot_df.empty:
+            st.plotly_chart(frequency_summary_figure(plot_df, "dc_amp_gain_from_title", "주파수별 DC AMP gain (파일명 기준)"), width="stretch")
+
+    comparison_rows: list[dict[str, Any]] = []
+    for row in overview_rows:
+        frequency_hz = row["frequency_hz"]
+        target_ipp = row["target_Ipp_A"]
+        title_gain = row["dc_amp_gain_from_title"]
+        configured_gain_pct = float(title_gain) if pd.notna(title_gain) else None
+        gain_mode = float(st.session_state.settings["gain_mode"])
+        vin_pk = float(st.session_state.settings["vin_pk"])
+        configured_gain_v_per_v = gain_mode * configured_gain_pct / 100.0 if configured_gain_pct is not None else None
+        configured_vout_pk = vin_pk * configured_gain_v_per_v if configured_gain_v_per_v is not None else None
+        configured_vout_pp = configured_vout_pk * 2.0 if configured_vout_pk is not None else None
+
+        lcr_match = {}
+        if not lcr_table.empty and frequency_hz is not None:
+            diffs = (lcr_table["frequency_hz"] - float(frequency_hz)).abs()
+            idx = diffs.idxmin()
+            if pd.notna(diffs.loc[idx]) and float(diffs.loc[idx]) <= max(0.05, float(frequency_hz) * 0.1):
+                lcr_match = lcr_table.loc[idx].to_dict()
+
+        lcr_z = lcr_match.get("lcr_z_ohm")
+        lcr_required_vpk = float((target_ipp / 2.0) * lcr_z) if pd.notna(lcr_z) else None
+        lcr_required_vpp = float(lcr_required_vpk * 2.0) if lcr_required_vpk is not None else None
+        lcr_required_alpha_pct = float(lcr_required_vpk / (vin_pk * gain_mode) * 100.0) if lcr_required_vpk is not None else None
+        comparison_rows.append(
+            {
+                "frequency_hz": frequency_hz,
+                "file_name": row["file_name"],
+                "dc_amp_gain_pct": configured_gain_pct,
+                "configured_gain_v_per_v": configured_gain_v_per_v,
+                "configured_Vout_pp": configured_vout_pp,
+                "target_Ipp_A": target_ipp,
+                "lcr_ref_Z_ohm": lcr_z,
+                "lcr_required_Vout_pp": lcr_required_vpp,
+                "lcr_required_alpha_pct": lcr_required_alpha_pct,
+                "lcr_vs_setting_margin_pp": (configured_vout_pp - lcr_required_vpp) if configured_vout_pp is not None and lcr_required_vpp is not None else None,
+                "status": row["status"],
+            }
+        )
+
+    st.subheader("LCR 기준 구동 요구 비교")
+    if comparison_rows:
+        comparison_df = pd.DataFrame(comparison_rows).sort_values("frequency_hz")
+        st.caption("small-signal LCR sheet로 계산한 required voltage와 파일명 gain 설정에서 가능한 출력 전압을 비교한다.")
+        st.dataframe(comparison_df, width="stretch")
+        if not comparison_df["lcr_required_alpha_pct"].isna().all():
+            st.plotly_chart(frequency_summary_figure(comparison_df.dropna(subset=["lcr_required_alpha_pct"]), "lcr_required_alpha_pct", "주파수별 LCR 기반 required alpha [%]"), width="stretch")
+
+    st.subheader("파형 분석이 있는 경우의 measured large-signal 비교")
+    if not requirement_rows:
+        st.info("신호 분석을 아직 안 한 파일은 위 표에서 파일명 gain과 LCR 기준 비교만 먼저 볼 수 있다. 신호 분석을 하면 아래에 measured large-signal 비교가 추가된다.")
+        persist_state()
         return
-    gain_df = pd.DataFrame(rows).sort_values("frequency_hz")
-    st.dataframe(gain_df, use_container_width=True)
-    st.plotly_chart(frequency_summary_figure(gain_df, "required_alpha_pct", "주파수별 required alpha [%]"), use_container_width=True)
+
+    gain_df = pd.DataFrame(requirement_rows).sort_values("frequency_hz")
+    if comparison_rows:
+        gain_df = gain_df.merge(
+            pd.DataFrame(comparison_rows)[["frequency_hz", "file_name", "lcr_ref_Z_ohm", "lcr_required_Vout_pp", "lcr_required_alpha_pct"]],
+            left_on=["frequency_hz", "dataset"],
+            right_on=["frequency_hz", "file_name"],
+            how="left",
+        ).drop(columns=["file_name"], errors="ignore")
+    st.caption(
+        "해석 기준: 파일명 `50gain` 은 full-scale gain mode의 50%를 의미한다. "
+        "예를 들어 20 V/V 모드에서 50gain이면 유효 gain은 10 V/V, Vin = ±9 V면 출력은 90 Vpk / 180 Vpp 이다. "
+        "아래 표는 measured large-signal 결과와 LCR small-signal 계산값을 함께 보여준다."
+    )
+    st.dataframe(gain_df, width="stretch")
+    st.plotly_chart(frequency_summary_figure(gain_df, "required_alpha_pct", "주파수별 required alpha [%]"), width="stretch")
     persist_state()
 
 
@@ -726,8 +877,8 @@ def render_reference(reference_statuses: list[Any]) -> None:
         if selected:
             alias = f"ref_{measured_col}"
             ref_plot_df[alias] = reference_df[selected]
-            st.plotly_chart(reference_comparison_figure(measured_df, ref_plot_df, measured_col, alias, title), use_container_width=True)
-    st.dataframe(reference_df.head(200), use_container_width=True)
+            st.plotly_chart(reference_comparison_figure(measured_df, ref_plot_df, measured_col, alias, title), width="stretch")
+    st.dataframe(reference_df.head(200), width="stretch")
 
 
 def render_export(reference_statuses: list[Any]) -> None:
@@ -811,7 +962,7 @@ def main() -> None:
     elif page == "8. 고급 분석":
         render_advanced()
     elif page == "9. Gain / 구동 요구 분석":
-        render_gain()
+        render_gain(reference_statuses)
     elif page == "10. LCR 비교":
         render_reference(reference_statuses)
     elif page == "11. 내보내기":

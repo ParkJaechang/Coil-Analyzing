@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from coil_analyzer.constants import REFERENCE_FILE_CANDIDATES
@@ -81,3 +82,27 @@ def summarize_reference_sheet(df: pd.DataFrame) -> dict[str, Any]:
         "columns": list(df.columns),
         "detected_columns": columns,
     }
+
+
+def build_reference_impedance_table(
+    df: pd.DataFrame,
+    frequency_col: str,
+    z_col: str | None = None,
+    r_col: str | None = None,
+    l_col: str | None = None,
+    inductance_multiplier: float = 1.0,
+) -> pd.DataFrame:
+    result = pd.DataFrame({"frequency_hz": pd.to_numeric(df[frequency_col], errors="coerce")})
+    if z_col:
+        result["lcr_z_ohm"] = pd.to_numeric(df[z_col], errors="coerce")
+    elif r_col and l_col:
+        r = pd.to_numeric(df[r_col], errors="coerce")
+        l = pd.to_numeric(df[l_col], errors="coerce") * inductance_multiplier
+        result["lcr_z_ohm"] = np.sqrt(np.square(r) + np.square(2.0 * np.pi * result["frequency_hz"] * l))
+    else:
+        result["lcr_z_ohm"] = np.nan
+    if r_col:
+        result["lcr_r_ohm"] = pd.to_numeric(df[r_col], errors="coerce")
+    if l_col:
+        result["lcr_l_h"] = pd.to_numeric(df[l_col], errors="coerce") * inductance_multiplier
+    return result.dropna(subset=["frequency_hz"]).sort_values("frequency_hz").reset_index(drop=True)

@@ -1,0 +1,1661 @@
+{
+  "generated_at_utc": "2026-04-17T07:35:14.884660+00:00",
+  "official_support_band_hz": {
+    "min": 0.25,
+    "max": 5.0
+  },
+  "scan_sources": {
+    "continuous_dir": "D:/programs/Codex/outputs/field_analysis_app_state/uploads/continuous",
+    "transient_dir": "D:/programs/Codex/outputs/field_analysis_app_state/uploads/transient",
+    "continuous_scan_count": 55,
+    "transient_scan_count": 96,
+    "continuous_ignored_files": [],
+    "transient_ignored_files": [],
+    "recognized_transient_waveform_aliases": {
+      "sine": [
+        "sine",
+        "sin",
+        "sinusoid",
+        "sinusoidal",
+        "sinusidal"
+      ],
+      "triangle": [
+        "triangle",
+        "tri"
+      ]
+    }
+  },
+  "continuous_official_exact_scope": {
+    "total_files": 48,
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ],
+        "cell_count": 4
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0,
+          30.0
+        ],
+        "cell_count": 5
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ],
+        "cell_count": 4
+      }
+    ],
+    "operational_status": {
+      "usable_auto": "continuous + current target + exact support only, <= 5 Hz",
+      "preview_only": [
+        "continuous + current target + interpolated_in_hull",
+        "continuous + field target + interpolated_in_hull",
+        "continuous exact support above 5 Hz"
+      ],
+      "blocked": [
+        "interpolated_edge",
+        "out_of_hull",
+        "field target auto"
+      ]
+    }
+  },
+  "continuous_field_exact_scope": {
+    "status": "software_ready_bench_pending",
+    "source_basis": "continuous_official_exact_scope",
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "freqs_hz": [
+      0.25,
+      0.5,
+      1.0,
+      2.0,
+      5.0
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "target_levels": "variable field target within hardware limits",
+        "status": "software_ready_bench_pending",
+        "bench_validation": "pending"
+      }
+    ]
+  },
+  "continuous_reference_above_band": {
+    "total_files": 7,
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 10.0,
+        "levels_a": [
+          5.0,
+          10.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 15.0,
+        "levels_a": [
+          5.0,
+          10.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 10.0,
+        "levels_a": [
+          5.0,
+          10.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 15.0,
+        "levels_a": [
+          5.0
+        ],
+        "cell_count": 1
+      }
+    ],
+    "status": "reference_only"
+  },
+  "continuous_exact_grid_candidates": {
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "freqs_hz": [
+      0.25,
+      0.5,
+      0.75,
+      1.0,
+      1.5,
+      2.0,
+      3.0,
+      4.0,
+      5.0
+    ],
+    "levels_a": [
+      5.0,
+      10.0,
+      20.0
+    ],
+    "missing_combinations": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.75,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.75,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.75,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.5,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.5,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.5,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 4.0,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 4.0,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 4.0,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.75,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.75,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.75,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.5,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.5,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.5,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "level_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 4.0,
+        "level_a": 5.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 4.0,
+        "level_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 4.0,
+        "level_a": 20.0
+      }
+    ],
+    "recommended_next_measurements": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.75,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.75,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.5,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 4.0,
+        "levels_a": [
+          5.0,
+          10.0,
+          20.0
+        ]
+      }
+    ]
+  },
+  "finite_exact_scope": {
+    "waveform": "sine",
+    "total_files": 47,
+    "freqs_hz": [
+      0.25,
+      0.5,
+      1.0,
+      1.25,
+      2.0,
+      5.0
+    ],
+    "cycles": [
+      0.75,
+      1.0,
+      1.25,
+      1.5
+    ],
+    "levels_pp_a": [
+      10.0,
+      20.0
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0
+        ],
+        "cell_count": 1
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      }
+    ],
+    "note": "5 Hz 이하 finite sine은 exact recipe 기반으로 운영한다. 단, 1.0 Hz / 1.0 cycle / 20 pp는 measured exact가 아니라 provisional preview로만 제공한다."
+  },
+  "finite_triangle_exact_scope": {
+    "waveform": "triangle",
+    "total_files": 48,
+    "freqs_hz": [
+      0.25,
+      0.5,
+      1.0,
+      1.25,
+      2.0,
+      3.0
+    ],
+    "cycles": [
+      0.75,
+      1.0,
+      1.25,
+      1.5
+    ],
+    "levels_pp_a": [
+      10.0,
+      20.0
+    ],
+    "summary": [
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      }
+    ],
+    "note": "5 Hz 이하 finite triangle은 exact recipe 기반으로 운영한다."
+  },
+  "finite_all_exact_scope": {
+    "total_files": 95,
+    "waveforms": [
+      "sine",
+      "triangle"
+    ],
+    "summary": [
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 0.5,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0
+        ],
+        "cell_count": 1
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 1.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 2.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 5.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 0.5,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 1.25,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 2.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 0.75,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.0,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.25,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 3.0,
+        "cycles": 1.5,
+        "levels_pp_a": [
+          10.0,
+          20.0
+        ],
+        "cell_count": 2
+      }
+    ],
+    "official_recipe_total": 95,
+    "missing_exact_combinations": [
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "level_pp_a": 20.0,
+        "status": "missing_exact",
+        "current_route": "provisional_preview",
+        "promotion_target": "96 exact recipes after measured upload arrives."
+      }
+    ],
+    "provisional_preview_combinations": [
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "level_pp_a": 20.0,
+        "source_exact_level_pp_a": 10.0,
+        "scale_ratio": 2.0,
+        "status": "provisional_preview",
+        "measured_file_present": true,
+        "source_files": [
+          "sinusidal/1hz_1cycle_20pp.csv"
+        ],
+        "promotion_rule": "Add a measured exact upload for sine / 1.0 Hz / 1.0 cycle / 20 pp with a non-placeholder file name to retire this preview cell."
+      }
+    ],
+    "full_grid_missing_combinations": [
+      {
+        "waveform": "sine",
+        "freq_hz": 1.0,
+        "cycles": 1.0,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 0.75,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 0.75,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.0,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.0,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.25,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.25,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.5,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "sine",
+        "freq_hz": 3.0,
+        "cycles": 1.5,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 0.75,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 0.75,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.0,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.0,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.25,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.25,
+        "level_pp_a": 20.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.5,
+        "level_pp_a": 10.0
+      },
+      {
+        "waveform": "triangle",
+        "freq_hz": 5.0,
+        "cycles": 1.5,
+        "level_pp_a": 20.0
+      }
+    ],
+    "promotion_status": {
+      "waveform": "sine",
+      "freq_hz": 1.0,
+      "cycles": 1.0,
+      "level_pp_a": 20.0,
+      "state": "provisional_only",
+      "placeholder_source_files": [
+        "sinusidal/1hz_1cycle_20pp.csv"
+      ],
+      "promoted_exact_source_files": [],
+      "measured_exact_available": false
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "generated_at_utc": "2026-04-16T04:31:50.254841+00:00",
+  "desktop": "C:\\Users\\jaech\\Desktop",
+  "shortcuts": [
+    {
+      "shortcut": "C:\\Users\\jaech\\Desktop\\전자기장 LUT 보정 툴.lnk",
+      "target": "D:\\programs\\Codex\\Coil Analyzing\\launch_quick_lut.cmd",
+      "exists": true
+    },
+    {
+      "shortcut": "C:\\Users\\jaech\\Desktop\\전자기장 LUT 보정 툴 (실사용 모드).lnk",
+      "target": "D:\\programs\\Codex\\Coil Analyzing\\launch_quick_lut_operational.cmd",
+      "exists": true
+    },
+    {
+      "shortcut": "C:\\Users\\jaech\\Desktop\\예제 1 연속 Bz exact.lnk",
+      "target": "D:\\programs\\Codex\\Coil Analyzing\\launch_quick_lut_example_bz_exact.cmd",
+      "exists": true
+    },
+    {
+      "shortcut": "C:\\Users\\jaech\\Desktop\\예제 2 연속 current exact.lnk",
+      "target": "D:\\programs\\Codex\\Coil Analyzing\\launch_quick_lut_example_current_exact.cmd",
+      "exists": true
+    },
+    {
+      "shortcut": "C:\\Users\\jaech\\Desktop\\예제 3 finite triangle exact.lnk",
+      "target": "D:\\programs\\Codex\\Coil Analyzing\\launch_quick_lut_example_finite_triangle_exact.cmd",
+      "exists": true
+    }
+  ],
+  "guide_copy": "C:\\Users\\jaech\\Desktop\\사용안내_전자기장_LUT_보정_툴.txt",
+  "guide_exists": true
+}

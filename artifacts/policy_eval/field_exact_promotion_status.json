@@ -1,0 +1,53 @@
+{
+  "generated_at_utc": "2026-04-14T05:48:55.087037+00:00",
+  "official_support_band_hz": {
+    "min": 0.25,
+    "max": 5.0
+  },
+  "status": "software_ready_bench_pending",
+  "official_scope": "continuous/field exact support only, <= 5 Hz",
+  "export_validation": {
+    "support_state": "exact",
+    "preview_only": false,
+    "allow_auto_download": true,
+    "lut_voltage_within_waveform_envelope": true,
+    "lut_cycle_progress_in_unit_interval": true
+  },
+  "ui_validation": {
+    "pass_status": true,
+    "warnings": [
+      "이 validation run은 자동 기본 후보 조건을 만족하지 않습니다. 사유: frequency too far"
+    ],
+    "successes": [
+      "파형 보정 계산이 완료됐습니다.",
+      "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다."
+    ],
+    "metrics": {
+      "엔진": "harmonic_surface",
+      "지원 상태": "exact",
+      "자동 추천": "가능",
+      "confidence": "0.85",
+      "support runs": "5",
+      "harmonics": "11/11",
+      "predicted error": "0.050",
+      "input margin": "0.00%",
+      "DAQ Voltage PP": "20.000 V",
+      "목표 bz_mT PP": "20.000 mT",
+      "지원 포인트 수": "5",
+      "필요 AMP Gain": "286970416.9 %",
+      "추정 출력 lag": "-1.8173 s",
+      "Fourier RMSE": "0.0192 V",
+      "Fourier NRMSE": "0.19%",
+      "최대 절대 오차": "0.1104 V"
+    }
+  },
+  "axis_sanity": {
+    "run_count": 55,
+    "primary_field_axis_counts": {
+      "bz": 47,
+      "bx": 8
+    },
+    "missing_bz_runs": 0
+  },
+  "remaining_gate": "bench smoke test sign-off"
+}

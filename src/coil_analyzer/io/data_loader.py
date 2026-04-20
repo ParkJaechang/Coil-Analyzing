@@ -163,12 +163,15 @@ def parse_metadata_from_name(file_name: str) -> dict[str, Any]:
     freq_match = re.search(r"(\d+(?:\.\d+)?)\s*hz", lowered)
     current_match = re.search(r"(?:ipp|pp)\s*(\d+(?:\.\d+)?)\s*a", lowered)
     gain_match = re.search(r"(\d+(?:\.\d+)?)\s*v\/v", lowered)
+    title_gain_match = re.search(r"(\d+(?:\.\d+)?)\s*gain", lowered)
     if freq_match:
         payload["frequency_hz"] = float(freq_match.group(1))
     if current_match:
         payload["target_ipp_a"] = float(current_match.group(1))
     if gain_match:
         payload["gain_mode_v_per_v"] = float(gain_match.group(1))
+    if title_gain_match:
+        payload["title_gain_setting"] = float(title_gain_match.group(1))
     if "cv" in lowered:
         payload["amp_mode"] = "CV"
     return payload

@@ -1,0 +1,43 @@
+{
+  "generated_at_utc": "2026-04-14T05:18:10.384808+00:00",
+  "exact_recipe_count": 47,
+  "missing_exact_combinations": [
+    {
+      "freq_hz": 1.0,
+      "cycles": 1.0,
+      "level_pp_a": 20
+    }
+  ],
+  "measurement_status": {
+    "bench_confirmed_exact_recipe_count": 0,
+    "new_exact_recipe_measured": [],
+    "new_transient_support_measured": []
+  },
+  "next_data_priority": [
+    {
+      "priority": 1,
+      "type": "missing_exact_recipe",
+      "proposal": "1.0 Hz + 1.0 cycle + 20 pp exact recipe 추가 측정",
+      "reason": "현재 exact table의 유일한 결손 조합이며, exact-supported 운영 범위를 바로 메울 수 있음"
+    },
+    {
+      "priority": 2,
+      "type": "high_freq_transient_support",
+      "proposal": "2.0 Hz / 5.0 Hz 구간에서 sine finite transient 추가 측정",
+      "reason": "stage-2 preview 품질이 가장 나쁜 구간으로 NRMSE와 shape corr가 지속적으로 악화됨"
+    },
+    {
+      "priority": 3,
+      "type": "midband_transition_support",
+      "proposal": "1.0 Hz / 1.25 Hz 구간에서 0.75, 1.5 cycle 추가 반복 측정",
+      "reason": "중간 대역에서도 preview 일반화 품질이 약하며 phase lag 변동성이 큼"
+    },
+    {
+      "priority": 4,
+      "type": "hold_low_freq_scope",
+      "proposal": "0.25 Hz 대역은 현 exact recipe 중심 유지",
+      "reason": "preview quality가 상대적으로 높아 추가 일반화 ROI가 낮음"
+    }
+  ],
+  "conclusion": "finite는 generalization보다 exact recipe 갭 보완과 고주파 transient 데이터 보강이 더 빠른 경로입니다."
+}

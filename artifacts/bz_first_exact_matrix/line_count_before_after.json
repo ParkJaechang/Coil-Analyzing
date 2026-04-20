@@ -1,0 +1,41 @@
+{
+  "generated_at_utc": "2026-04-17T08:18:16.590046+00:00",
+  "targets": [
+    {
+      "file": "recommendation_service.py",
+      "before_lines": 684,
+      "after_lines": 19,
+      "delta_lines": -665,
+      "target_met": true,
+      "helper_files": {
+        "recommendation_service_runtime.py": 244,
+        "recommendation_service_finalize.py": 401
+      }
+    },
+    {
+      "file": "validation_retune.py",
+      "before_lines": 2445,
+      "after_lines": 2280,
+      "delta_lines": -165,
+      "target_met": false,
+      "helper_files": {
+        "validation_retune_shared.py": 491,
+        "validation_retune_provenance.py": 91,
+        "validation_retune_alignment.py": 461,
+        "validation_retune_runtime.py": 372,
+        "validation_retune_comparison.py": 138,
+        "validation_retune_corrected_export.py": 272,
+        "validation_retune_acceptance.py": 279,
+        "validation_retune_metric_utils.py": 240
+      }
+    },
+    {
+      "file": "compensation.py",
+      "before_lines": 3274,
+      "after_lines": 3320,
+      "delta_lines": 46,
+      "target_met": false,
+      "helper_files": {}
+    }
+  ]
+}

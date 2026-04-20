@@ -1,0 +1,68 @@
+{
+  "generated_at_utc": "2026-04-16T08:45:09.840892+00:00",
+  "cases": [
+    {
+      "name": "continuous_preview_apply_exact",
+      "freq_hz_before": 0.75,
+      "freq_hz_after": 0.5,
+      "target_before": 20.0,
+      "target_after": 20.0,
+      "finite_mode_after": false,
+      "cycle_after": null,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환"
+      ],
+      "info_messages": [
+        "미리보기 전용: exact frequency support 없음"
+      ],
+      "warning_messages": [],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 exact 조합으로 전환",
+      "pass_status": true
+    },
+    {
+      "name": "finite_provisional_apply_exact",
+      "freq_hz_before": 1.0,
+      "freq_hz_after": 1.0,
+      "target_before": 20.0,
+      "target_after": 10.0,
+      "finite_mode_after": true,
+      "cycle_after": 1.0,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기"
+      ],
+      "info_messages": [],
+      "warning_messages": [
+        "임시 대체 조합: exact level support 없음"
+      ],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 exact 조합으로 전환",
+      "pass_status": true
+    },
+    {
+      "name": "finite_provisional_apply_provisional",
+      "freq_hz_before": 1.0,
+      "freq_hz_after": 1.0,
+      "target_before": 20.0,
+      "target_after": 20.0,
+      "finite_mode_after": true,
+      "cycle_after": 1.0,
+      "button_labels": [
+        "가장 가까운 exact 조합으로 전환",
+        "가장 가까운 provisional 조합으로 미리보기"
+      ],
+      "info_messages": [],
+      "warning_messages": [
+        "임시 대체 조합: exact level support 없음"
+      ],
+      "success_messages": [],
+      "caption_messages": [],
+      "clicked_button_label": "가장 가까운 provisional 조합으로 미리보기",
+      "pass_status": true
+    }
+  ],
+  "failures": []
+}

@@ -1,0 +1,1361 @@
+{
+  "v2": {
+    "policy_version": "v2_continuous_corpus_l1fo",
+    "policy_allow_interpolated_auto": true,
+    "policy_margin_source": "gain",
+    "holdout_mode": "frequency",
+    "policy_thresholds": {
+      "min_surface_confidence": 0.85,
+      "min_harmonic_fill_ratio": 0.6,
+      "max_predicted_error_band": 0.15,
+      "min_input_limit_margin": 0.1,
+      "min_support_runs": 2
+    },
+    "case_count": 42,
+    "evaluated_case_count": 42,
+    "auto_count": 0,
+    "preview_or_block_count": 42,
+    "false_auto_count": 0,
+    "false_auto_rate_within_auto": 0.0,
+    "mean_realized_shape_corr": 0.8006178886580875,
+    "mean_realized_nrmse": 0.22487943417536616,
+    "mean_predicted_error_band": 0.16481566820276497,
+    "mean_input_limit_margin": 0.0,
+    "mean_gain_input_limit_margin": 0.0,
+    "mean_peak_input_limit_margin": 0.7394211692978803,
+    "mean_p95_input_limit_margin": 0.7407668456647047,
+    "support_state_counts": {
+      "interpolated_in_hull": 42
+    },
+    "evaluation_status_counts": {
+      "ok": 42
+    },
+    "confusion_counts": {
+      "correct_block": 39,
+      "false_block": 3
+    }
+  },
+  "v3_candidate_p95": {
+    "policy_version": "v3_candidate_p95_continuous_corpus_l1fo",
+    "policy_allow_interpolated_auto": true,
+    "policy_margin_source": "p95",
+    "holdout_mode": "frequency",
+    "policy_thresholds": {
+      "min_surface_confidence": 0.6,
+      "min_harmonic_fill_ratio": 0.6,
+      "max_predicted_error_band": 0.18,
+      "min_input_limit_margin": 0.1,
+      "min_support_runs": 2
+    },
+    "case_count": 42,
+    "evaluated_case_count": 42,
+    "auto_count": 18,
+    "preview_or_block_count": 24,
+    "false_auto_count": 17,
+    "false_auto_rate_within_auto": 0.9444444444444444,
+    "mean_realized_shape_corr": 0.8006178886580875,
+    "mean_realized_nrmse": 0.22487943417536616,
+    "mean_predicted_error_band": 0.16481566820276497,
+    "mean_input_limit_margin": 0.0,
+    "mean_gain_input_limit_margin": 0.0,
+    "mean_peak_input_limit_margin": 0.7394211692978803,
+    "mean_p95_input_limit_margin": 0.7407668456647047,
+    "support_state_counts": {
+      "interpolated_in_hull": 42
+    },
+    "evaluation_status_counts": {
+      "ok": 42
+    },
+    "confusion_counts": {
+      "correct_block": 22,
+      "false_auto": 17,
+      "false_block": 2,
+      "correct_auto": 1
+    }
+  },
+  "v3_geom_p95": {
+    "policy_version": "v3_geom_p95_continuous_corpus_l1fo",
+    "policy_allow_interpolated_auto": true,
+    "policy_margin_source": "p95",
+    "holdout_mode": "frequency",
+    "policy_thresholds": {
+      "min_surface_confidence": 0.6,
+      "min_harmonic_fill_ratio": 0.6,
+      "max_predicted_error_band": 0.18,
+      "min_input_limit_margin": 0.1,
+      "min_support_runs": 2
+    },
+    "case_count": 42,
+    "evaluated_case_count": 42,
+    "auto_count": 0,
+    "preview_or_block_count": 42,
+    "false_auto_count": 0,
+    "false_auto_rate_within_auto": 0.0,
+    "mean_realized_shape_corr": 0.8006178886580875,
+    "mean_realized_nrmse": 0.22487943417536616,
+    "mean_predicted_error_band": 0.19045013780958617,
+    "mean_input_limit_margin": 0.0,
+    "mean_gain_input_limit_margin": 0.0,
+    "mean_peak_input_limit_margin": 0.7394211692978803,
+    "mean_p95_input_limit_margin": 0.7407668456647047,
+    "support_state_counts": {
+      "interpolated_in_hull": 42
+    },
+    "evaluation_status_counts": {
+      "ok": 42
+    },
+    "confusion_counts": {
+      "correct_block": 39,
+      "false_block": 3
+    }
+  },
+  "exact_export_validation": {
+    "generated_at": "2026-04-14T04:19:31.746427+00:00",
+    "policy_version": "v2",
+    "cases": {
+      "continuous_exact_current": {
+        "preview_only": false,
+        "allow_auto_download": true,
+        "support_state": "exact",
+        "policy_version": "v2",
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current.csv",
+        "csv_size_bytes": 165804,
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_formula.txt",
+        "formula_size_bytes": 564,
+        "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_coefficients.csv",
+        "coeff_size_bytes": 1052,
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_current_control_lut.csv",
+        "lut_size_bytes": 8649,
+        "formula_text_nonempty": true,
+        "coeff_row_count": 10,
+        "lut_row_count": 128,
+        "lut_progress_column": "cycle_progress",
+        "lut_voltage_pk_v": 2.977423435041883,
+        "lut_voltage_within_waveform_envelope": true,
+        "lut_cycle_progress_in_unit_interval": true,
+        "line_count": 257,
+        "sample_count": 256,
+        "limited_voltage_pk_v": 2.9775453907171796,
+        "limited_voltage_pp_v": 5.938431854062184,
+        "profile_freq_hz": 0.5,
+        "target_waveform": "sine",
+        "target_type": "current",
+        "finite_cycle_mode": false,
+        "time_start_s": 0.0,
+        "time_end_s": 2.0
+      },
+      "continuous_exact_field": {
+        "preview_only": false,
+        "allow_auto_download": true,
+        "support_state": "exact",
+        "policy_version": "v2",
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field.csv",
+        "csv_size_bytes": 168757,
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_formula.txt",
+        "formula_size_bytes": 570,
+        "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_coefficients.csv",
+        "coeff_size_bytes": 1071,
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\continuous_exact_field_control_lut.csv",
+        "lut_size_bytes": 8645,
+        "formula_text_nonempty": true,
+        "coeff_row_count": 10,
+        "lut_row_count": 128,
+        "lut_progress_column": "cycle_progress",
+        "lut_voltage_pk_v": 1.7419790122202075,
+        "lut_voltage_within_waveform_envelope": true,
+        "lut_cycle_progress_in_unit_interval": true,
+        "line_count": 257,
+        "sample_count": 256,
+        "limited_voltage_pk_v": 1.742152922987615,
+        "limited_voltage_pp_v": 3.4760114925394725,
+        "profile_freq_hz": 0.25,
+        "target_waveform": "sine",
+        "target_type": "field",
+        "finite_cycle_mode": false,
+        "time_start_s": 0.0,
+        "time_end_s": 4.0
+      },
+      "finite_exact_sine": {
+        "preview_only": false,
+        "allow_auto_download": true,
+        "support_state": "exact",
+        "policy_version": "v2",
+        "csv_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine.csv",
+        "csv_size_bytes": 128531,
+        "formula_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_formula.txt",
+        "formula_size_bytes": 618,
+        "coeff_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_coefficients.csv",
+        "coeff_size_bytes": 1050,
+        "lut_file": "D:\\programs\\Codex\\Coil Analyzing\\artifacts\\policy_eval\\export_validation\\finite_exact_sine_control_lut.csv",
+        "lut_size_bytes": 8338,
+        "formula_text_nonempty": true,
+        "coeff_row_count": 10,
+        "lut_row_count": 128,
+        "lut_progress_column": "time_fraction",
+        "lut_voltage_pk_v": 1.599939496570522,
+        "lut_voltage_within_waveform_envelope": true,
+        "lut_cycle_progress_in_unit_interval": true,
+        "line_count": 257,
+        "sample_count": 256,
+        "limited_voltage_pk_v": 1.6000922937565898,
+        "limited_voltage_pp_v": 3.171268444167472,
+        "profile_freq_hz": 0.5,
+        "target_waveform": "sine",
+        "target_type": "current",
+        "finite_cycle_mode": true,
+        "time_start_s": 0.0,
+        "time_end_s": 2.5
+      }
+    }
+  },
+  "ui_policy_validation": {
+    "generated_at": "2026-04-14T04:34:32.719150+00:00",
+    "app_file": "D:\\programs\\Codex\\Coil Analyzing\\app_field_analysis_quick.py",
+    "validation_method": "streamlit.testing.v1.AppTest",
+    "scope": [
+      "continuous current exact auto",
+      "continuous field exact auto",
+      "continuous current interpolated preview",
+      "finite sine exact-supported",
+      "finite sine missing exact recipe preview"
+    ],
+    "limitations": [
+      "Programmatic UI validation only; browser download buttons are validated separately by Selenium and offline export checks.",
+      "AppTest indexes are tied to the current Quick LUT layout and should be refreshed if the form order changes."
+    ],
+    "cases": [
+      {
+        "name": "exact_current_auto",
+        "target_mode": "current",
+        "freq_hz": 0.5,
+        "compensation_target": 20.0,
+        "trend_enabled": true,
+        "finite_mode": false,
+        "cycle_count": null,
+        "exception_messages": [],
+        "warnings": [
+          "이 validation run은 자동 기본 후보 조건을 만족하지 않습니다. 사유: frequency too far"
+        ],
+        "infos": [
+          "`크기 LUT 계산`은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. `파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.",
+          "동일 파형과 근접 주파수의 validation run이 없어 자동 재추천을 건너뛰고 기본 보정을 유지합니다."
+        ],
+        "successes": [
+          "파형 보정 계산이 완료됐습니다.",
+          "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.",
+          "하드웨어 가용: 필요 AMP gain 100.0% / 사용 가능 100.0%"
+        ],
+        "metrics": {
+          "엔진": "harmonic_surface",
+          "지원 상태": "exact",
+          "자동 추천": "가능",
+          "confidence": "0.85",
+          "support runs": "5",
+          "harmonics": "11/11",
+          "predicted error": "0.050",
+          "input margin": "0.00%",
+          "DAQ Voltage PP": "7.814 V",
+          "목표 Current PP": "20.000 A",
+          "지원 포인트 수": "5",
+          "필요 AMP Gain": "100.0 %",
+          "추정 출력 lag": "0.1592 s",
+          "Fourier RMSE": "0.0057 V",
+          "Fourier NRMSE": "0.15%",
+          "최대 절대 오차": "0.0392 V"
+        },
+        "captions": [
+          "measured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱",
+          "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.",
+          "보유 주파수: 0.25, 0.5, 1, 2, 5, 10, 15 Hz",
+          "설정을 모두 바꾼 뒤 아래 버튼으로 적용합니다.",
+          "LCR 주파수 범위: 0 ~ 35000 Hz",
+          "nearest support의 first-cycle 대 steady-state 비율을 이용해 첫 1~3 cycle 구간 command를 보정하는 실험적 기능입니다. steady-state harmonic inverse를 대체하지 않고, startup 구간 preview와 validation 보정의 시작점으로만 씁니다.",
+          "auto 운영은 exact support만 허용합니다. interpolated_in_hull은 preview-only, interpolated_edge/out_of_hull은 blocked 또는 hold입니다.",
+          "finite는 sine only + exact waveform + exact freq + exact cycle + exact level recipe만 실사용 후보로 봅니다. 그 밖의 요청은 preview-only 또는 blocked입니다.",
+          "이 기능은 목표 measured current waveform를 기준으로 recommended voltage waveform을 계산합니다. 실제 구동용으로는 아래 결과를 보고, 위의 크기 LUT는 대략적 전압 범위 확인용으로만 쓰면 됩니다.",
+          "input margin(gain/peak/p95): 0.00% / 60.85% / 61.06%",
+          "policy version: v2",
+          "policy margin source: gain",
+          "auto validation candidate: 샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App | waveform=sine | freq=1.250 Hz | output_pp=24.723 | score=inf",
+          "raw recommended voltage pp=7.814 V, DAQ limit=20.0 Vpp, AMP output=156.3 Vpp",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "현재는 steady-state 모드의 기존 1-cycle 보정 로직을 그대로 사용합니다.",
+          "입력 command voltage 대비 current/field harmonic transfer를 그대로 보여줍니다.",
+          "제어 전달식 표현: steady-state periodic formula",
+          "자동 추천 기준: waveform=sine, freq=1.250 Hz, output_pp=24.723, score=inf, eligible=False",
+          "1회차는 실제 validation run 기준이고, 2회차 이후는 같은 validation transfer를 재사용하는 예측 재추천입니다.",
+          "검증 run을 하나 고른 뒤 자동 재추천 루프 계산을 누르십시오.",
+          "연속 cycle: 55개 (기억된 파일 재사용)",
+          "sine_0.5_5.csv, sine_0.5_10.csv, sine_0.5_15.csv, sine_0.5_20.csv",
+          "finite-cycle: 47개 (기억된 파일 재사용)",
+          "0.5hz_1.5cycle_10pp.csv, 0.5hz_1.5cycle_20pp.csv, 0.5hz_1.25cycle_10pp.csv, 0.5hz_1.25cycle_20pp.csv",
+          "검증 run: 1개 (기억된 파일 재사용)",
+          "샘플파형테스트결과_1hz_pp20A.csv",
+          "LCR: 1개 (기억된 파일 재사용)",
+          "all_bands_full.xlsx",
+          "사용 모드: 간단 LUT"
+        ],
+        "button_labels": [
+          "크기 LUT 계산",
+          "전류 파형 보정 계산",
+          "자동 재추천 루프 계산",
+          "기억 초기화",
+          "전체삭제"
+        ],
+        "pass_status": true
+      },
+      {
+        "name": "exact_field_auto",
+        "target_mode": "field",
+        "freq_hz": 0.25,
+        "compensation_target": 20.0,
+        "trend_enabled": true,
+        "finite_mode": false,
+        "cycle_count": null,
+        "exception_messages": [],
+        "warnings": [
+          "이 validation run은 자동 기본 후보 조건을 만족하지 않습니다. 사유: frequency too far"
+        ],
+        "infos": [
+          "`크기 LUT 계산`은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. `파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.",
+          "동일 파형과 근접 주파수의 validation run이 없어 자동 재추천을 건너뛰고 기본 보정을 유지합니다."
+        ],
+        "successes": [
+          "파형 보정 계산이 완료됐습니다.",
+          "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다."
+        ],
+        "metrics": {
+          "엔진": "harmonic_surface",
+          "지원 상태": "exact",
+          "자동 추천": "가능",
+          "confidence": "0.85",
+          "support runs": "5",
+          "harmonics": "11/11",
+          "predicted error": "0.050",
+          "input margin": "0.00%",
+          "DAQ Voltage PP": "20.000 V",
+          "목표 bz_mT PP": "20.000 mT",
+          "지원 포인트 수": "5",
+          "필요 AMP Gain": "865787052.8 %",
+          "추정 출력 lag": "-1.8173 s",
+          "Fourier RMSE": "0.0194 V",
+          "Fourier NRMSE": "0.19%",
+          "최대 절대 오차": "0.1184 V"
+        },
+        "captions": [
+          "measured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱",
+          "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.",
+          "보유 주파수: 0.25, 0.5, 1, 2, 5, 10, 15 Hz",
+          "설정을 모두 바꾼 뒤 아래 버튼으로 적용합니다.",
+          "LCR 주파수 범위: 0 ~ 35000 Hz",
+          "nearest support의 first-cycle 대 steady-state 비율을 이용해 첫 1~3 cycle 구간 command를 보정하는 실험적 기능입니다. steady-state harmonic inverse를 대체하지 않고, startup 구간 preview와 validation 보정의 시작점으로만 씁니다.",
+          "auto 운영은 exact support만 허용합니다. interpolated_in_hull은 preview-only, interpolated_edge/out_of_hull은 blocked 또는 hold입니다.",
+          "finite는 sine only + exact waveform + exact freq + exact cycle + exact level recipe만 실사용 후보로 봅니다. 그 밖의 요청은 preview-only 또는 blocked입니다.",
+          "이 기능은 목표 measured bz_mT waveform를 기준으로 recommended voltage waveform을 계산합니다. 실제 구동용으로는 아래 결과를 보고, 위의 크기 LUT는 대략적 전압 범위 확인용으로만 쓰면 됩니다.",
+          "input margin(gain/peak/p95): 0.00% / 0.00% / 0.39%",
+          "policy version: v2",
+          "policy margin source: gain",
+          "auto validation candidate: 샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App | waveform=sine | freq=1.250 Hz | output_pp=222.971 | score=inf",
+          "raw recommended voltage pp=173157410.569 V, DAQ limit=20.0 Vpp, AMP output=3463148211.4 Vpp",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "현재는 steady-state 모드의 기존 1-cycle 보정 로직을 그대로 사용합니다.",
+          "입력 command voltage 대비 current/field harmonic transfer를 그대로 보여줍니다.",
+          "제어 전달식 표현: steady-state periodic formula",
+          "자동 추천 기준: waveform=sine, freq=1.250 Hz, output_pp=222.971, score=inf, eligible=False",
+          "1회차는 실제 validation run 기준이고, 2회차 이후는 같은 validation transfer를 재사용하는 예측 재추천입니다.",
+          "검증 run을 하나 고른 뒤 자동 재추천 루프 계산을 누르십시오.",
+          "연속 cycle: 55개 (기억된 파일 재사용)",
+          "sine_0.5_5.csv, sine_0.5_10.csv, sine_0.5_15.csv, sine_0.5_20.csv",
+          "finite-cycle: 47개 (기억된 파일 재사용)",
+          "0.5hz_1.5cycle_10pp.csv, 0.5hz_1.5cycle_20pp.csv, 0.5hz_1.25cycle_10pp.csv, 0.5hz_1.25cycle_20pp.csv",
+          "검증 run: 1개 (기억된 파일 재사용)",
+          "샘플파형테스트결과_1hz_pp20A.csv",
+          "LCR: 1개 (기억된 파일 재사용)",
+          "all_bands_full.xlsx",
+          "사용 모드: 간단 LUT"
+        ],
+        "button_labels": [
+          "크기 LUT 계산",
+          "bz_mT 파형 보정 계산",
+          "자동 재추천 루프 계산",
+          "기억 초기화",
+          "전체삭제"
+        ],
+        "pass_status": true
+      },
+      {
+        "name": "interpolated_current_preview",
+        "target_mode": "current",
+        "freq_hz": 0.75,
+        "compensation_target": 20.0,
+        "trend_enabled": true,
+        "finite_mode": false,
+        "cycle_count": null,
+        "exception_messages": [],
+        "warnings": [
+          "preview only: exact frequency support 없음 / input_limit_margin_below_threshold / surface_confidence_below_threshold",
+          "이 validation run은 자동 기본 후보 조건을 만족하지 않습니다. 사유: frequency too far"
+        ],
+        "infos": [
+          "`크기 LUT 계산`은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. `파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.",
+          "nearest exact recipe: waveform=sine / freq=0.5 Hz / levels=5, 10, 15, 20, 30",
+          "주파수 trend 보간 사용: 요청 0.750 Hz, 지원 범위 0.250 ~ 15.000 Hz",
+          "동일 파형과 근접 주파수의 validation run이 없어 자동 재추천을 건너뛰고 기본 보정을 유지합니다."
+        ],
+        "successes": [
+          "파형 보정 계산이 완료됐습니다.",
+          "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.",
+          "하드웨어 가용: 필요 AMP gain 100.0% / 사용 가능 100.0%"
+        ],
+        "metrics": {
+          "엔진": "harmonic_surface",
+          "지원 상태": "interpolated_in_hull",
+          "자동 추천": "preview-only",
+          "confidence": "0.53",
+          "support runs": "27",
+          "harmonics": "11/11",
+          "predicted error": "0.147",
+          "input margin": "0.00%",
+          "DAQ Voltage PP": "6.738 V",
+          "목표 Current PP": "20.000 A",
+          "지원 포인트 수": "27",
+          "필요 AMP Gain": "100.0 %",
+          "추정 출력 lag": "0.1537 s",
+          "Fourier RMSE": "0.0048 V",
+          "Fourier NRMSE": "0.14%",
+          "최대 절대 오차": "0.0334 V"
+        },
+        "captions": [
+          "measured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱",
+          "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.",
+          "보유 주파수: 0.25, 0.5, 1, 2, 5, 10, 15 Hz",
+          "설정을 모두 바꾼 뒤 아래 버튼으로 적용합니다.",
+          "LCR 주파수 범위: 0 ~ 35000 Hz",
+          "nearest support의 first-cycle 대 steady-state 비율을 이용해 첫 1~3 cycle 구간 command를 보정하는 실험적 기능입니다. steady-state harmonic inverse를 대체하지 않고, startup 구간 preview와 validation 보정의 시작점으로만 씁니다.",
+          "auto 운영은 exact support만 허용합니다. interpolated_in_hull은 preview-only, interpolated_edge/out_of_hull은 blocked 또는 hold입니다.",
+          "finite는 sine only + exact waveform + exact freq + exact cycle + exact level recipe만 실사용 후보로 봅니다. 그 밖의 요청은 preview-only 또는 blocked입니다.",
+          "이 기능은 목표 measured current waveform를 기준으로 recommended voltage waveform을 계산합니다. 실제 구동용으로는 아래 결과를 보고, 위의 크기 LUT는 대략적 전압 범위 확인용으로만 쓰면 됩니다.",
+          "input margin(gain/peak/p95): 0.00% / 66.25% / 66.43%",
+          "policy version: v2",
+          "policy margin source: gain",
+          "사유: exact frequency support 없음 / input_limit_margin_below_threshold / surface_confidence_below_threshold",
+          "auto validation candidate: 샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App | waveform=sine | freq=1.250 Hz | output_pp=24.723 | score=inf",
+          "raw recommended voltage pp=6.738 V, DAQ limit=20.0 Vpp, AMP output=134.8 Vpp",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "현재는 steady-state 모드의 기존 1-cycle 보정 로직을 그대로 사용합니다.",
+          "입력 command voltage 대비 current/field harmonic transfer를 그대로 보여줍니다.",
+          "제어 전달식 표현: steady-state periodic formula",
+          "자동 추천 기준: waveform=sine, freq=1.250 Hz, output_pp=24.723, score=inf, eligible=False",
+          "1회차는 실제 validation run 기준이고, 2회차 이후는 같은 validation transfer를 재사용하는 예측 재추천입니다.",
+          "검증 run을 하나 고른 뒤 자동 재추천 루프 계산을 누르십시오.",
+          "연속 cycle: 55개 (기억된 파일 재사용)",
+          "sine_0.5_5.csv, sine_0.5_10.csv, sine_0.5_15.csv, sine_0.5_20.csv",
+          "finite-cycle: 47개 (기억된 파일 재사용)",
+          "0.5hz_1.5cycle_10pp.csv, 0.5hz_1.5cycle_20pp.csv, 0.5hz_1.25cycle_10pp.csv, 0.5hz_1.25cycle_20pp.csv",
+          "검증 run: 1개 (기억된 파일 재사용)",
+          "샘플파형테스트결과_1hz_pp20A.csv",
+          "LCR: 1개 (기억된 파일 재사용)",
+          "all_bands_full.xlsx",
+          "사용 모드: 간단 LUT"
+        ],
+        "button_labels": [
+          "크기 LUT 계산",
+          "전류 파형 보정 계산",
+          "자동 재추천 루프 계산",
+          "기억 초기화",
+          "전체삭제"
+        ],
+        "pass_status": true
+      },
+      {
+        "name": "finite_exact_supported",
+        "target_mode": "current",
+        "freq_hz": 0.5,
+        "compensation_target": 20.0,
+        "trend_enabled": true,
+        "finite_mode": true,
+        "cycle_count": 1.0,
+        "exception_messages": [],
+        "warnings": [
+          "finite-cycle은 아직 실험적 기능입니다. 현재 추천은 steady-state support를 기반으로 0초 시작/종료를 맞춘 보조 계산이고, 전용 transient 데이터 없이 0.75 / 1.25 cycle 응답을 정확 모델처럼 해석하면 안 됩니다.",
+          "finite empirical model extrapolation axes: output",
+          "이 validation run은 자동 기본 후보 조건을 만족하지 않습니다. 사유: frequency too far"
+        ],
+        "infos": [
+          "`크기 LUT 계산`은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. `파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.",
+          "현재 조건에서는 steady-state harmonic 보정을 우선 사용합니다.",
+          "동일 파형과 근접 주파수의 validation run이 없어 자동 재추천을 건너뛰고 기본 보정을 유지합니다."
+        ],
+        "successes": [
+          "파형 보정 계산이 완료됐습니다.",
+          "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.",
+          "하드웨어 가용: 필요 AMP gain 100.0% / 사용 가능 100.0%"
+        ],
+        "metrics": {
+          "엔진": "legacy",
+          "지원 상태": "exact",
+          "자동 추천": "가능",
+          "confidence": "n/a",
+          "support runs": "n/a",
+          "harmonics": "n/a",
+          "predicted error": "0.050",
+          "input margin": "0.00%",
+          "DAQ Voltage PP": "3.171 V",
+          "목표 Current PP": "20.000 A",
+          "지원 포인트 수": "2",
+          "필요 AMP Gain": "100.0 %",
+          "추정 출력 lag": "0.0000 s",
+          "Fourier RMSE": "0.0159 V",
+          "Fourier NRMSE": "1.00%",
+          "최대 절대 오차": "0.0748 V"
+        },
+        "captions": [
+          "measured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱",
+          "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.",
+          "보유 주파수: 0.25, 0.5, 1, 2, 5, 10, 15 Hz",
+          "설정을 모두 바꾼 뒤 아래 버튼으로 적용합니다.",
+          "LCR 주파수 범위: 0 ~ 35000 Hz",
+          "auto 운영은 exact support만 허용합니다. interpolated_in_hull은 preview-only, interpolated_edge/out_of_hull은 blocked 또는 hold입니다.",
+          "finite는 sine only + exact waveform + exact freq + exact cycle + exact level recipe만 실사용 후보로 봅니다. 그 밖의 요청은 preview-only 또는 blocked입니다.",
+          "이 기능은 목표 measured current waveform를 기준으로 recommended voltage waveform을 계산합니다. 실제 구동용으로는 아래 결과를 보고, 위의 크기 LUT는 대략적 전압 범위 확인용으로만 쓰면 됩니다.",
+          "policy version: v2",
+          "policy margin source: gain",
+          "raw recommended voltage pp=3.171 V, DAQ limit=20.0 Vpp, AMP output=63.4 Vpp",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬한 목표값이고, `Lag-Compensated Target`은 내부 보정 계산에 사용한 선행 목표입니다.",
+          "입력 command voltage 대비 current/field harmonic transfer를 그대로 보여줍니다.",
+          "제어 전달식 표현: finite run piecewise formula",
+          "이 영역은 finite transient 데이터를 nearest support로 묶어 파형 유사도를 보는 empirical 참고 모델입니다. 정식 transient 물리 모델이 아니며 steady-state harmonic 보정을 대체하지 않습니다.",
+          "auto validation candidate: 샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App | waveform=sine | freq=1.250 Hz | output_pp=24.723 | score=inf",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "제어 전달식 표현: finite run piecewise formula",
+          "자동 추천 기준: waveform=sine, freq=1.250 Hz, output_pp=24.723, score=inf, eligible=False",
+          "1회차는 실제 validation run 기준이고, 2회차 이후는 같은 validation transfer를 재사용하는 예측 재추천입니다.",
+          "검증 run을 하나 고른 뒤 자동 재추천 루프 계산을 누르십시오.",
+          "연속 cycle: 55개 (기억된 파일 재사용)",
+          "sine_0.5_5.csv, sine_0.5_10.csv, sine_0.5_15.csv, sine_0.5_20.csv",
+          "finite-cycle: 47개 (기억된 파일 재사용)",
+          "0.5hz_1.5cycle_10pp.csv, 0.5hz_1.5cycle_20pp.csv, 0.5hz_1.25cycle_10pp.csv, 0.5hz_1.25cycle_20pp.csv",
+          "검증 run: 1개 (기억된 파일 재사용)",
+          "샘플파형테스트결과_1hz_pp20A.csv",
+          "LCR: 1개 (기억된 파일 재사용)",
+          "all_bands_full.xlsx",
+          "사용 모드: 간단 LUT"
+        ],
+        "button_labels": [
+          "크기 LUT 계산",
+          "전류 파형 보정 계산",
+          "자동 재추천 루프 계산",
+          "기억 초기화",
+          "전체삭제"
+        ],
+        "pass_status": true
+      },
+      {
+        "name": "finite_missing_exact_recipe",
+        "target_mode": "current",
+        "freq_hz": 1.0,
+        "compensation_target": 20.0,
+        "trend_enabled": true,
+        "finite_mode": true,
+        "cycle_count": 1.0,
+        "exception_messages": [],
+        "warnings": [
+          "finite-cycle은 아직 실험적 기능입니다. 현재 추천은 steady-state support를 기반으로 0초 시작/종료를 맞춘 보조 계산이고, 전용 transient 데이터 없이 0.75 / 1.25 cycle 응답을 정확 모델처럼 해석하면 안 됩니다.",
+          "preview only: exact level support 없음",
+          "finite empirical model extrapolation axes: output"
+        ],
+        "infos": [
+          "`크기 LUT 계산`은 목표 PP 값에 필요한 대략의 전압 크기를 보는 1차 추정입니다. `파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다.",
+          "nearest exact recipe: waveform=sine / freq=1 Hz / cycles=1",
+          "현재 조건에서는 steady-state harmonic 보정을 우선 사용합니다.",
+          "검증 run 자동 평가 완료: `샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App` 기준 예상 NRMSE 17.14% -> 70.70%, 기본 보정 유지 (predicted improvement insufficient)"
+        ],
+        "successes": [
+          "파형 보정 계산이 완료됐습니다.",
+          "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.",
+          "하드웨어 가용: 필요 AMP gain 100.0% / 사용 가능 100.0%"
+        ],
+        "metrics": {
+          "엔진": "legacy",
+          "지원 상태": "exact",
+          "자동 추천": "preview-only",
+          "confidence": "n/a",
+          "support runs": "n/a",
+          "harmonics": "n/a",
+          "predicted error": "0.250",
+          "input margin": "0.00%",
+          "DAQ Voltage PP": "4.073 V",
+          "목표 Current PP": "20.000 A",
+          "지원 포인트 수": "1",
+          "필요 AMP Gain": "100.0 %",
+          "추정 출력 lag": "0.0000 s",
+          "Fourier RMSE": "0.0224 V",
+          "Fourier NRMSE": "1.10%",
+          "최대 절대 오차": "0.0777 V"
+        },
+        "captions": [
+          "measured field 중심으로 Quick LUT, waveform compensation, 제어 전달용 export를 빠르게 확인하는 운용 전용 앱",
+          "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오.",
+          "보유 주파수: 0.25, 0.5, 1, 2, 5, 10, 15 Hz",
+          "설정을 모두 바꾼 뒤 아래 버튼으로 적용합니다.",
+          "LCR 주파수 범위: 0 ~ 35000 Hz",
+          "auto 운영은 exact support만 허용합니다. interpolated_in_hull은 preview-only, interpolated_edge/out_of_hull은 blocked 또는 hold입니다.",
+          "finite는 sine only + exact waveform + exact freq + exact cycle + exact level recipe만 실사용 후보로 봅니다. 그 밖의 요청은 preview-only 또는 blocked입니다.",
+          "이 기능은 목표 measured current waveform를 기준으로 recommended voltage waveform을 계산합니다. 실제 구동용으로는 아래 결과를 보고, 위의 크기 LUT는 대략적 전압 범위 확인용으로만 쓰면 됩니다.",
+          "policy version: v2",
+          "policy margin source: gain",
+          "사유: exact level support 없음",
+          "raw recommended voltage pp=4.073 V, DAQ limit=20.0 Vpp, AMP output=81.5 Vpp",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬한 목표값이고, `Lag-Compensated Target`은 내부 보정 계산에 사용한 선행 목표입니다.",
+          "입력 command voltage 대비 current/field harmonic transfer를 그대로 보여줍니다.",
+          "제어 전달식 표현: finite run piecewise formula",
+          "이 영역은 finite transient 데이터를 nearest support로 묶어 파형 유사도를 보는 empirical 참고 모델입니다. 정식 transient 물리 모델이 아니며 steady-state harmonic 보정을 대체하지 않습니다.",
+          "auto validation candidate: 샘플파형테스트결과_1hz_pp20A__sine__1.25Hz__20App | waveform=sine | freq=1.250 Hz | output_pp=24.723 | score=0.486",
+          "아래 `modeled/expected` 값은 target을 그대로 넣은 값이 아니라, 현재 support 기반 보정 모델의 예상 출력입니다.",
+          "제어 전달식 표현: finite run piecewise formula",
+          "자동 추천 기준: waveform=sine, freq=1.250 Hz, output_pp=24.723, score=0.486, eligible=True",
+          "1회차는 실제 validation run 기준이고, 2회차 이후는 같은 validation transfer를 재사용하는 예측 재추천입니다.",
+          "검증 run을 하나 고른 뒤 자동 재추천 루프 계산을 누르십시오.",
+          "연속 cycle: 55개 (기억된 파일 재사용)",
+          "sine_0.5_5.csv, sine_0.5_10.csv, sine_0.5_15.csv, sine_0.5_20.csv",
+          "finite-cycle: 47개 (기억된 파일 재사용)",
+          "0.5hz_1.5cycle_10pp.csv, 0.5hz_1.5cycle_20pp.csv, 0.5hz_1.25cycle_10pp.csv, 0.5hz_1.25cycle_20pp.csv",
+          "검증 run: 1개 (기억된 파일 재사용)",
+          "샘플파형테스트결과_1hz_pp20A.csv",
+          "LCR: 1개 (기억된 파일 재사용)",
+          "all_bands_full.xlsx",
+          "사용 모드: 간단 LUT"
+        ],
+        "button_labels": [
+          "크기 LUT 계산",
+          "전류 파형 보정 계산",
+          "자동 재추천 루프 계산",
+          "기억 초기화",
+          "전체삭제"
+        ],
+        "pass_status": true
+      }
+    ]
+  },
+  "finite_generalization_stage2": {
+    "generated_at": "2026-04-14T03:05:34.047785+00:00",
+    "policy_version": "v2",
+    "case_count": 47,
+    "preview_case_count": 47,
+    "summary": {
+      "mean_shape_corr": 0.15713606030333874,
+      "mean_nrmse": 0.38477532474395776,
+      "mean_phase_lag_s": -0.18064553141772746
+    },
+    "cases": [
+      {
+        "source_file": "00777c78a89e3efe_2hz_1cycle_20pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.0,
+        "target_current_pp": 16.007810756434896,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.252348933126415,
+        "nrmse": 0.4812611966466228,
+        "phase_lag_s": -0.16421568627450922
+      },
+      {
+        "source_file": "0d7763260e79d8ae_2hz_1cycle_10pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.0,
+        "target_current_pp": 7.926926019834854,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.2605469930849388,
+        "nrmse": 0.4820542074348211,
+        "phase_lag_s": -0.16666666666666607
+      },
+      {
+        "source_file": "1ee9857ef966a191_2hz_1.5cycle_10pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 7.924568220123211,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.29983225556811527,
+        "nrmse": 0.4522540383846661,
+        "phase_lag_s": 0.19215686274509736
+      },
+      {
+        "source_file": "2ac09967767da479_5hz_0.75cycle_20pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 16.326509873974533,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.20657864471747006,
+        "nrmse": 0.4115233814308844,
+        "phase_lag_s": -0.04941176470588244
+      },
+      {
+        "source_file": "2edaa97fc5710a62_1.25hz_1cycle_20pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.0,
+        "target_current_pp": 17.714035060397038,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.13948765234506172,
+        "nrmse": 0.4203858014387206,
+        "phase_lag_s": -0.18431372549019542
+      },
+      {
+        "source_file": "34236d1ec1eb46ae_1.25hz_0.75cycle_20pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 0.75,
+        "target_current_pp": 12.593443780832917,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.11515752253417419,
+        "nrmse": 0.5114184872095408,
+        "phase_lag_s": -0.17568627450980423
+      },
+      {
+        "source_file": "376410c8f503ce70_1hz_1.5cycle_20pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 17.86333678356715,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.024878296349235354,
+        "nrmse": 0.4297610416098254,
+        "phase_lag_s": -0.2401960784313717
+      },
+      {
+        "source_file": "39f6e3c967bc8bd3_0.25hz_1cycle_10pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.0,
+        "target_current_pp": 9.49684348161568,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.9279824856989426,
+        "nrmse": 0.13164841688319384,
+        "phase_lag_s": -0.21367521367521514
+      },
+      {
+        "source_file": "3a78dce0c173bafb_1.25hz_1.5cycle_10pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.5,
+        "target_current_pp": 8.722282382478376,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.2789559466157767,
+        "nrmse": 0.4735420645744661,
+        "phase_lag_s": -0.25254901960784326
+      },
+      {
+        "source_file": "4059b5692cce61a5_1.25hz_1cycle_10pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.0,
+        "target_current_pp": 8.701013078046211,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.017436414321059378,
+        "nrmse": 0.4429353214958879,
+        "phase_lag_s": -0.2117647058823522
+      },
+      {
+        "source_file": "4f61d0781536fe92_1.25hz_1.5cycle_20pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.5,
+        "target_current_pp": 17.735551475446385,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.21365405860380707,
+        "nrmse": 0.4645750515963994,
+        "phase_lag_s": -0.2415686274509805
+      },
+      {
+        "source_file": "4fbc6e8031f1e840_1hz_1.5cycle_10pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 8.794606282099622,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.2911122504345604,
+        "nrmse": 0.48128024012910453,
+        "phase_lag_s": -0.3294117647058812
+      },
+      {
+        "source_file": "58444027ffebe012_1hz_1.25cycle_10pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 8.812497976628503,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.1032252860882655,
+        "nrmse": 0.4297988607481865,
+        "phase_lag_s": -0.29999999999999893
+      },
+      {
+        "source_file": "5ba8701a2bbbd9fd_0.25hz_0.75cycle_10pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 0.75,
+        "target_current_pp": 9.288293883326697,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.7880419569791486,
+        "nrmse": 0.2056755233699379,
+        "phase_lag_s": -0.2933333333333328
+      },
+      {
+        "source_file": "5e8d5c5d504c2a53_0.25hz_1.25cycle_20pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.25,
+        "target_current_pp": 19.06593054095159,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.970250356834355,
+        "nrmse": 0.08208936058276124,
+        "phase_lag_s": -0.10687022900763338
+      },
+      {
+        "source_file": "5f828ab51b9b48b1_5hz_1cycle_20pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.0,
+        "target_current_pp": 11.254595182471853,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.47972388122555504,
+        "nrmse": 0.5834515495353253,
+        "phase_lag_s": -0.09215686274509771
+      },
+      {
+        "source_file": "6369eff255cd47b7_2hz_1.25cycle_20pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 16.073541371300006,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.09119605731223836,
+        "nrmse": 0.4220735922119501,
+        "phase_lag_s": -0.15588235294117592
+      },
+      {
+        "source_file": "686e3c239141abcd_5hz_1.5cycle_10pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 6.0860736710135,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.20778146307436218,
+        "nrmse": 0.33894452285489557,
+        "phase_lag_s": 0.05078431372549022
+      },
+      {
+        "source_file": "6bda621db69e0182_0.25hz_1cycle_20pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.0,
+        "target_current_pp": 19.04611387878994,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.993467473593189,
+        "nrmse": 0.04081765136147884,
+        "phase_lag_s": -0.04643962848297217
+      },
+      {
+        "source_file": "6ff3a5352362534c_1hz_1.25cycle_20pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 17.811071799692783,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.18095156447509664,
+        "nrmse": 0.38235570388915463,
+        "phase_lag_s": -0.2117647058823522
+      },
+      {
+        "source_file": "749c49b60709d8c9_5hz_1.25cycle_20pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 11.583924365527245,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.09889507486547171,
+        "nrmse": 0.3690138685751263,
+        "phase_lag_s": -0.06823529411764698
+      },
+      {
+        "source_file": "7925e6c8fb0c6d88_2hz_1.25cycle_10pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 7.967725058483374,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.09430868847207223,
+        "nrmse": 0.41995195796576545,
+        "phase_lag_s": -0.1647058823529406
+      },
+      {
+        "source_file": "7f7ab8e7b289338f_0.25hz_0.75cycle_20pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 0.75,
+        "target_current_pp": 18.78380020454137,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.9793576713269319,
+        "nrmse": 0.06985462870247908,
+        "phase_lag_s": -0.030188679245283012
+      },
+      {
+        "source_file": "8829b071d8f118e6_1.25hz_0.75cycle_10pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 0.75,
+        "target_current_pp": 6.791185285303797,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.09723584735902475,
+        "nrmse": 0.4936378819790463,
+        "phase_lag_s": -0.17254901960784344
+      },
+      {
+        "source_file": "8e3dc1515dd2c52b_1hz_0.75cycle_10pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 7.172517378022139,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.11976890914141067,
+        "nrmse": 0.4228948981723934,
+        "phase_lag_s": -0.18039215686274446
+      },
+      {
+        "source_file": "8e5e1c16d6969f6a_0.5hz_1.25cycle_10pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.25,
+        "target_current_pp": 9.279683957640419,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.4387745131024483,
+        "nrmse": 0.3325884499681181,
+        "phase_lag_s": -0.3176470588235283
+      },
+      {
+        "source_file": "8f37861433dca00e_0.5hz_0.75cycle_20pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 0.75,
+        "target_current_pp": 17.33809028824597,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.5643504531477278,
+        "nrmse": 0.29031306479616265,
+        "phase_lag_s": -0.22745098039215605
+      },
+      {
+        "source_file": "8fde64d18816aee5_5hz_0.75cycle_10pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 3.97683031787701,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.06775532795740911,
+        "nrmse": 0.694009194259661,
+        "phase_lag_s": 0.02431372549019612
+      },
+      {
+        "source_file": "92b050c72d0e3461_5hz_1cycle_10pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.0,
+        "target_current_pp": 5.089580582359839,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.4625386828212891,
+        "nrmse": 0.5794176976282546,
+        "phase_lag_s": -0.09509803921568594
+      },
+      {
+        "source_file": "984dd499abaeab42_2hz_0.75cycle_10pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 5.447829201911106,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.3119841601995996,
+        "nrmse": 0.6126961005512984,
+        "phase_lag_s": -0.13137254901960738
+      },
+      {
+        "source_file": "9c896827f4bd5f55_0.25hz_1.5cycle_20pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.5,
+        "target_current_pp": 19.128302014650423,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.16969023149468113,
+        "nrmse": 0.4047775724718693,
+        "phase_lag_s": -0.8200339558573855
+      },
+      {
+        "source_file": "a384b0fd7426bfa7_0.5hz_0.75cycle_10pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 0.75,
+        "target_current_pp": 8.502120740694293,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.5264386257967424,
+        "nrmse": 0.30236213697866804,
+        "phase_lag_s": -0.24313725490195992
+      },
+      {
+        "source_file": "a5c1dea149bb0c39_0.5hz_1cycle_20pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.0,
+        "target_current_pp": 18.730143897563998,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.8725201690670191,
+        "nrmse": 0.17388931601194876,
+        "phase_lag_s": -0.14705882352941124
+      },
+      {
+        "source_file": "b22692ebf0387511_2hz_1.5cycle_20pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 16.052339090263807,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.2778342038513225,
+        "nrmse": 0.44600604668307464,
+        "phase_lag_s": 0.18529411764705817
+      },
+      {
+        "source_file": "b22a10a22bcddca3_2hz_0.75cycle_20pp.csv",
+        "freq_hz": 2.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 9.668471606196649,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.350337063460831,
+        "nrmse": 0.6571849622365075,
+        "phase_lag_s": -0.1294117647058819
+      },
+      {
+        "source_file": "bd7e855a015ca1a1_0.25hz_1.25cycle_10pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.25,
+        "target_current_pp": 9.482654748849917,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.8915029958953282,
+        "nrmse": 0.15523354320351873,
+        "phase_lag_s": -0.23471882640586728
+      },
+      {
+        "source_file": "bffb95c9a51872b9_5hz_1.5cycle_20pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.5,
+        "target_current_pp": 12.448247242903705,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.14375187527642264,
+        "nrmse": 0.4110703274367883,
+        "phase_lag_s": 0.06725490196078435
+      },
+      {
+        "source_file": "d9005c8af955f433_5hz_1.25cycle_10pp.csv",
+        "freq_hz": 5.0,
+        "cycle_count": 1.25,
+        "target_current_pp": 5.750456299916018,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.0951234603017452,
+        "nrmse": 0.3680596673785427,
+        "phase_lag_s": -0.0647058823529411
+      },
+      {
+        "source_file": "e77aa6271dad7514_0.25hz_1.5cycle_10pp.csv",
+        "freq_hz": 0.25,
+        "cycle_count": 1.5,
+        "target_current_pp": 9.501267494622208,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.9792224880672493,
+        "nrmse": 0.06829930547298034,
+        "phase_lag_s": -0.09271523178807861
+      },
+      {
+        "source_file": "ef3cf20eebe455fa_0.5hz_1cycle_10pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.0,
+        "target_current_pp": 9.258982448000205,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.6545411990603826,
+        "nrmse": 0.2789962044049725,
+        "phase_lag_s": -0.2549019607843128
+      },
+      {
+        "source_file": "ef7acd409cb7f4a4_1.25hz_1.25cycle_10pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.25,
+        "target_current_pp": 8.722045381436121,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.05252541871845577,
+        "nrmse": 0.4215617478530028,
+        "phase_lag_s": -0.2258823529411762
+      },
+      {
+        "source_file": "f267d639e665555c_1hz_1cycle_10pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 1.0,
+        "target_current_pp": 8.827250270225012,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact cycle support 없음",
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.31738034590489445,
+        "nrmse": 0.35638445986480244,
+        "phase_lag_s": -0.19117647058823461
+      },
+      {
+        "source_file": "f7084d01c874d4e5_0.5hz_1.5cycle_20pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.5,
+        "target_current_pp": 18.726199145354286,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.1180144695368371,
+        "nrmse": 0.41569516481933233,
+        "phase_lag_s": -0.4345637583892601
+      },
+      {
+        "source_file": "f8e5d886c76d7b9c_1hz_0.75cycle_20pp.csv",
+        "freq_hz": 1.0,
+        "cycle_count": 0.75,
+        "target_current_pp": 14.499704042005522,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.08708510130526223,
+        "nrmse": 0.4278102538409459,
+        "phase_lag_s": -0.1882352941176464
+      },
+      {
+        "source_file": "fb9e04ea3e8e9659_0.5hz_1.5cycle_10pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.5,
+        "target_current_pp": 9.294546413915027,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": 0.19630548945557233,
+        "nrmse": 0.3991421502546108,
+        "phase_lag_s": -0.4047619047619033
+      },
+      {
+        "source_file": "fc9a039261fd05eb_0.5hz_1.25cycle_20pp.csv",
+        "freq_hz": 0.5,
+        "cycle_count": 1.25,
+        "target_current_pp": 18.761226562415985,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.010865896273282142,
+        "nrmse": 0.42568329871061816,
+        "phase_lag_s": -0.5200000000000005
+      },
+      {
+        "source_file": "ff132682eb37f728_1.25hz_1.25cycle_20pp.csv",
+        "freq_hz": 1.25,
+        "cycle_count": 1.25,
+        "target_current_pp": 17.736208033292343,
+        "preview_only": true,
+        "allow_auto_download": false,
+        "support_state": "exact",
+        "policy_reasons": [
+          "exact level support 없음"
+        ],
+        "shape_corr": -0.06105297853196794,
+        "nrmse": 0.4200603493577038,
+        "phase_lag_s": -0.23529411764705854
+      }
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "validation_run": {
+    "export_file_prefix": "mock_current_exact_retune",
+    "lut_id": "mock_current_exact_retune",
+    "target_output_type": "current",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "commanded_cycles": null,
+    "target_level_value": 10.0,
+    "target_level_kind": "pp",
+    "selected_validation_test_id": "mock_validation_current_1hz",
+    "selected_validation_source_file": "mock_validation_current_1hz.csv",
+    "measured_file_name": null,
+    "created_at": "2026-04-15T09:48:07",
+    "metadata": {
+      "candidate_score": 0.05,
+      "candidate_eligible": true,
+      "candidate_freq_hz": 1.0,
+      "candidate_output_pp": 8.199901207771505
+    }
+  },
+  "baseline_comparison": {
+    "label": "before_retune",
+    "output_column": "i_sum_signed",
+    "rmse": 1.1867567878474212,
+    "nrmse": 0.23735581246385226,
+    "shape_corr": 0.9509681755219053,
+    "phase_lag_s": 0.047711781888996496,
+    "pp_error": -1.8000274942595702,
+    "peak_error": 1.6782728662554727,
+    "clipping_detected": false,
+    "saturation_detected": false
+  },
+  "corrected_comparison": {
+    "label": "after_retune",
+    "output_column": "i_sum_signed",
+    "rmse": 0.07433206308702416,
+    "nrmse": 0.014867112732932345,
+    "shape_corr": 0.9998707554334862,
+    "phase_lag_s": 0.0,
+    "pp_error": -0.13701426465875244,
+    "peak_error": 0.10659047170893388,
+    "clipping_detected": false,
+    "saturation_detected": false
+  },
+  "loop_summary": {
+    "mode": "validation_residual_recommendation_loop",
+    "iteration_count": 2,
+    "stop_reason": "iteration_limit_reached",
+    "validation_rmse_reference": 0.6711620477228323,
+    "validation_nrmse_reference": 0.1342374485081977,
+    "predicted_rmse_final": 0.23999972442108014,
+    "predicted_nrmse_final": 0.04800174675887055,
+    "within_hardware_limits": true,
+    "correction_gain": 0.75,
+    "improvement_threshold": 0.0
+  },
+  "retune_delta": {
+    "nrmse_improvement": 0.22248869973091992,
+    "shape_corr_improvement": 0.04890257991158098,
+    "phase_lag_improvement_s": 0.047711781888996496
+  }
+}
