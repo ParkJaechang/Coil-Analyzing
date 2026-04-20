@@ -62,6 +62,26 @@ Then either:
 - open a PR into `main`, or
 - merge yourself later if you work solo
 
+## Current Branch Practice
+
+Right now, active development may intentionally happen on `workspace1`.
+
+If you are using that branch as the active line:
+
+```powershell
+git switch workspace1
+git status -sb
+git push -u origin workspace1
+```
+
+That means:
+
+- you can keep developing on `workspace1`
+- you can push checkpoints to `origin/workspace1`
+- you can open a PR from `workspace1` into `main` when ready
+
+This is not the default recommendation for every future task, but it is a valid current workflow.
+
 ## When To Use `main`
 
 Use `main` when:
@@ -99,6 +119,46 @@ Use a PR when:
 - you want a permanent record of why a branch existed
 
 If you are working solo, PRs are optional, but still useful.
+
+## Example PR Flow For `workspace1`
+
+If work was done on `workspace1` and you want to merge it into `main` through GitHub:
+
+```powershell
+git switch workspace1
+git status
+git add .
+git commit -m "Describe the change"
+git push -u origin workspace1
+```
+
+Then on GitHub:
+
+- open the repository page
+- create a PR with base `main` and compare `workspace1`
+- review the diff
+- merge the PR
+
+After the PR is merged:
+
+```powershell
+git switch main
+git pull origin main
+```
+
+If you no longer need the branch later, you can delete it locally and remotely.
+
+## Bringing `main` Into `workspace1`
+
+If `main` moved forward and `workspace1` needs the latest baseline:
+
+```powershell
+git fetch origin
+git switch workspace1
+git merge origin/main
+```
+
+This updates `workspace1` with the latest `main` changes without leaving the working branch.
 
 ## When Not To Use A Worktree
 
@@ -148,6 +208,18 @@ python -m venv .venv
 Then either work on `main` or create a feature branch there.
 
 Do not copy random local folders unless you specifically need uncommitted local-only state.
+
+## Continuing On Another PC With Codex Context
+
+Git restores code state, but not the full reasoning context from an older Codex desktop thread.
+
+To avoid losing development context:
+
+- commit and push important changes
+- keep a short handoff summary in `docs/CODEX_HANDOFF.md`
+- start the next Codex session by asking it to read the handoff and recovery docs first
+
+That gives the next session a repository-native context source instead of depending on one old thread.
 
 ## If Codex Or Git Says “Checkout The Feature Branch”
 

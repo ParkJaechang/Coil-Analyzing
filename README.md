@@ -88,3 +88,4 @@ Generated and machine-local state should not be committed:
 
 - [Git and Codex Workflow](docs/GIT_AND_CODEX_WORKFLOW.md)
 - [Recovery and Development Direction](docs/RECOVERY_AND_DIRECTION.md)
+- [Codex Handoff](docs/CODEX_HANDOFF.md)
