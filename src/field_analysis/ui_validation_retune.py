@@ -298,14 +298,37 @@ def render_validation_retune_section(
     show_ineligible = st.checkbox("non-exact source 포함", value=False, key="retune_show_ineligible")
     source_entries = [item for item in picker_entries if show_ineligible or bool(item.get("retune_eligible"))]
     if not source_entries:
-        st.info("retune picker source가 없습니다. catalog를 먼저 생성하거나 exact LUT를 준비하십시오.")
+        if picker_entries:
+            hidden_ineligible_count = sum(1 for item in picker_entries if not bool(item.get("retune_eligible")))
+            st.info("Retune picker catalog is loaded, but there is no retune-eligible exact source yet.")
+            if not show_ineligible and hidden_ineligible_count:
+                st.caption(
+                    f"{hidden_ineligible_count} source(s) are present but hidden by the current filter. "
+                    "Enable `non-exact source 포함` to inspect them. Retune itself still requires an exact source."
+                )
+            else:
+                st.caption(
+                    "Catalog entries exist, but none of them currently qualify as an exact retune source. "
+                    "Generate or refresh exact LUT artifacts, then reload the catalog."
+                )
+        else:
+            st.info("No retune picker sources are available yet. This is normal in a clean repo.")
+            st.caption(
+                "Generate exact LUT/export artifacts first, then click `Catalog 새로고침`. "
+                "Validation uploads alone do not create picker sources."
+            )
         return
 
     source_labels = {item["display_label"]: item for item in source_entries}
     selected_source = source_labels[st.selectbox("Retune Source", options=list(source_labels.keys()), key="retune_source_select")]
     profile_path = selected_source.get("profile_csv_path") or selected_source.get("source_profile_path")
     if not profile_path or not Path(str(profile_path)).exists():
-        st.warning("선택한 source의 waveform profile csv를 찾을 수 없습니다.")
+        missing_profile = str(profile_path or "(missing profile path)")
+        st.error(f"Selected source is missing its waveform profile CSV: `{missing_profile}`")
+        st.caption(
+            "This is an artifact-path problem rather than a normal empty state. "
+            "Refresh the catalog or regenerate the source artifact."
+        )
         return
 
     base_profile = _read_csv(profile_path)
@@ -319,7 +342,16 @@ def render_validation_retune_section(
         field_channel=field_channel,
     )
     if not validation_candidates:
-        st.info("validation 업로드가 없어서 retune 실행 대상을 고를 수 없습니다.")
+        if validation_measurements:
+            st.warning("Validation files are loaded, but no candidate summary could be built from them.")
+            st.caption(
+                "Check `Data Import` and confirm waveform/frequency metadata plus target columns were parsed correctly."
+            )
+        else:
+            st.info("No validation run files are loaded yet, so there is nothing to retune against.")
+            st.caption(
+                "Upload validation run files in the sidebar to choose a measured run for comparison."
+            )
     else:
         candidate_labels = {item["label"]: item for item in validation_candidates}
         selected_candidate = candidate_labels[st.selectbox("Validation Run", options=list(candidate_labels.keys()), key="retune_validation_select")]
@@ -406,6 +438,11 @@ def render_catalogs_and_diagnostics_section() -> None:
 
     tab_catalogs, tab_diagnostics = st.tabs(["Catalogs", "Diagnostics"])
     with tab_catalogs:
+        if not picker_entries and not validation_entries and not corrected_entries:
+            st.info("No catalog artifacts are available yet. This is normal in a clean repo.")
+            st.caption(
+                "Catalog tables appear after LUT/export/validation-retune artifacts are generated and the catalog is refreshed."
+            )
         if picker_entries:
             picker_frame = pd.DataFrame(picker_entries)[[
                 "display_label",
@@ -418,6 +455,8 @@ def render_catalogs_and_diagnostics_section() -> None:
             ]]
             st.markdown("#### Retune Picker")
             st.dataframe(picker_frame, use_container_width=True)
+        else:
+            st.caption("Retune Picker catalog is empty.")
         if validation_entries:
             validation_frame = pd.DataFrame(validation_entries)[[
                 "created_at",
@@ -430,6 +469,8 @@ def render_catalogs_and_diagnostics_section() -> None:
             ]]
             st.markdown("#### Validation Catalog")
             st.dataframe(validation_frame, use_container_width=True)
+        else:
+            st.caption("Validation Catalog is empty.")
         if corrected_entries:
             corrected_frame = pd.DataFrame(corrected_entries)[[
                 "created_at",
@@ -441,6 +482,8 @@ def render_catalogs_and_diagnostics_section() -> None:
             ]]
             st.markdown("#### Corrected LUT Catalog")
             st.dataframe(corrected_frame, use_container_width=True)
+        else:
+            st.caption("Corrected LUT Catalog is empty.")
 
     with tab_diagnostics:
         rows = []
@@ -451,6 +494,11 @@ def render_catalogs_and_diagnostics_section() -> None:
             rows.append({"artifact": label, "path": path.as_posix(), "summary": payload.get("summary")})
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        else:
+            st.info("No diagnostic artifacts are available yet.")
+            st.caption(
+                "This is expected until audit or validation-retune outputs have been generated."
+            )
         for label, path in DIAGNOSTIC_ARTIFACTS.items():
             payload = _load_json(path)
             if not payload:

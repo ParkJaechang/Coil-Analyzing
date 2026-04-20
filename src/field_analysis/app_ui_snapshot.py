@@ -943,7 +943,10 @@ def _render_quick_lut_tab_v2(
         "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오."
     )
     if per_test_summary.empty:
-        st.warning("LUT 계산에 사용할 테스트 요약이 없습니다.")
+        st.warning(
+            "No steady-state summary is available for Quick LUT yet. "
+            "Upload continuous measurement files first; validation-only or finite-cycle-only uploads do not populate this screen."
+        )
         return
 
     waveform_options = sorted(
@@ -962,6 +965,22 @@ def _render_quick_lut_tab_v2(
         metric for metric in dict.fromkeys(_prioritize_metric_options(metric_candidates, main_field_axis))
         if metric in per_test_summary.columns
     ]
+    if not waveform_options or not freq_options or not metric_options:
+        missing_support = []
+        if not waveform_options:
+            missing_support.append("waveform types")
+        if not freq_options:
+            missing_support.append("frequencies")
+        if not metric_options:
+            missing_support.append("target metrics")
+        st.warning(
+            "Quick LUT support data is incomplete: missing "
+            f"{', '.join(missing_support)} in the steady-state summary."
+        )
+        st.caption(
+            "Check `Data Import` and parsed metadata. Quick LUT only works from steady-state rows with usable waveform/frequency/output fields."
+        )
+        return
 
     left, mid, right = st.columns(3)
     with left:
@@ -1104,7 +1123,14 @@ def _render_quick_lut_tab_v2(
             allow_output_extrapolation=allow_target_extrapolation,
         )
         if compensation is None:
-            st.warning("선택한 파형/주파수 조합으로 파형 보정용 역모델을 만들 수 없습니다.")
+            frequency_scope = "this frequency or nearby frequencies" if use_frequency_trend else "the exact frequency"
+            st.warning(
+                f"Could not build waveform compensation for waveform `{target_waveform}` at {float(target_freq):.3f} Hz. "
+                f"The current support data does not provide a usable basis at {frequency_scope}."
+            )
+            st.caption(
+                "Check `Data Import` and confirm the steady-state support runs have usable waveform, frequency, and output metadata."
+            )
         else:
             st.success("파형 보정 계산이 완료되었습니다.")
             if compensation["mode"] == "harmonic_inverse_single_support":
@@ -1392,7 +1418,14 @@ def _render_quick_lut_tab_v2(
             allow_target_extrapolation=allow_target_extrapolation,
         )
         if recommendation is None:
-            st.warning("선택한 파형/주파수 조합으로 스칼라 LUT를 만들 수 없습니다.")
+            frequency_scope = "this frequency or nearby frequencies" if use_frequency_trend else "the exact frequency"
+            st.warning(
+                f"Could not build a Quick LUT recommendation for waveform `{target_waveform}` at {float(target_freq):.3f} Hz. "
+                f"The current steady-state support table has no usable rows for this combination at {frequency_scope}."
+            )
+            st.caption(
+                "Check `Data Import` and confirm waveform/frequency metadata were inferred correctly from the uploaded continuous runs."
+            )
             return
         st.success("크기 LUT 계산이 완료되었습니다.")
 
