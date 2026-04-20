@@ -12,5 +12,7 @@ outputs/
 .coil_analyzer/configs/
 .coil_analyzer/manifest.json
 .coil_analyzer/mapping_library.json
+.coil_analyzer/settings.json
+**/coil_analyzing_manifest.json
 
 .streamlit/secrets.toml

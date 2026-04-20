@@ -19,10 +19,11 @@ from .compensation import synthesize_current_waveform_compensation
 from .control_formula import build_control_formula
 from .exports import build_export_zip_bytes, export_analysis_bundle
 from .hardware import apply_command_hardware_model
-from .lut import TARGET_LABELS, recommend_voltage_waveform
+from .lut import TARGET_LABELS, prioritize_lut_target_metrics, recommend_voltage_waveform, target_metric_label
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
+from .ui_dataset_library import render_dataset_library_panel
 from .plotting import (
     plot_command_waveform,
     plot_current_compensation_waveforms,
@@ -137,6 +138,7 @@ def _run_app_shell(
     with st.sidebar:
         st.header("입력")
         render_sidebar_memory_panel()
+        render_dataset_library_panel()
         continuous_files = st.file_uploader(
             "연속 cycle 데이터 업로드",
             type=["csv", "txt", "xlsx", "xlsm", "xls"],
@@ -781,7 +783,8 @@ def _render_quick_lut_tab(
     main_field_axis: str,
     current_channel: str,
 ) -> None:
-    st.markdown("#### 목표 전류 또는 자기장을 넣으면 추천 전압 파형을 계산합니다.")
+    st.markdown("#### Estimate a recommended voltage waveform from a target field-oriented output.")
+    st.caption("Quick LUT defaults to field-first targets. Current and gain remain available only as debug or equipment reference.")
     if per_test_summary.empty:
         st.warning("LUT 계산에 사용할 테스트 요약이 없습니다.")
         return
@@ -793,12 +796,14 @@ def _render_quick_lut_tab(
         float(value) for value in per_test_summary["freq_hz"].dropna().unique().tolist()
     )
     metric_candidates = [
-        "achieved_current_pp_a_mean",
+        f"achieved_{main_field_axis}_pp_mean",
         "achieved_bz_mT_pp_mean",
         "achieved_bmag_mT_pp_mean",
-        f"achieved_{main_field_axis}_pp_mean",
+        "achieved_current_pp_a_mean",
     ]
-    metric_options = [metric for metric in dict.fromkeys(metric_candidates) if metric in per_test_summary.columns]
+    available_metric_options = [
+        metric for metric in dict.fromkeys(metric_candidates) if metric in per_test_summary.columns
+    ]
 
     left, mid, right = st.columns(3)
     with left:
@@ -806,9 +811,18 @@ def _render_quick_lut_tab(
         target_freq = st.selectbox("주파수 (Hz)", options=freq_options or [0.5], key="lut_freq")
     with mid:
         target_metric = st.selectbox(
-            "목표 기준",
-            options=metric_options,
-            format_func=lambda value: TARGET_LABELS.get(value, value),
+            "Target Metric",
+            options=_prioritize_metric_options(
+                available_metric_options,
+                main_field_axis,
+                include_current_debug=st.checkbox(
+                    "Show current target metric (debug)",
+                    value=False,
+                    help="Field metrics stay first. Current remains available only for debug or fallback use.",
+                    key="lut_metric_current_debug",
+                ),
+            ),
+            format_func=target_metric_label,
             key="lut_metric",
         )
         target_value = float(
@@ -849,13 +863,15 @@ def _render_quick_lut_tab(
         )
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("추천 Voltage PP", f"{recommendation['estimated_voltage_pp']:.3f} V")
-    c2.metric("추천 Voltage Peak", f"{recommendation['estimated_voltage_peak']:.3f} V")
-    c3.metric("예상 Current PP", f"{recommendation['estimated_current_pp']:.3f} A")
-    field_estimate = recommendation["estimated_bz_pp"]
-    if target_metric == "achieved_bmag_mT_pp_mean":
-        field_estimate = recommendation["estimated_bmag_pp"]
-    c4.metric("예상 Field PP", f"{field_estimate:.3f} mT")
+    c1.metric("Recommended Voltage PP", f"{recommendation['limited_voltage_pp']:.3f} V")
+    c2.metric(
+        str(recommendation["primary_output_label"]),
+        _format_optional_metric(recommendation["primary_output_pp"], str(recommendation["primary_output_unit"])),
+    )
+    c3.metric("Support Freqs", f"{recommendation['frequency_support_count']}")
+    c4.metric("Waveform Scope", str(recommendation["recommendation_scope_label"]))
+    st.caption("Equipment and current estimates are shown below only as reference. The primary LUT target is the field waveform/output.")
+    _render_lut_equipment_debug(recommendation)
 
     left, right = st.columns(2)
     with left:
@@ -875,7 +891,8 @@ def _render_quick_lut_tab(
 
     st.markdown("#### 계산 근거")
     st.write(f"- template test: `{recommendation['template_test_id']}`")
-    st.write(f"- target metric: `{TARGET_LABELS.get(target_metric, target_metric)}`")
+    st.write(f"- target metric: `{target_metric_label(target_metric)}`")
+    st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
     st.write(f"- requested target: `{recommendation['requested_target_value']:.3f}`")
     st.write(f"- used target: `{recommendation['used_target_value']:.3f}`")
     st.write(
@@ -896,7 +913,7 @@ def _render_quick_lut_tab(
 
     csv_bytes = recommendation["command_waveform"].to_csv(index=False).encode("utf-8-sig")
     file_name = (
-        f"recommended_voltage_waveform_{target_waveform}_{float(target_freq):g}Hz_"
+        f"{recommendation['recommendation_scope']}_recommended_voltage_waveform_{target_waveform}_{float(target_freq):g}Hz_"
         f"{target_metric}_{target_value:g}.csv"
     )
     st.download_button(
@@ -907,17 +924,52 @@ def _render_quick_lut_tab(
     )
 
 
-def _prioritize_metric_options(metric_options: list[str], main_field_axis: str) -> list[str]:
-    preferred_order = [
-        f"achieved_{main_field_axis}_pp_mean",
-        "achieved_bz_mT_pp_mean",
-        "achieved_bmag_mT_pp_mean",
-        "achieved_bproj_mT_pp_mean",
-        "achieved_current_pp_a_mean",
-    ]
-    ordered = [metric for metric in preferred_order if metric in metric_options]
-    ordered.extend(metric for metric in metric_options if metric not in ordered)
-    return ordered
+def _prioritize_metric_options(
+    metric_options: list[str],
+    main_field_axis: str,
+    include_current_debug: bool = False,
+) -> list[str]:
+    return prioritize_lut_target_metrics(
+        metric_options=metric_options,
+        main_field_axis=main_field_axis,
+        include_current_debug=include_current_debug,
+    )
+
+
+def _format_optional_metric(value: object, unit: str = "", digits: int = 3) -> str:
+    numeric = first_number(value)
+    if numeric is None or not np.isfinite(float(numeric)):
+        return "n/a"
+    suffix = f" {unit}" if unit else ""
+    return f"{float(numeric):.{digits}f}{suffix}"
+
+
+def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
+    with st.expander("Equipment / Debug", expanded=False):
+        st.write(
+            f"- modeling focus output: `{recommendation['primary_output_label']}` = "
+            f"`{_format_optional_metric(recommendation['primary_output_pp'], str(recommendation['primary_output_unit']))}`"
+        )
+        st.write(
+            f"- selected target output: `{recommendation['target_output_label']}` = "
+            f"`{_format_optional_metric(recommendation['target_output_pp'], str(recommendation['target_output_unit']))}`"
+        )
+        st.write(f"- estimated current pp: `{_format_optional_metric(recommendation['estimated_current_pp'], 'A')}`")
+        st.write(f"- raw recommended voltage pp: `{_format_optional_metric(recommendation['estimated_voltage_pp'], 'V')}`")
+        st.write(f"- DAQ-limited voltage pp: `{_format_optional_metric(recommendation['limited_voltage_pp'], 'V')}`")
+        st.write(
+            f"- support amp gain: `{_format_optional_metric(recommendation['support_amp_gain_pct'], '%', digits=1)}`"
+        )
+        st.write(
+            f"- required amp gain: `{_format_optional_metric(recommendation['required_amp_gain_pct'], '%', digits=1)}`"
+        )
+        st.write(
+            f"- available amp gain: `{_format_optional_metric(recommendation['available_amp_gain_pct'], '%', digits=1)}`"
+        )
+        st.write(
+            f"- amp output at required gain: `{_format_optional_metric(recommendation['amp_output_pp_at_required'], 'Vpp')}`"
+        )
+        st.write(f"- within hardware limits: `{recommendation['within_hardware_limits']}`")
 
 
 def _render_quick_lut_tab_v2(
@@ -935,15 +987,18 @@ def _render_quick_lut_tab_v2(
     transient_preprocess_results: list | None = None,
 ) -> None:
     st.info(
-        "사용법: `스칼라 LUT 계산`은 목표 PP 값에 대해 대략 몇 V가 필요한지 보는 1차 추정입니다. "
-        "`파형 보정 계산`은 measured current/field를 기준으로 실제 구동용 command waveform을 추천하는 화면입니다."
+        "Usage: `scalar LUT` gives a first-pass voltage estimate for a target field PP value. "
+        "`waveform compensation` recommends a drive command while keeping measured field waveform as the primary reference."
     )
-    st.markdown("#### 목표값 기반 추천과 measured output 파형 보정을 같이 확인합니다.")
+    st.markdown("#### Review Quick LUT and waveform compensation with a field-first modeling focus.")
     st.caption(
         "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오."
     )
     if per_test_summary.empty:
-        st.warning("LUT 계산에 사용할 테스트 요약이 없습니다.")
+        st.warning(
+            "No steady-state summary is available for Quick LUT yet. "
+            "Upload continuous measurement files first; validation-only or finite-cycle-only uploads do not populate this screen."
+        )
         return
 
     waveform_options = sorted(
@@ -953,15 +1008,31 @@ def _render_quick_lut_tab_v2(
     default_freq = float(freq_options[0]) if freq_options else 0.5
     frequency_labels = ", ".join(f"{value:g}" for value in freq_options) if freq_options else "없음"
     metric_candidates = [
-        "achieved_current_pp_a_mean",
+        f"achieved_{main_field_axis}_pp_mean",
         "achieved_bz_mT_pp_mean",
         "achieved_bmag_mT_pp_mean",
-        f"achieved_{main_field_axis}_pp_mean",
+        "achieved_current_pp_a_mean",
     ]
-    metric_options = [
-        metric for metric in dict.fromkeys(_prioritize_metric_options(metric_candidates, main_field_axis))
-        if metric in per_test_summary.columns
+    available_metric_options = [
+        metric for metric in dict.fromkeys(metric_candidates) if metric in per_test_summary.columns
     ]
+    metric_options = _prioritize_metric_options(available_metric_options, main_field_axis)
+    if not waveform_options or not freq_options or not metric_options:
+        missing_support = []
+        if not waveform_options:
+            missing_support.append("waveform types")
+        if not freq_options:
+            missing_support.append("frequencies")
+        if not metric_options:
+            missing_support.append("target metrics")
+        st.warning(
+            "Quick LUT support data is incomplete: missing "
+            f"{', '.join(missing_support)} in the steady-state summary."
+        )
+        st.caption(
+            "Check `Data Import` and parsed metadata. Quick LUT only works from steady-state rows with usable waveform/frequency/output fields."
+        )
+        return
 
     left, mid, right = st.columns(3)
     with left:
@@ -983,10 +1054,20 @@ def _render_quick_lut_tab_v2(
         )
         st.caption(f"보유 주파수: {frequency_labels} Hz")
     with mid:
+        include_current_debug = st.checkbox(
+            "Show current target metric (debug)",
+            value=False,
+            help="Field metrics stay first. Current remains available only for debug or fallback use.",
+            key="lut_metric_current_debug_v2",
+        )
         target_metric = st.selectbox(
-            "크기 LUT 목표 항목",
-            options=metric_options,
-            format_func=lambda value: TARGET_LABELS.get(value, value),
+            "LUT Target Metric",
+            options=_prioritize_metric_options(
+                available_metric_options,
+                main_field_axis,
+                include_current_debug=include_current_debug,
+            ),
+            format_func=target_metric_label,
             key="lut_metric_v2",
         )
         target_value = float(
@@ -998,6 +1079,7 @@ def _render_quick_lut_tab_v2(
             format_func=lambda value: "전류" if value == "current" else f"자기장 ({main_field_axis})",
             key="comp_target_type_v2",
         )
+        st.caption("Field waveform is the default recommendation target. Current mode is kept only for advanced/debug comparison.")
         compensation_target_label = (
             "파형 보정 목표 Current PP (A)"
             if compensation_target_type == "current"
@@ -1104,7 +1186,14 @@ def _render_quick_lut_tab_v2(
             allow_output_extrapolation=allow_target_extrapolation,
         )
         if compensation is None:
-            st.warning("선택한 파형/주파수 조합으로 파형 보정용 역모델을 만들 수 없습니다.")
+            frequency_scope = "this frequency or nearby frequencies" if use_frequency_trend else "the exact frequency"
+            st.warning(
+                f"Could not build waveform compensation for waveform `{target_waveform}` at {float(target_freq):.3f} Hz. "
+                f"The current support data does not provide a usable basis at {frequency_scope}."
+            )
+            st.caption(
+                "Check `Data Import` and confirm the steady-state support runs have usable waveform, frequency, and output metadata."
+            )
         else:
             st.success("파형 보정 계산이 완료되었습니다.")
             if compensation["mode"] == "harmonic_inverse_single_support":
@@ -1369,8 +1458,8 @@ def _render_quick_lut_tab_v2(
     if estimate_clicked:
         st.markdown("#### 크기 LUT")
         st.caption(
-            "이 기능은 목표 current/field의 `크기`만 맞추는 1차 추정입니다. "
-            "파형 왜곡, 위상지연, 삼각파 찌그러짐 보정은 아래 `전류 파형 보정`을 사용하십시오."
+            "This estimate focuses on field/output magnitude first. "
+            "Current remains in debug only, while the main modeling target is the field waveform/output."
         )
         frequency_mode = "interpolate" if use_frequency_trend else "exact"
         recommendation = recommend_voltage_waveform(
@@ -1392,7 +1481,14 @@ def _render_quick_lut_tab_v2(
             allow_target_extrapolation=allow_target_extrapolation,
         )
         if recommendation is None:
-            st.warning("선택한 파형/주파수 조합으로 스칼라 LUT를 만들 수 없습니다.")
+            frequency_scope = "this frequency or nearby frequencies" if use_frequency_trend else "the exact frequency"
+            st.warning(
+                f"Could not build a Quick LUT recommendation for waveform `{target_waveform}` at {float(target_freq):.3f} Hz. "
+                f"The current steady-state support table has no usable rows for this combination at {frequency_scope}."
+            )
+            st.caption(
+                "Check `Data Import` and confirm waveform/frequency metadata were inferred correctly from the uploaded continuous runs."
+            )
             return
         st.success("크기 LUT 계산이 완료되었습니다.")
 
@@ -1425,26 +1521,23 @@ def _render_quick_lut_tab_v2(
             )
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("DAQ Voltage PP", f"{recommendation['limited_voltage_pp']:.3f} V")
-        c2.metric("필요 AMP Gain", f"{recommendation['required_amp_gain_pct']:.1f} %")
-        c3.metric("예상 Current PP", f"{recommendation['estimated_current_pp']:.3f} A")
-        field_estimate = recommendation["estimated_bz_pp"]
-        if target_metric == "achieved_bmag_mT_pp_mean":
-            field_estimate = recommendation["estimated_bmag_pp"]
-        c4.metric("예상 Field PP", f"{field_estimate:.3f} mT")
+        c1.metric("Recommended Voltage PP", f"{recommendation['limited_voltage_pp']:.3f} V")
+        c2.metric(
+            str(recommendation["primary_output_label"]),
+            _format_optional_metric(recommendation["primary_output_pp"], str(recommendation["primary_output_unit"])),
+        )
+        c3.metric("Support Freqs", f"{recommendation['frequency_support_count']}")
+        c4.metric("Waveform Scope", str(recommendation["recommendation_scope_label"]))
         st.caption(
             f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
             f"DAQ limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
             f"AMP output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
         )
         if recommendation["within_hardware_limits"]:
-            st.success(
-                f"하드웨어 가능: 필요 AMP gain {recommendation['required_amp_gain_pct']:.1f}% / 사용 가능 {recommendation['available_amp_gain_pct']:.1f}%"
-            )
+            st.info("Equipment note: the recommended voltage stays within current DAQ / AMP limits.")
         else:
-            st.error(
-                f"하드웨어 제한 초과: 필요 AMP gain {recommendation['required_amp_gain_pct']:.1f}% / 사용 가능 {recommendation['available_amp_gain_pct']:.1f}%"
-            )
+            st.warning("Equipment note: the recommended voltage exceeds current DAQ / AMP limits.")
+        _render_lut_equipment_debug(recommendation)
 
         lut_left, lut_right = st.columns(2)
         with lut_left:
@@ -1475,9 +1568,9 @@ def _render_quick_lut_tab_v2(
                 use_container_width=True,
             )
 
-        st.markdown("#### 계산 근거")
         st.write(f"- template test: `{recommendation['template_test_id']}`")
-        st.write(f"- target metric: `{TARGET_LABELS.get(target_metric, target_metric)}`")
+        st.write(f"- target metric: `{target_metric_label(target_metric)}`")
+        st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
         st.write(f"- finite cycle mode: `{recommendation['finite_cycle_mode']}`")
         if recommendation["finite_cycle_mode"]:
             st.write(f"- active cycle count: `{recommendation['target_cycle_count']:.2f}`")
@@ -1500,12 +1593,7 @@ def _render_quick_lut_tab_v2(
         st.write(f"- mode: `{recommendation['recommendation_mode']}`")
         st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
         st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
-        st.write(f"- required dc amp gain multiplier: `{recommendation['required_amp_gain_multiplier']:.3f}x`")
-        st.write(f"- support amp gain: `{recommendation['support_amp_gain_pct']:.1f}` %")
-        st.write(f"- required amp gain: `{recommendation['required_amp_gain_pct']:.1f}` %")
-        st.write(f"- available amp gain: `{recommendation['available_amp_gain_pct']:.1f}` %")
-        st.write(f"- amp output at required gain: `{recommendation['amp_output_pp_at_required']:.3f}` Vpp")
-        st.write(f"- within hardware limits: `{recommendation['within_hardware_limits']}`")
+        st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
 
         st.markdown("#### 근거 실험점")
         neighbor_points = recommendation["neighbor_points"].copy()
@@ -1541,7 +1629,7 @@ def _render_quick_lut_tab_v2(
             formula_text_bytes = control_formula["formula_text"].encode("utf-8")
             coeff_csv_bytes = control_formula["coefficient_table"].to_csv(index=False).encode("utf-8-sig")
             formula_file_prefix = (
-                f"control_formula_{target_waveform}_{float(target_freq):g}Hz_"
+                f"{recommendation['recommendation_scope']}_control_formula_{target_waveform}_{float(target_freq):g}Hz_"
                 f"{target_metric}_{target_value:g}"
             )
             st.download_button(
@@ -1561,7 +1649,7 @@ def _render_quick_lut_tab_v2(
 
         csv_bytes = recommendation["command_waveform"].to_csv(index=False).encode("utf-8-sig")
         file_name = (
-            f"recommended_voltage_waveform_{target_waveform}_{float(target_freq):g}Hz_"
+            f"{recommendation['recommendation_scope']}_recommended_voltage_waveform_{target_waveform}_{float(target_freq):g}Hz_"
             f"{target_metric}_{target_value:g}_{(target_cycle_count if target_cycle_count is not None else 'steady')}cycle.csv"
         )
         st.download_button(
