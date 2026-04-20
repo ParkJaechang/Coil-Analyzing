@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SETTINGS_DIR = REPO_ROOT / ".coil_analyzer"
 DEFAULT_SETTINGS_FILE = "settings.json"
 DATASET_MANIFEST_FILE = "coil_analyzing_manifest.json"
-SUPPORTED_DATASET_SUFFIXES = {".csv", ".xlsx", ".xlsm", ".xls"}
+SUPPORTED_DATASET_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm", ".xls"}
 
 
 def get_default_settings_path(repo_root: str | Path | None = None) -> Path:
