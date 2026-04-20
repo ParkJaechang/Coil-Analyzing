@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
+artifacts/
+outputs/
+*.log
 
 .coil_analyzer/uploads/
 .coil_analyzer/exports/
