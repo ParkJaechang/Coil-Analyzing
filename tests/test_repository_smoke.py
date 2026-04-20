@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import ast
 import py_compile
+import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 ENTRYPOINTS = [
     REPO_ROOT / "app_field_analysis_latest.py",
     REPO_ROOT / "app_field_analysis_quick.py",
@@ -61,3 +66,56 @@ def test_app_ui_remains_snapshot_loader_wrapper() -> None:
     assert "_load_ui_module" in function_names
     assert 'app_ui_snapshot.py' in wrapper_source
     assert "app_ui_snapshot" in wrapper_source
+
+
+def test_lut_metric_prioritization_prefers_field_metrics() -> None:
+    from field_analysis.lut import prioritize_lut_target_metrics
+
+    metrics = [
+        "achieved_current_pp_a_mean",
+        "achieved_bz_mT_pp_mean",
+        "achieved_bmag_mT_pp_mean",
+        "achieved_bx_mT_pp_mean",
+    ]
+
+    prioritized = prioritize_lut_target_metrics(metrics, main_field_axis="bx_mT")
+
+    assert prioritized == [
+        "achieved_bx_mT_pp_mean",
+        "achieved_bz_mT_pp_mean",
+        "achieved_bmag_mT_pp_mean",
+    ]
+
+
+def test_lut_metric_prioritization_keeps_current_as_debug_fallback() -> None:
+    from field_analysis.lut import prioritize_lut_target_metrics
+
+    assert prioritize_lut_target_metrics(
+        ["achieved_current_pp_a_mean"],
+        main_field_axis="bz_mT",
+    ) == ["achieved_current_pp_a_mean"]
+
+    assert prioritize_lut_target_metrics(
+        ["achieved_current_pp_a_mean", "achieved_bz_mT_pp_mean"],
+        main_field_axis="bz_mT",
+        include_current_debug=True,
+    ) == ["achieved_bz_mT_pp_mean", "achieved_current_pp_a_mean"]
+
+
+def test_lut_display_context_prefers_field_output_for_current_debug_target() -> None:
+    from field_analysis.lut import build_lut_recommendation_display_context
+
+    display = build_lut_recommendation_display_context(
+        target_metric="achieved_current_pp_a_mean",
+        used_target_value=12.0,
+        estimated_current_pp=12.0,
+        estimated_bz_pp=34.5,
+        estimated_bmag_pp=35.0,
+        finite_cycle_mode=True,
+    )
+
+    assert display["recommendation_scope"] == "finite_cycle"
+    assert display["recommendation_scope_label"] == "finite-cycle"
+    assert display["target_output_unit"] == "A"
+    assert display["primary_output_unit"] == "mT"
+    assert display["primary_output_pp"] == 34.5

@@ -16,6 +16,88 @@ TARGET_LABELS = {
     "achieved_bmag_mT_pp_mean": "Achieved |B| PP (mT)",
     "achieved_bproj_mT_pp_mean": "Achieved Bproj PP (mT)",
 }
+CURRENT_DEBUG_TARGET_METRICS = {"achieved_current_pp_a_mean"}
+
+
+def target_metric_label(metric: str) -> str:
+    if metric in TARGET_LABELS:
+        return TARGET_LABELS[metric]
+    if metric.startswith("achieved_") and metric.endswith("_pp_mean"):
+        axis_name = metric.removeprefix("achieved_").removesuffix("_pp_mean")
+        return f"Achieved {field_axis_display_name(axis_name)} PP (mT)"
+    return metric
+
+
+def target_metric_unit(metric: str) -> str:
+    return "A" if metric == "achieved_current_pp_a_mean" else "mT"
+
+
+def prioritize_lut_target_metrics(
+    metric_options: list[str],
+    main_field_axis: str,
+    include_current_debug: bool = False,
+) -> list[str]:
+    preferred_order = [
+        f"achieved_{main_field_axis}_pp_mean",
+        "achieved_bz_mT_pp_mean",
+        "achieved_bmag_mT_pp_mean",
+        "achieved_bproj_mT_pp_mean",
+    ]
+    ordered = [metric for metric in dict.fromkeys(preferred_order) if metric in metric_options]
+    ordered.extend(
+        metric
+        for metric in metric_options
+        if metric not in ordered and metric not in CURRENT_DEBUG_TARGET_METRICS
+    )
+    if include_current_debug or not ordered:
+        ordered.extend(
+            metric
+            for metric in metric_options
+            if metric in CURRENT_DEBUG_TARGET_METRICS and metric not in ordered
+        )
+    return ordered
+
+
+def build_lut_recommendation_display_context(
+    *,
+    target_metric: str,
+    used_target_value: float,
+    estimated_current_pp: float,
+    estimated_bz_pp: float,
+    estimated_bmag_pp: float,
+    finite_cycle_mode: bool,
+) -> dict[str, Any]:
+    target_label = target_metric_label(target_metric)
+    target_unit = target_metric_unit(target_metric)
+    scope = "finite_cycle" if finite_cycle_mode else "continuous"
+    scope_label = "finite-cycle" if finite_cycle_mode else "continuous"
+
+    primary_output_label = target_label
+    primary_output_value = float(used_target_value)
+    primary_output_unit = target_unit
+
+    if target_metric == "achieved_current_pp_a_mean":
+        if np.isfinite(estimated_bz_pp):
+            primary_output_label = target_metric_label("achieved_bz_mT_pp_mean")
+            primary_output_value = float(estimated_bz_pp)
+            primary_output_unit = "mT"
+        elif np.isfinite(estimated_bmag_pp):
+            primary_output_label = target_metric_label("achieved_bmag_mT_pp_mean")
+            primary_output_value = float(estimated_bmag_pp)
+            primary_output_unit = "mT"
+        else:
+            primary_output_value = float(estimated_current_pp)
+
+    return {
+        "target_output_label": target_label,
+        "target_output_unit": target_unit,
+        "target_output_pp": float(used_target_value),
+        "primary_output_label": primary_output_label,
+        "primary_output_unit": primary_output_unit,
+        "primary_output_pp": float(primary_output_value),
+        "recommendation_scope": scope,
+        "recommendation_scope_label": scope_label,
+    }
 
 
 def recommend_voltage_waveform(
@@ -38,7 +120,7 @@ def recommend_voltage_waveform(
     default_support_amp_gain_pct: float = 100.0,
     allow_target_extrapolation: bool = True,
 ) -> dict[str, Any] | None:
-    """Recommend a voltage waveform from measured LUT data."""
+    """Recommend a continuous or finite-cycle voltage waveform from measured LUT data."""
 
     if (
         per_test_summary.empty
@@ -218,11 +300,20 @@ def recommend_voltage_waveform(
     if support_point_count == 1:
         recommendation_mode = "single_point_only"
 
+    display_context = build_lut_recommendation_display_context(
+        target_metric=target_metric,
+        used_target_value=clamped_target,
+        estimated_current_pp=estimated_current_pp,
+        estimated_bz_pp=estimated_bz_pp,
+        estimated_bmag_pp=estimated_bmag_pp,
+        finite_cycle_mode=finite_cycle_mode,
+    )
+
     return {
         "waveform_type": waveform_type,
         "freq_hz": requested_freq_hz,
         "target_metric": target_metric,
-        "target_label": TARGET_LABELS.get(target_metric, target_metric),
+        "target_label": target_metric_label(target_metric),
         "requested_target_value": float(target_value),
         "used_target_value": clamped_target,
         "in_range": in_range,
@@ -274,6 +365,7 @@ def recommend_voltage_waveform(
         "template_test_id": str(selected_frequency_row["template_test_id"]),
         "template_waveform": template_waveform,
         "command_waveform": command_waveform,
+        **display_context,
     }
 
 
