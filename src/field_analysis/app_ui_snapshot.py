@@ -46,6 +46,7 @@ from .plotting import (
 )
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
+from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .utils import first_number, infer_current_from_text, infer_frequency_from_text, infer_waveform_from_text
@@ -360,7 +361,7 @@ def _run_app_shell(
     if usage_mode == "간단 LUT":
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
+            options=["Quick LUT", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
             horizontal=True,
             key="quick_section_nav",
         )
@@ -369,6 +370,7 @@ def _run_app_shell(
             "분석 화면",
             options=[
                 "Data Import",
+                "Field Model Diagnostics",
                 "Validation / Retune",
                 "Catalogs / Diagnostics",
                 "Raw Waveforms",
@@ -633,6 +635,13 @@ def _run_app_shell(
                 transient_measurements=transient_measurements,
                 transient_preprocess_results=transient_preprocess_results,
             )
+        elif active_section == "Field Model Diagnostics":
+            render_field_waveform_diagnostics_section(
+                per_test_summary=per_test_summary,
+                analysis_lookup=analysis_lookup,
+                transient_measurements=transient_measurements,
+                main_field_axis=main_field_axis,
+            )
         elif active_section == "Validation / Retune":
             render_validation_retune_section(
                 current_channel=current_channel,
@@ -700,6 +709,13 @@ def _run_app_shell(
             validation_parsed_measurements=validation_measurements,
             validation_edited_metadata=validation_edited_metadata,
             lcr_uploads=lcr_records,
+        )
+    elif active_section == "Field Model Diagnostics":
+        render_field_waveform_diagnostics_section(
+            per_test_summary=per_test_summary,
+            analysis_lookup=analysis_lookup,
+            transient_measurements=transient_measurements,
+            main_field_axis=main_field_axis,
         )
     elif active_section == "Validation / Retune":
         render_validation_retune_section(
