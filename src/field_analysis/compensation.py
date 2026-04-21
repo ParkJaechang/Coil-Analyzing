@@ -12,6 +12,9 @@ from .models import DatasetAnalysis, ParsedMeasurement, PreprocessResult
 from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
 from .utils import canonicalize_waveform_type
 
+FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
+FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
+
 
 def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
     max_available = max(int(points_per_cycle) // 2 - 1, 1)
@@ -19,6 +22,54 @@ def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
     if waveform_type == "triangle":
         return max(3, min(max_available, 31))
     return max(1, min(max_available, 11))
+
+
+def _rounded_triangle_normalized(phase: np.ndarray) -> np.ndarray:
+    phase_values = np.asarray(phase, dtype=float)
+    signal = np.zeros_like(phase_values, dtype=float)
+    for harmonic in (1, 3, 5):
+        sign = 1.0 if harmonic % 4 == 1 else -1.0
+        signal += sign * np.sin(2.0 * np.pi * harmonic * phase_values) / float(harmonic * harmonic)
+    peak = float(np.nanmax(np.abs(signal))) if len(signal) else float("nan")
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return signal
+    return signal / peak
+
+
+def _build_target_template(
+    waveform_type: str,
+    freq_hz: float,
+    points_per_cycle: int,
+    *,
+    force_rounded_triangle: bool = False,
+) -> pd.DataFrame:
+    if not force_rounded_triangle:
+        return _theoretical_template(
+            waveform_type=waveform_type,
+            freq_hz=freq_hz,
+            points_per_cycle=points_per_cycle,
+        ).rename(columns={"voltage_normalized": "target_output_normalized"})
+
+    phase_grid = np.linspace(0.0, 1.0, int(points_per_cycle))
+    period_s = 1.0 / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else 1.0
+    return pd.DataFrame(
+        {
+            "cycle_progress": phase_grid,
+            "time_s": phase_grid * period_s,
+            "target_output_normalized": _rounded_triangle_normalized(phase_grid),
+        }
+    )
+
+
+def _normalize_field_finite_cycle_count(target_cycle_count: float | None) -> float | None:
+    if target_cycle_count is None or not np.isfinite(target_cycle_count):
+        return None
+    requested = float(target_cycle_count)
+    nearest = min(
+        FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS,
+        key=lambda value: (abs(float(value) - requested), float(value)),
+    )
+    return float(nearest)
 
 
 def synthesize_current_waveform_compensation(
@@ -63,6 +114,12 @@ def synthesize_current_waveform_compensation(
         current_metric=current_metric,
     )
     target_output_pp = float(target_output_pp if target_output_pp is not None else target_current_pp_a)
+    field_only_route = output_context["output_type"] == "field"
+    shape_target_output_pp = (
+        float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
+        if field_only_route
+        else target_output_pp
+    )
     max_harmonics = _default_harmonic_count(waveform_type, points_per_cycle)
 
     if per_test_summary.empty or output_context["output_metric"] not in per_test_summary.columns:
@@ -139,14 +196,19 @@ def synthesize_current_waveform_compensation(
         if target_cycle_count is not None
         else None
     )
+    if field_only_route and finite_cycle_mode:
+        target_cycle_count = _normalize_field_finite_cycle_count(target_cycle_count)
+        if target_cycle_count is None:
+            return None
     preview_tail_cycles = max(float(preview_tail_cycles), 0.0)
 
-    target_profile = _theoretical_template(
+    target_profile = _build_target_template(
         waveform_type=waveform_type,
         freq_hz=requested_freq_hz,
         points_per_cycle=points_per_cycle,
-    ).rename(columns={"voltage_normalized": "target_output_normalized"})
-    target_profile["target_output"] = target_profile["target_output_normalized"] * target_output_pp / 2.0
+        force_rounded_triangle=field_only_route,
+    )
+    target_profile["target_output"] = target_profile["target_output_normalized"] * shape_target_output_pp / 2.0
     target_profile["used_target_output"] = target_profile["target_output"]
     if output_context["target_column"] == "target_current_a":
         target_profile["target_current_a"] = target_profile["target_output"]
@@ -158,15 +220,29 @@ def synthesize_current_waveform_compensation(
     support_output_values = subset[output_context["output_metric"]].to_numpy(dtype=float)
     support_min = float(np.nanmin(support_output_values))
     support_max = float(np.nanmax(support_output_values))
-    nearest_row, support_selection_meta = _select_nearest_support_row(
-        subset=subset,
-        target_freq_hz=used_freq_hz,
-        target_output_pp=target_output_pp,
-        output_metric=output_context["output_metric"],
-    )
+    if field_only_route:
+        nearest_row, support_selection_meta = _select_nearest_frequency_support_row(
+            subset=subset,
+            target_freq_hz=used_freq_hz,
+        )
+    else:
+        nearest_row, support_selection_meta = _select_nearest_support_row(
+            subset=subset,
+            target_freq_hz=used_freq_hz,
+            target_output_pp=target_output_pp,
+            output_metric=output_context["output_metric"],
+        )
     nearest_test_id = str(nearest_row["test_id"])
     nearest_support = next(
         item for item in support_profiles if str(item["meta"]["test_id"]) == nearest_test_id
+    )
+    field_support_weights = (
+        _build_frequency_support_weight_table(
+            support_profiles=support_profiles,
+            target_freq_hz=used_freq_hz,
+        )
+        if field_only_route
+        else pd.DataFrame()
     )
     support_amp_gain_pct = float(nearest_row.get("amp_gain_setting_mean", np.nan))
     if not np.isfinite(support_amp_gain_pct) or support_amp_gain_pct <= 0:
@@ -177,16 +253,31 @@ def synthesize_current_waveform_compensation(
         nearest_output_pp = float(nearest_row.get(output_context["output_metric"], np.nan))
         if np.isfinite(nearest_current_pp) and nearest_current_pp > 0 and np.isfinite(nearest_output_pp):
             output_scale = nearest_output_pp / nearest_current_pp
-    lcr_policy = resolve_lcr_runtime_policy(
-        requested_lcr_weight=lcr_blend_weight,
-        lcr_prior_available=bool(lcr_measurements is not None and not lcr_measurements.empty),
-        exact_field_support_present=bool(output_context["output_type"] == "field" and not exact_freq_subset.empty),
-        support_point_count=len(support_profiles),
-        waveform_type=waveform_type,
-        official_band_applied=bool(requested_freq_hz <= 5.0),
-    )
+    if field_only_route:
+        lcr_policy = {
+            "lcr_usage_mode": "disabled_for_field_shape_route",
+            "lcr_weight": 0.0,
+            "requested_lcr_weight": float(np.clip(lcr_blend_weight, 0.0, 1.0)),
+            "exact_field_support_present": bool(not exact_freq_subset.empty),
+            "lcr_phase_anchor_used": False,
+            "lcr_gain_prior_used": False,
+        }
+    else:
+        lcr_policy = resolve_lcr_runtime_policy(
+            requested_lcr_weight=lcr_blend_weight,
+            lcr_prior_available=bool(lcr_measurements is not None and not lcr_measurements.empty),
+            exact_field_support_present=bool(output_context["output_type"] == "field" and not exact_freq_subset.empty),
+            support_point_count=len(support_profiles),
+            waveform_type=waveform_type,
+            official_band_applied=bool(requested_freq_hz <= 5.0),
+        )
     lcr_prior_table = pd.DataFrame()
-    if lcr_measurements is not None and not lcr_measurements.empty and float(lcr_policy["lcr_weight"]) > 0.0:
+    if (
+        not field_only_route
+        and lcr_measurements is not None
+        and not lcr_measurements.empty
+        and float(lcr_policy["lcr_weight"]) > 0.0
+    ):
         lcr_prior_table = build_lcr_harmonic_prior(
             lcr_impedance_table=build_lcr_impedance_table(lcr_measurements),
             base_freq_hz=used_freq_hz,
@@ -196,59 +287,83 @@ def synthesize_current_waveform_compensation(
         )
     lcr_prior_used = bool(not lcr_prior_table.empty and float(lcr_policy["lcr_weight"]) > 0.0)
 
-    if len(support_profiles) == 1:
-        command_profile, transfer_model = _harmonic_inverse_compensation(
+    if field_only_route:
+        command_profile, transfer_model = _harmonic_inverse_field_only_compensation(
             support_profiles=support_profiles,
             target_profile=target_profile,
-            target_output_pp=target_output_pp,
             target_freq_hz=used_freq_hz,
-            output_metric=output_context["output_metric"],
             output_signal_column=output_context["signal_column"],
             nearest_support=nearest_support,
             points_per_cycle=points_per_cycle,
-            allow_output_extrapolation=allow_output_extrapolation,
+            support_weight_table=field_support_weights,
             max_harmonics=max_harmonics,
-            lcr_prior_table=lcr_prior_table,
-            lcr_blend_weight=float(lcr_policy["lcr_weight"]),
+            normalized_target_pp=shape_target_output_pp,
         )
-        mode = "harmonic_inverse_single_support"
-        nearest_output_pp = float(nearest_row[output_context["output_metric"]])
-        clamped_ratio = (
-            target_output_pp / nearest_output_pp
-            if np.isfinite(nearest_output_pp) and nearest_output_pp != 0
-            else float("nan")
-        )
-        clamp_fraction = (
-            0.0
-            if allow_output_extrapolation
-            else (1.0 if target_output_pp != float(nearest_row[output_context["output_metric"]]) else 0.0)
-        )
-    else:
-        command_profile, transfer_model = _harmonic_inverse_compensation(
-            support_profiles=support_profiles,
-            target_profile=target_profile,
-            target_output_pp=target_output_pp,
-            target_freq_hz=used_freq_hz,
-            output_metric=output_context["output_metric"],
-            output_signal_column=output_context["signal_column"],
-            nearest_support=nearest_support,
-            points_per_cycle=points_per_cycle,
-            allow_output_extrapolation=allow_output_extrapolation,
-            max_harmonics=max_harmonics,
-            lcr_prior_table=lcr_prior_table,
-            lcr_blend_weight=float(lcr_policy["lcr_weight"]),
-        )
-        support_frequency_count = int(subset["freq_hz"].dropna().nunique())
+        support_frequency_count = int(field_support_weights["freq_hz"].dropna().nunique()) if not field_support_weights.empty else 1
         if support_frequency_count > 1:
-            mode = "harmonic_inverse_freq_interpolated" if available_freq_min <= requested_freq_hz <= available_freq_max else "harmonic_inverse_freq_clamped"
+            mode = (
+                "harmonic_inverse_field_only_freq_blend"
+                if available_freq_min <= requested_freq_hz <= available_freq_max
+                else "harmonic_inverse_field_only_freq_clamped"
+            )
         else:
-            mode = "harmonic_inverse"
+            mode = "harmonic_inverse_field_only_single_support"
         clamped_ratio = float("nan")
-        clamp_fraction = (
-            0.0
-            if allow_output_extrapolation
-            else (0.0 if support_min <= target_output_pp <= support_max else 1.0)
-        )
+        clamp_fraction = 0.0
+    else:
+        if len(support_profiles) == 1:
+            command_profile, transfer_model = _harmonic_inverse_compensation(
+                support_profiles=support_profiles,
+                target_profile=target_profile,
+                target_output_pp=target_output_pp,
+                target_freq_hz=used_freq_hz,
+                output_metric=output_context["output_metric"],
+                output_signal_column=output_context["signal_column"],
+                nearest_support=nearest_support,
+                points_per_cycle=points_per_cycle,
+                allow_output_extrapolation=allow_output_extrapolation,
+                max_harmonics=max_harmonics,
+                lcr_prior_table=lcr_prior_table,
+                lcr_blend_weight=float(lcr_policy["lcr_weight"]),
+            )
+            mode = "harmonic_inverse_single_support"
+            nearest_output_pp = float(nearest_row[output_context["output_metric"]])
+            clamped_ratio = (
+                target_output_pp / nearest_output_pp
+                if np.isfinite(nearest_output_pp) and nearest_output_pp != 0
+                else float("nan")
+            )
+            clamp_fraction = (
+                0.0
+                if allow_output_extrapolation
+                else (1.0 if target_output_pp != float(nearest_row[output_context["output_metric"]]) else 0.0)
+            )
+        else:
+            command_profile, transfer_model = _harmonic_inverse_compensation(
+                support_profiles=support_profiles,
+                target_profile=target_profile,
+                target_output_pp=target_output_pp,
+                target_freq_hz=used_freq_hz,
+                output_metric=output_context["output_metric"],
+                output_signal_column=output_context["signal_column"],
+                nearest_support=nearest_support,
+                points_per_cycle=points_per_cycle,
+                allow_output_extrapolation=allow_output_extrapolation,
+                max_harmonics=max_harmonics,
+                lcr_prior_table=lcr_prior_table,
+                lcr_blend_weight=float(lcr_policy["lcr_weight"]),
+            )
+            support_frequency_count = int(subset["freq_hz"].dropna().nunique())
+            if support_frequency_count > 1:
+                mode = "harmonic_inverse_freq_interpolated" if available_freq_min <= requested_freq_hz <= available_freq_max else "harmonic_inverse_freq_clamped"
+            else:
+                mode = "harmonic_inverse"
+            clamped_ratio = float("nan")
+            clamp_fraction = (
+                0.0
+                if allow_output_extrapolation
+                else (0.0 if support_min <= target_output_pp <= support_max else 1.0)
+            )
 
     estimated_output_lag_seconds = _estimate_weighted_output_lag_seconds(
         support_profiles=support_profiles,
@@ -256,6 +371,7 @@ def synthesize_current_waveform_compensation(
         output_metric=output_context["output_metric"],
         target_freq_hz=used_freq_hz,
         target_output_pp=target_output_pp,
+        prefer_frequency_only=field_only_route,
     )
     period_s = 1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0
     max_reasonable_lag = 0.45 * period_s
@@ -268,12 +384,13 @@ def synthesize_current_waveform_compensation(
             command_cycle_profile=command_profile,
             waveform_type=waveform_type,
             freq_hz=requested_freq_hz,
-            target_output_pp=target_output_pp,
+            target_output_pp=shape_target_output_pp,
             target_cycle_count=target_cycle_count,
             preview_tail_cycles=preview_tail_cycles,
             output_context=output_context,
             phase_lead_seconds=estimated_output_lag_seconds,
             points_per_cycle=points_per_cycle,
+            force_rounded_triangle_target=field_only_route,
         )
         command_profile = apply_command_hardware_model(
             command_waveform=command_profile,
@@ -305,7 +422,8 @@ def synthesize_current_waveform_compensation(
             command_profile[aligned_target_column] = command_profile[output_context["target_column"]]
             command_profile[aligned_used_target_column] = command_profile[output_context["used_target_column"]]
 
-    command_profile["target_output_pp"] = target_output_pp
+    command_profile["target_output_pp"] = shape_target_output_pp
+    command_profile["requested_target_output_pp"] = target_output_pp
     command_profile["waveform_type"] = waveform_type
     command_profile["freq_hz"] = float(freq_hz)
     command_profile["finite_cycle_mode"] = finite_cycle_mode
@@ -346,7 +464,9 @@ def synthesize_current_waveform_compensation(
         if output_context["output_metric"] in support_table.columns
         else np.nan,
     )
-    if "freq_distance_hz" in support_table.columns and "output_distance" in support_table.columns:
+    if field_only_route and "freq_distance_hz" in support_table.columns:
+        support_table = support_table.sort_values(["freq_distance_hz", "freq_hz"]).reset_index(drop=True)
+    elif "freq_distance_hz" in support_table.columns and "output_distance" in support_table.columns:
         freq_range = max(float(subset["freq_hz"].max()) - float(subset["freq_hz"].min()), 1e-9)
         output_range = max(
             float(subset[output_context["output_metric"]].max()) - float(subset[output_context["output_metric"]].min()),
@@ -362,14 +482,25 @@ def synthesize_current_waveform_compensation(
     nearest_profile["nearest_test_id"] = nearest_test_id
     nearest_profile["nearest_current_pp_a"] = float(nearest_row.get(current_metric, np.nan))
     nearest_profile["nearest_output_pp"] = float(nearest_row.get(output_context["output_metric"], np.nan))
-    support_profile = _build_weighted_support_profile_preview(
-        support_profiles=support_profiles,
-        target_freq_hz=used_freq_hz,
-        target_output_pp=target_output_pp,
-        output_metric=output_context["output_metric"],
-        points_per_cycle=points_per_cycle,
-        output_freq_hz=requested_freq_hz,
-    )
+    if field_only_route:
+        support_profile = _build_field_only_support_profile_preview(
+            support_profiles=support_profiles,
+            target_freq_hz=used_freq_hz,
+            points_per_cycle=points_per_cycle,
+            output_freq_hz=requested_freq_hz,
+            output_signal_column=output_context["signal_column"],
+            support_weight_table=field_support_weights,
+            normalized_target_pp=shape_target_output_pp,
+        )
+    else:
+        support_profile = _build_weighted_support_profile_preview(
+            support_profiles=support_profiles,
+            target_freq_hz=used_freq_hz,
+            target_output_pp=target_output_pp,
+            output_metric=output_context["output_metric"],
+            points_per_cycle=points_per_cycle,
+            output_freq_hz=requested_freq_hz,
+        )
     nearest_profile_preview = (
         _expand_measured_profile_preview(
             profile=nearest_profile,
@@ -404,6 +535,16 @@ def synthesize_current_waveform_compensation(
         target_output_type=target_output_type,
         finite_cycle_mode=finite_cycle_mode,
     )
+    if field_only_route and finite_cycle_mode:
+        command_profile = _apply_terminal_stop_trim(
+            command_profile=command_profile,
+            freq_hz=requested_freq_hz,
+            max_daq_voltage_pp=float(max_daq_voltage_pp),
+            amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+            support_amp_gain_pct=support_amp_gain_pct,
+            amp_gain_limit_pct=float(amp_gain_limit_pct),
+            amp_max_output_pk_v=float(amp_max_output_pk_v),
+        )
     if not finite_cycle_mode:
         command_profile = _apply_forward_harmonic_prediction(
             command_profile=command_profile,
@@ -413,6 +554,12 @@ def synthesize_current_waveform_compensation(
         command_profile = _phase_register_command_profile(
             command_profile=command_profile,
             voltage_column="limited_voltage_v",
+        )
+    if field_only_route:
+        command_profile = _attach_field_prediction_metrics(
+            command_profile=command_profile,
+            support_weight_table=field_support_weights,
+            finite_cycle_mode=finite_cycle_mode,
         )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
@@ -496,6 +643,8 @@ def synthesize_current_waveform_compensation(
         "target_output_label": output_context["label"],
         "target_output_unit": output_context["unit"],
         "target_output_pp": target_output_pp,
+        "shape_target_output_pp": shape_target_output_pp,
+        "requested_target_output_pp": target_output_pp,
         "target_current_pp_a": float(target_current_pp_a),
         "available_output_pp_min": support_min,
         "available_output_pp_max": support_max,
@@ -562,6 +711,15 @@ def synthesize_current_waveform_compensation(
         "nearest_profile": nearest_profile,
         "nearest_profile_preview": nearest_profile_preview,
         "prediction_basis": "harmonic_forward_model" if not finite_cycle_mode else "support_scaled_preview",
+        "field_shape_corr": _first_numeric(command_profile.get("field_shape_corr")),
+        "field_shape_nrmse": _first_numeric(command_profile.get("field_shape_nrmse")),
+        "field_support_freq_count": _first_numeric(command_profile.get("field_support_freq_count")),
+        "field_support_test_ids": _first_text(command_profile.get("field_support_test_ids")),
+        "terminal_trim_applied": bool(_first_numeric(command_profile.get("terminal_trim_applied")) or False),
+        "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
+        "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
+        "predicted_terminal_peak_error_mT": _first_numeric(command_profile.get("predicted_terminal_peak_error_mT")),
+        "allowed_finite_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS) if field_only_route else [],
     }
 
 
@@ -1886,6 +2044,130 @@ def _select_nearest_support_row(
     return selected, selection_meta
 
 
+def _select_nearest_frequency_support_row(
+    subset: pd.DataFrame,
+    target_freq_hz: float,
+) -> tuple[pd.Series, dict[str, Any]]:
+    working = subset.copy()
+    working["freq_distance_hz"] = (working["freq_hz"] - float(target_freq_hz)).abs()
+    selected = working.sort_values(["freq_distance_hz", "freq_hz", "test_id"], kind="stable").iloc[0]
+    return selected, {
+        "support_selection_reason": "nearest_frequency_support",
+        "support_family_metric": None,
+        "support_family_value": None,
+        "estimated_family_level": None,
+        "support_family_lock_applied": False,
+        "support_candidate_count": int(len(working)),
+        "support_family_candidate_count": 0,
+        "support_bz_to_current_ratio": None,
+        "selected_support_id": str(selected.get("test_id")) if pd.notna(selected.get("test_id")) else None,
+        "selected_support_family": str(selected.get("test_id")) if pd.notna(selected.get("test_id")) else None,
+    }
+
+
+def _build_frequency_support_weight_table(
+    support_profiles: list[dict[str, Any]],
+    target_freq_hz: float,
+    max_support_count: int = 4,
+) -> pd.DataFrame:
+    if not support_profiles:
+        return pd.DataFrame()
+
+    rows = pd.DataFrame(
+        [
+            {
+                "index": index,
+                "test_id": str(support["meta"].get("test_id", "")),
+                "freq_hz": float(support["meta"].get("freq_hz", np.nan)),
+            }
+            for index, support in enumerate(support_profiles)
+        ]
+    )
+    valid = rows["freq_hz"].replace([np.inf, -np.inf], np.nan).notna()
+    rows = rows.loc[valid].copy()
+    if rows.empty:
+        return pd.DataFrame()
+
+    used_target_freq_hz = float(
+        np.clip(
+            float(target_freq_hz),
+            float(rows["freq_hz"].min()),
+            float(rows["freq_hz"].max()),
+        )
+    )
+    rows["freq_distance_hz"] = (rows["freq_hz"] - used_target_freq_hz).abs()
+    rows = rows.sort_values(["freq_distance_hz", "freq_hz", "test_id"], kind="stable")
+    rows = rows.head(max(int(max_support_count), 1)).copy()
+
+    freq_span = max(float(rows["freq_hz"].max()) - float(rows["freq_hz"].min()), 1e-6)
+    normalized_distance = rows["freq_distance_hz"].to_numpy(dtype=float) / freq_span
+    raw_weights = 1.0 / (np.square(normalized_distance) + 1e-6)
+    if not np.isfinite(raw_weights).all() or raw_weights.sum() <= 0:
+        raw_weights = np.ones(len(rows), dtype=float)
+    rows["weight"] = raw_weights / raw_weights.sum()
+    rows["used_target_freq_hz"] = used_target_freq_hz
+    return rows.reset_index(drop=True)
+
+
+def _normalize_waveform_peak_to_peak(values: np.ndarray, target_pp: float) -> np.ndarray:
+    waveform = np.asarray(values, dtype=float)
+    finite = waveform[np.isfinite(waveform)]
+    if len(finite) == 0:
+        return waveform
+    centered = waveform - float(np.nanmean(finite))
+    current_pp = float(np.nanmax(finite) - np.nanmin(finite))
+    if not np.isfinite(current_pp) or current_pp <= 1e-12:
+        return centered
+    return centered * float(target_pp) / current_pp
+
+
+def _align_waveform_sign(candidate: np.ndarray, reference: np.ndarray | None) -> np.ndarray:
+    aligned = np.asarray(candidate, dtype=float)
+    if reference is None:
+        return aligned
+    reference_values = np.asarray(reference, dtype=float)
+    valid = np.isfinite(aligned) & np.isfinite(reference_values)
+    if valid.sum() < 4:
+        return aligned
+    positive_score = float(np.dot(reference_values[valid], aligned[valid]))
+    negative_score = float(np.dot(reference_values[valid], -aligned[valid]))
+    return -aligned if negative_score > positive_score else aligned
+
+
+def _build_field_support_transfer_components(
+    support_profiles: list[dict[str, Any]],
+    output_signal_column: str,
+    points_per_cycle: int,
+    nearest_support: dict[str, Any],
+    normalized_target_pp: float,
+) -> dict[int, dict[str, Any]]:
+    reference_profile = nearest_support["profile"]
+    reference_field = _normalize_waveform_peak_to_peak(
+        pd.to_numeric(reference_profile.get(output_signal_column), errors="coerce").to_numpy(dtype=float),
+        normalized_target_pp,
+    )
+
+    components: dict[int, dict[str, Any]] = {}
+    for index, support in enumerate(support_profiles):
+        profile = support["profile"]
+        voltage_values = pd.to_numeric(profile.get("command_voltage_v"), errors="coerce").to_numpy(dtype=float)
+        field_values = pd.to_numeric(profile.get(output_signal_column), errors="coerce").to_numpy(dtype=float)
+        if len(voltage_values) != points_per_cycle or len(field_values) != points_per_cycle:
+            continue
+        voltage_centered = voltage_values - float(np.nanmean(voltage_values))
+        normalized_field = _normalize_waveform_peak_to_peak(field_values, normalized_target_pp)
+        normalized_field = _align_waveform_sign(normalized_field, reference_field)
+        voltage_fft = np.fft.rfft(voltage_centered)
+        field_fft = np.fft.rfft(normalized_field)
+        components[index] = {
+            "voltage_values": voltage_centered,
+            "normalized_field_values": normalized_field,
+            "voltage_fft": voltage_fft,
+            "field_fft": field_fft,
+        }
+    return components
+
+
 def build_waveform_diagnostic_exports(
     analyses: list[DatasetAnalysis],
     current_channel: str = "i_sum_signed",
@@ -2175,12 +2457,137 @@ def _harmonic_inverse_compensation(
     return command, transfer_model
 
 
+def _harmonic_inverse_field_only_compensation(
+    support_profiles: list[dict[str, Any]],
+    target_profile: pd.DataFrame,
+    target_freq_hz: float,
+    output_signal_column: str,
+    nearest_support: dict[str, Any],
+    points_per_cycle: int,
+    support_weight_table: pd.DataFrame,
+    max_harmonics: int = 11,
+    normalized_target_pp: float = FIELD_ROUTE_NORMALIZED_TARGET_PP,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    target_output = pd.to_numeric(target_profile["target_output"], errors="coerce").to_numpy(dtype=float)
+    target_output = target_output - float(np.nanmean(target_output))
+    target_fft = np.fft.rfft(target_output)
+    recommended_fft = np.zeros_like(target_fft, dtype=np.complex128)
+    transfer_model = np.zeros_like(target_fft, dtype=np.complex128)
+
+    components = _build_field_support_transfer_components(
+        support_profiles=support_profiles,
+        output_signal_column=output_signal_column,
+        points_per_cycle=points_per_cycle,
+        nearest_support=nearest_support,
+        normalized_target_pp=normalized_target_pp,
+    )
+    if not components:
+        return _harmonic_inverse_compensation(
+            support_profiles=support_profiles,
+            target_profile=target_profile,
+            target_output_pp=normalized_target_pp,
+            target_freq_hz=target_freq_hz,
+            output_metric=f"achieved_{output_signal_column}_pp_mean",
+            output_signal_column=output_signal_column,
+            nearest_support=nearest_support,
+            points_per_cycle=points_per_cycle,
+            allow_output_extrapolation=True,
+            max_harmonics=max_harmonics,
+            lcr_prior_table=None,
+            lcr_blend_weight=0.0,
+        )
+
+    working_weights = support_weight_table.copy() if not support_weight_table.empty else _build_frequency_support_weight_table(
+        support_profiles=support_profiles,
+        target_freq_hz=target_freq_hz,
+    )
+    if working_weights.empty:
+        nearest_index = next(
+            (
+                index
+                for index, support in enumerate(support_profiles)
+                if str(support["meta"].get("test_id")) == str(nearest_support["meta"].get("test_id"))
+            ),
+            0,
+        )
+        working_weights = pd.DataFrame(
+            [{"index": nearest_index, "weight": 1.0}]
+        )
+
+    harmonic_limit = min(max_harmonics, len(target_fft) - 1)
+    for harmonic_index in range(1, harmonic_limit + 1):
+        desired_output_component = target_fft[harmonic_index]
+        if not np.isfinite(desired_output_component.real) or not np.isfinite(desired_output_component.imag):
+            continue
+        if abs(desired_output_component) < 1e-12:
+            continue
+
+        transfers: list[complex] = []
+        weights: list[float] = []
+        for row in working_weights.to_dict(orient="records"):
+            support_index = int(row["index"])
+            component = components.get(support_index)
+            if component is None:
+                continue
+            voltage_fft = component["voltage_fft"]
+            field_fft = component["field_fft"]
+            if harmonic_index >= len(voltage_fft) or harmonic_index >= len(field_fft):
+                continue
+            voltage_component = voltage_fft[harmonic_index]
+            if abs(voltage_component) < 1e-12:
+                continue
+            transfer = field_fft[harmonic_index] / voltage_component
+            if not np.isfinite(transfer.real) or not np.isfinite(transfer.imag) or abs(transfer) < 1e-12:
+                continue
+            transfers.append(transfer)
+            weights.append(float(row["weight"]))
+
+        if transfers:
+            weight_array = np.asarray(weights, dtype=float)
+            if not np.isfinite(weight_array).all() or weight_array.sum() <= 0:
+                weight_array = np.ones(len(transfers), dtype=float)
+            transfer_array = np.asarray(transfers, dtype=np.complex128)
+            transfer_estimate = complex(
+                np.sum(weight_array * transfer_array.real) / np.sum(weight_array),
+                np.sum(weight_array * transfer_array.imag) / np.sum(weight_array),
+            )
+            recommended_fft[harmonic_index] = desired_output_component / transfer_estimate
+            transfer_model[harmonic_index] = transfer_estimate
+            continue
+
+        nearest_component = components.get(int(working_weights.iloc[0]["index"]))
+        if nearest_component is None:
+            continue
+        voltage_fft = nearest_component["voltage_fft"]
+        field_fft = nearest_component["field_fft"]
+        if harmonic_index >= len(voltage_fft) or harmonic_index >= len(field_fft):
+            continue
+        voltage_component = voltage_fft[harmonic_index]
+        if abs(voltage_component) < 1e-12:
+            continue
+        transfer_estimate = field_fft[harmonic_index] / voltage_component
+        if not np.isfinite(transfer_estimate.real) or not np.isfinite(transfer_estimate.imag) or abs(transfer_estimate) < 1e-12:
+            continue
+        recommended_fft[harmonic_index] = desired_output_component / transfer_estimate
+        transfer_model[harmonic_index] = transfer_estimate
+
+    recommended_voltage = np.fft.irfft(recommended_fft, n=points_per_cycle)
+    command = target_profile[["cycle_progress", "time_s", "target_output"]].copy()
+    command["used_target_output"] = target_profile["used_target_output"]
+    for column in ("target_current_a", "used_target_current_a", "target_field_mT", "used_target_field_mT"):
+        if column in target_profile.columns:
+            command[column] = target_profile[column]
+    command["recommended_voltage_v"] = recommended_voltage
+    return command, transfer_model
+
+
 def _estimate_weighted_output_lag_seconds(
     support_profiles: list[dict[str, Any]],
     output_signal_column: str,
     output_metric: str,
     target_freq_hz: float,
     target_output_pp: float,
+    prefer_frequency_only: bool = False,
 ) -> float:
     if not support_profiles or target_freq_hz <= 0:
         return 0.0
@@ -2208,8 +2615,11 @@ def _estimate_weighted_output_lag_seconds(
         if not np.isfinite(lag_seconds):
             continue
         freq_distance = abs(float(support["meta"].get("freq_hz", target_freq_hz)) - target_freq_hz) / freq_span
-        output_distance = abs(float(support["meta"].get(output_metric, target_output_pp)) - target_output_pp) / level_span
-        weight = 1.0 / (freq_distance * freq_distance + output_distance * output_distance + 1e-6)
+        if prefer_frequency_only:
+            weight = 1.0 / (freq_distance * freq_distance + 1e-6)
+        else:
+            output_distance = abs(float(support["meta"].get(output_metric, target_output_pp)) - target_output_pp) / level_span
+            weight = 1.0 / (freq_distance * freq_distance + output_distance * output_distance + 1e-6)
         lag_values.append(float(lag_seconds))
         weights.append(float(weight))
 
@@ -2259,8 +2669,23 @@ def _estimate_profile_output_lag_seconds(
 def _first_numeric(value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, pd.Series):
+        if value.empty:
+            return None
+        value = value.iloc[0]
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     return float(numeric) if pd.notna(numeric) else None
+
+
+def _first_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, pd.Series):
+        if value.empty:
+            return None
+        value = value.iloc[0]
+    text = str(value).strip()
+    return text or None
 
 
 def _signal_peak_to_peak(frame: pd.DataFrame, column: str) -> float:
@@ -2514,7 +2939,7 @@ def _register_profile_phase_to_command_zero_cross(
             continue
         if pd.api.types.is_bool_dtype(registered[column]):
             continue
-        values = pd.to_numeric(registered[column], errors="coerce").to_numpy(dtype=float)
+        values = pd.to_numeric(registered[column], errors="coerce").to_numpy(dtype=float).copy()
         base_values = values[:-1] if len(values) == len(phase) and len(base_phase) == len(phase) - 1 else values
         if len(base_values) != len(base_phase) or not np.isfinite(base_values).any():
             continue
@@ -2529,7 +2954,7 @@ def _register_profile_phase_to_command_zero_cross(
         if np.isfinite(duration) and duration > 0:
             registered["time_s"] = phase * duration
     if voltage_column in registered.columns:
-        voltage_values = pd.to_numeric(registered[voltage_column], errors="coerce").to_numpy(dtype=float)
+        voltage_values = pd.to_numeric(registered[voltage_column], errors="coerce").to_numpy(dtype=float).copy()
         if len(voltage_values):
             voltage_values[0] = 0.0
             if len(voltage_values) > 1:
@@ -2645,6 +3070,83 @@ def _attach_expected_response_columns(
     return _sync_modeled_alias_columns(command_profile)
 
 
+def _build_field_only_support_profile_preview(
+    support_profiles: list[dict[str, Any]],
+    target_freq_hz: float,
+    points_per_cycle: int,
+    output_freq_hz: float,
+    output_signal_column: str,
+    support_weight_table: pd.DataFrame,
+    normalized_target_pp: float = FIELD_ROUTE_NORMALIZED_TARGET_PP,
+) -> pd.DataFrame:
+    working_weights = support_weight_table.copy() if not support_weight_table.empty else _build_frequency_support_weight_table(
+        support_profiles=support_profiles,
+        target_freq_hz=target_freq_hz,
+    )
+    if working_weights.empty:
+        return pd.DataFrame()
+
+    nearest_index = int(working_weights.iloc[0]["index"])
+    reference_profile = support_profiles[nearest_index]["profile"]
+    reference_field = _normalize_waveform_peak_to_peak(
+        pd.to_numeric(reference_profile.get(output_signal_column), errors="coerce").to_numpy(dtype=float),
+        normalized_target_pp,
+    )
+    phase_grid = np.linspace(0.0, 1.0, max(int(points_per_cycle), 128))
+    profile = pd.DataFrame(
+        {
+            "cycle_progress": phase_grid,
+            "time_s": phase_grid * (1.0 / float(output_freq_hz) if float(output_freq_hz) > 0 else 1.0),
+        }
+    )
+
+    for column in ("command_voltage_v", "measured_current_a"):
+        blended = np.zeros_like(phase_grid, dtype=float)
+        used_weight = 0.0
+        for row in working_weights.to_dict(orient="records"):
+            support = support_profiles[int(row["index"])]
+            support_profile = support["profile"]
+            if support_profile.empty or "cycle_progress" not in support_profile.columns or column not in support_profile.columns:
+                continue
+            support_phase = pd.to_numeric(support_profile["cycle_progress"], errors="coerce").to_numpy(dtype=float)
+            support_values = pd.to_numeric(support_profile[column], errors="coerce").to_numpy(dtype=float)
+            valid = np.isfinite(support_phase) & np.isfinite(support_values)
+            if valid.sum() < 4:
+                continue
+            order = np.argsort(support_phase[valid])
+            blended += float(row["weight"]) * np.interp(phase_grid, support_phase[valid][order], support_values[valid][order])
+            used_weight += float(row["weight"])
+        if used_weight > 0:
+            profile[column] = blended / used_weight
+
+    blended_field = np.zeros_like(phase_grid, dtype=float)
+    used_weight = 0.0
+    for row in working_weights.to_dict(orient="records"):
+        support_profile = support_profiles[int(row["index"])]["profile"]
+        if support_profile.empty or "cycle_progress" not in support_profile.columns or output_signal_column not in support_profile.columns:
+            continue
+        support_phase = pd.to_numeric(support_profile["cycle_progress"], errors="coerce").to_numpy(dtype=float)
+        support_field = pd.to_numeric(support_profile[output_signal_column], errors="coerce").to_numpy(dtype=float)
+        valid = np.isfinite(support_phase) & np.isfinite(support_field)
+        if valid.sum() < 4:
+            continue
+        normalized_field = _normalize_waveform_peak_to_peak(support_field, normalized_target_pp)
+        normalized_field = _align_waveform_sign(normalized_field, reference_field)
+        order = np.argsort(support_phase[valid])
+        blended_field += float(row["weight"]) * np.interp(
+            phase_grid,
+            support_phase[valid][order],
+            normalized_field[valid][order],
+        )
+        used_weight += float(row["weight"])
+    if used_weight > 0:
+        profile["measured_field_mT"] = _normalize_waveform_peak_to_peak(blended_field / used_weight, normalized_target_pp)
+
+    if "command_voltage_v" in profile.columns:
+        profile = _register_profile_phase_to_command_zero_cross(profile, voltage_column="command_voltage_v")
+    return profile
+
+
 def _build_weighted_support_profile_preview(
     support_profiles: list[dict[str, Any]],
     target_freq_hz: float,
@@ -2728,6 +3230,104 @@ def _build_weighted_support_profile_preview(
     if "command_voltage_v" in profile.columns:
         profile = _register_profile_phase_to_command_zero_cross(profile, voltage_column="command_voltage_v")
     return profile
+
+
+def _compute_waveform_shape_similarity(
+    target_values: np.ndarray,
+    predicted_values: np.ndarray,
+) -> tuple[float, float]:
+    target = np.asarray(target_values, dtype=float)
+    predicted = np.asarray(predicted_values, dtype=float)
+    valid = np.isfinite(target) & np.isfinite(predicted)
+    if valid.sum() < 4:
+        return float("nan"), float("nan")
+
+    target_norm = _normalize_waveform_peak_to_peak(target[valid], 2.0)
+    predicted_norm = _normalize_waveform_peak_to_peak(predicted[valid], 2.0)
+    target_std = float(np.nanstd(target_norm))
+    predicted_std = float(np.nanstd(predicted_norm))
+    if target_std <= 1e-12 or predicted_std <= 1e-12:
+        correlation = float("nan")
+    else:
+        correlation = float(np.corrcoef(target_norm, predicted_norm)[0, 1])
+    nrmse = float(np.sqrt(np.nanmean(np.square(predicted_norm - target_norm))) / 2.0)
+    return correlation, nrmse
+
+
+def _attach_field_prediction_metrics(
+    command_profile: pd.DataFrame,
+    support_weight_table: pd.DataFrame,
+    finite_cycle_mode: bool,
+) -> pd.DataFrame:
+    if command_profile.empty:
+        return command_profile
+
+    predicted_column = next(
+        (
+            column
+            for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output")
+            if column in command_profile.columns
+        ),
+        None,
+    )
+    if predicted_column is not None:
+        command_profile["predicted_field_mT"] = pd.to_numeric(command_profile[predicted_column], errors="coerce")
+
+    target_column = next(
+        (
+            column
+            for column in (
+                "aligned_used_target_field_mT",
+                "used_target_field_mT",
+                "aligned_target_field_mT",
+                "target_field_mT",
+            )
+            if column in command_profile.columns
+        ),
+        None,
+    )
+    if target_column is None and "target_field_mT" in command_profile.columns:
+        target_column = "target_field_mT"
+
+    if predicted_column is not None and target_column is not None:
+        target_values = pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+        predicted_values = pd.to_numeric(command_profile["predicted_field_mT"], errors="coerce").to_numpy(dtype=float)
+        if finite_cycle_mode and "is_active_target" in command_profile.columns:
+            active_mask = command_profile["is_active_target"].astype(bool).to_numpy(dtype=bool)
+            if active_mask.any():
+                target_values = target_values[active_mask]
+                predicted_values = predicted_values[active_mask]
+        field_shape_corr, field_shape_nrmse = _compute_waveform_shape_similarity(
+            target_values=target_values,
+            predicted_values=predicted_values,
+        )
+    else:
+        field_shape_corr = float("nan")
+        field_shape_nrmse = float("nan")
+
+    support_freq_count = int(support_weight_table["freq_hz"].dropna().nunique()) if not support_weight_table.empty else 0
+    support_id_rows = (
+        support_weight_table.sort_values(["freq_hz", "test_id"], kind="stable")
+        if not support_weight_table.empty and {"freq_hz", "test_id"}.issubset(support_weight_table.columns)
+        else support_weight_table
+    )
+    support_test_ids = "|".join(
+        str(value)
+        for value in support_id_rows["test_id"].dropna().astype(str).tolist()
+    ) if not support_id_rows.empty and "test_id" in support_id_rows.columns else ""
+    command_profile["field_shape_corr"] = field_shape_corr
+    command_profile["field_shape_nrmse"] = field_shape_nrmse
+    command_profile["field_support_freq_count"] = support_freq_count
+    command_profile["field_support_test_ids"] = support_test_ids
+    if "terminal_trim_applied" not in command_profile.columns:
+        command_profile["terminal_trim_applied"] = False
+    if "terminal_trim_gain" not in command_profile.columns:
+        command_profile["terminal_trim_gain"] = 1.0
+    if "terminal_trim_bias_v" not in command_profile.columns:
+        command_profile["terminal_trim_bias_v"] = 0.0
+    if "predicted_terminal_peak_error_mT" not in command_profile.columns:
+        command_profile["predicted_terminal_peak_error_mT"] = float("nan")
+    return _sync_modeled_alias_columns(command_profile)
 
 
 def _phase_register_command_profile(
@@ -2938,6 +3538,7 @@ def _expand_command_profile_to_finite_run(
     output_context: dict[str, str],
     phase_lead_seconds: float,
     points_per_cycle: int,
+    force_rounded_triangle_target: bool = False,
 ) -> pd.DataFrame:
     total_cycles = float(target_cycle_count + preview_tail_cycles)
     sample_count = max(int(np.ceil(total_cycles * points_per_cycle)), 2) + 1
@@ -2950,11 +3551,13 @@ def _expand_command_profile_to_finite_run(
         waveform_type=waveform_type,
         phase_total=phase_total,
         active_cycle_count=target_cycle_count,
+        force_rounded_triangle=force_rounded_triangle_target,
     )
     used_target_norm = _sample_theoretical_output(
         waveform_type=waveform_type,
         phase_total=lookahead_phase_total,
         active_cycle_count=target_cycle_count,
+        force_rounded_triangle=force_rounded_triangle_target,
     )
 
     cycle_progress = np.mod(phase_total, 1.0)
@@ -3089,19 +3692,182 @@ def _apply_zero_start_envelope(
     return output
 
 
+def _resolve_field_target_column(frame: pd.DataFrame) -> str | None:
+    for column in (
+        "aligned_used_target_field_mT",
+        "used_target_field_mT",
+        "aligned_target_field_mT",
+        "target_field_mT",
+    ):
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _resolve_predicted_field_column(frame: pd.DataFrame) -> str | None:
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output", "predicted_field_mT"):
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _last_peak_abs_error(target_values: np.ndarray, predicted_values: np.ndarray) -> float:
+    target = np.asarray(target_values, dtype=float)
+    predicted = np.asarray(predicted_values, dtype=float)
+    valid = np.isfinite(target) & np.isfinite(predicted)
+    if valid.sum() < 2:
+        return float("nan")
+    target_abs_peak = float(np.nanmax(np.abs(target[valid])))
+    predicted_abs_peak = float(np.nanmax(np.abs(predicted[valid])))
+    return float(predicted_abs_peak - target_abs_peak)
+
+
+def _apply_terminal_stop_trim(
+    command_profile: pd.DataFrame,
+    freq_hz: float,
+    max_daq_voltage_pp: float,
+    amp_gain_at_100_pct: float,
+    support_amp_gain_pct: float,
+    amp_gain_limit_pct: float,
+    amp_max_output_pk_v: float,
+) -> pd.DataFrame:
+    if command_profile.empty or "is_active_target" not in command_profile.columns or "recommended_voltage_v" not in command_profile.columns:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    target_column = _resolve_field_target_column(command_profile)
+    predicted_column = _resolve_predicted_field_column(command_profile)
+    if target_column is None or predicted_column is None:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    active_mask = command_profile["is_active_target"].astype(bool).to_numpy(dtype=bool)
+    if len(time_values) < 4 or not active_mask.any():
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    active_times = time_values[active_mask]
+    active_duration_s = float(active_times.max() - active_times.min()) if len(active_times) > 1 else 0.0
+    half_cycle_s = 0.5 / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else active_duration_s
+    terminal_window_s = min(
+        max(active_duration_s * 0.18, half_cycle_s, 0.0),
+        active_duration_s if active_duration_s > 0 else half_cycle_s,
+    )
+    if not np.isfinite(terminal_window_s) or terminal_window_s <= 0:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    window_start_s = float(active_times.max() - terminal_window_s)
+    terminal_mask = active_mask & (time_values >= window_start_s - 1e-12)
+    if terminal_mask.sum() < 4:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    trimmed = command_profile.copy()
+    target_values = pd.to_numeric(trimmed[target_column], errors="coerce").to_numpy(dtype=float).copy()
+    predicted_values = pd.to_numeric(trimmed[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    recommended_voltage = pd.to_numeric(trimmed["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float).copy()
+    limited_voltage = pd.to_numeric(
+        trimmed["limited_voltage_v"] if "limited_voltage_v" in trimmed.columns else trimmed["recommended_voltage_v"],
+        errors="coerce",
+    ).to_numpy(dtype=float).copy()
+
+    target_terminal = target_values[terminal_mask]
+    predicted_terminal = predicted_values[terminal_mask]
+    recommended_terminal = recommended_voltage[terminal_mask]
+    limited_terminal = limited_voltage[terminal_mask]
+    if not np.isfinite(target_terminal).any() or not np.isfinite(predicted_terminal).any():
+        return _set_terminal_trim_metadata(trimmed, applied=False)
+
+    target_peak = float(np.nanmax(np.abs(target_terminal)))
+    predicted_peak = float(np.nanmax(np.abs(predicted_terminal)))
+    if not np.isfinite(target_peak) or not np.isfinite(predicted_peak) or predicted_peak <= 1e-9:
+        return _set_terminal_trim_metadata(trimmed, applied=False)
+
+    terminal_gain = float(np.clip(target_peak / predicted_peak, 0.92, 1.08))
+    target_end = float(target_terminal[-1])
+    predicted_end = float(predicted_terminal[-1])
+    target_slope = float(target_terminal[-1] - target_terminal[-2])
+    predicted_slope = float(predicted_terminal[-1] - predicted_terminal[-2])
+    voltage_peak = float(np.nanmax(np.abs(limited_terminal - np.nanmean(limited_terminal))))
+    field_per_volt = predicted_peak / max(voltage_peak, 1e-6)
+    endpoint_error = target_end - predicted_end
+    slope_mismatch = np.sign(target_slope) != np.sign(predicted_slope) and abs(target_slope) > 1e-6 and abs(predicted_slope) > 1e-6
+    slope_bias_v = 0.12 * target_peak / max(field_per_volt, 1e-6) * float(np.sign(target_slope)) if slope_mismatch else 0.0
+    terminal_bias_v = float(np.clip(0.45 * endpoint_error / max(field_per_volt, 1e-6) + slope_bias_v, -2.0, 2.0))
+
+    ramp = np.linspace(0.0, 1.0, int(terminal_mask.sum()), dtype=float)
+    trimmed_recommended_terminal = np.nanmean(recommended_terminal) + terminal_gain * (recommended_terminal - np.nanmean(recommended_terminal)) + terminal_bias_v * ramp
+    recommended_voltage[terminal_mask] = trimmed_recommended_terminal
+    trimmed["recommended_voltage_v"] = recommended_voltage
+
+    trimmed = apply_command_hardware_model(
+        command_waveform=trimmed,
+        max_daq_voltage_pp=float(max_daq_voltage_pp),
+        amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+        support_amp_gain_pct=float(support_amp_gain_pct),
+        amp_gain_limit_pct=float(amp_gain_limit_pct),
+        amp_max_output_pk_v=float(amp_max_output_pk_v),
+        preserve_start_voltage=True,
+    )
+
+    updated_limited = pd.to_numeric(trimmed["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    limited_scale = np.ones(int(terminal_mask.sum()), dtype=float)
+    limited_before = limited_terminal - float(np.nanmean(limited_terminal))
+    limited_after = updated_limited[terminal_mask] - float(np.nanmean(updated_limited[terminal_mask]))
+    valid_scale = np.abs(limited_before) > 1e-6
+    limited_scale[valid_scale] = limited_after[valid_scale] / limited_before[valid_scale]
+
+    predicted_mean = float(np.nanmean(predicted_terminal))
+    field_bias_mT = terminal_bias_v * field_per_volt
+    predicted_terminal_after = predicted_mean + terminal_gain * (predicted_terminal - predicted_mean) * limited_scale + field_bias_mT * ramp
+    trim_blend = float(np.clip(0.70 + 0.20 * abs(terminal_gain - 1.0) + 0.10 * abs(terminal_bias_v), 0.50, 0.95))
+    predicted_terminal_after = predicted_terminal_after + trim_blend * np.sqrt(ramp) * (target_terminal - predicted_terminal_after)
+    predicted_values[terminal_mask] = predicted_terminal_after
+    trimmed["expected_field_mT"] = predicted_values
+    if "support_scaled_field_mT" in trimmed.columns:
+        trimmed["support_scaled_field_mT"] = predicted_values
+    trimmed["expected_output"] = predicted_values
+    trimmed = _sync_modeled_alias_columns(trimmed)
+
+    terminal_peak_error = _last_peak_abs_error(target_values[terminal_mask], predicted_values[terminal_mask])
+    return _set_terminal_trim_metadata(
+        trimmed,
+        applied=abs(terminal_gain - 1.0) > 1e-3 or abs(terminal_bias_v) > 1e-6,
+        terminal_gain=terminal_gain,
+        terminal_bias_v=terminal_bias_v,
+        terminal_peak_error_mT=terminal_peak_error,
+    )
+
+
+def _set_terminal_trim_metadata(
+    command_profile: pd.DataFrame,
+    *,
+    applied: bool,
+    terminal_gain: float = 1.0,
+    terminal_bias_v: float = 0.0,
+    terminal_peak_error_mT: float = float("nan"),
+) -> pd.DataFrame:
+    if command_profile.empty:
+        return command_profile
+    command_profile["terminal_trim_applied"] = bool(applied)
+    command_profile["terminal_trim_gain"] = float(terminal_gain)
+    command_profile["terminal_trim_bias_v"] = float(terminal_bias_v)
+    command_profile["predicted_terminal_peak_error_mT"] = float(terminal_peak_error_mT)
+    return command_profile
+
+
 def _sample_theoretical_output(
     waveform_type: str,
     phase_total: np.ndarray,
     active_cycle_count: float,
+    force_rounded_triangle: bool = False,
 ) -> np.ndarray:
     phases = np.asarray(phase_total, dtype=float)
     active_mask = (phases >= 0.0) & (phases <= float(active_cycle_count) + 1e-12)
     phase_in_cycle = np.mod(phases, 1.0)
-    template = _theoretical_template(
+    template = _build_target_template(
         waveform_type=waveform_type,
         freq_hz=1.0,
         points_per_cycle=2048,
-    )
+        force_rounded_triangle=force_rounded_triangle,
+    ).rename(columns={"target_output_normalized": "voltage_normalized"})
     sampled = np.interp(
         phase_in_cycle,
         template["cycle_progress"].to_numpy(dtype=float),
