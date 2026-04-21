@@ -103,7 +103,7 @@ def test_lut_metric_prioritization_keeps_current_as_debug_fallback() -> None:
     assert prioritize_lut_target_metrics(
         ["achieved_current_pp_a_mean"],
         main_field_axis="bz_mT",
-    ) == ["achieved_current_pp_a_mean"]
+    ) == []
 
     assert prioritize_lut_target_metrics(
         ["achieved_current_pp_a_mean", "achieved_bz_mT_pp_mean"],

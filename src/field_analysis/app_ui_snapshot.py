@@ -830,7 +830,6 @@ def _render_quick_lut_tab(
         f"achieved_{main_field_axis}_pp_mean",
         "achieved_bz_mT_pp_mean",
         "achieved_bmag_mT_pp_mean",
-        "achieved_current_pp_a_mean",
     ]
     available_metric_options = [
         metric for metric in dict.fromkeys(metric_candidates) if metric in per_test_summary.columns
@@ -1085,25 +1084,14 @@ def _render_quick_lut_tab_v2(
         )
         st.caption(f"보유 주파수: {frequency_labels} Hz")
     with mid:
-        include_current_debug = st.checkbox(
-            "Show current target metric (debug)",
-            value=False,
-            help="Field metrics stay first. Current remains available only for debug or fallback use.",
-            key="lut_metric_current_debug_v2",
-        )
-        target_metric = st.selectbox(
-            "LUT Target Metric",
-            options=_prioritize_metric_options(
-                available_metric_options,
-                main_field_axis,
-                include_current_debug=include_current_debug,
-            ),
-            format_func=target_metric_label,
-            key="lut_metric_v2",
-        )
-        target_value = float(
-            st.number_input("크기 LUT 목표값", min_value=0.0, value=100.0, step=1.0, key="lut_target_value_v2")
-        )
+        target_metric = _prioritize_metric_options(
+            available_metric_options,
+            main_field_axis,
+        )[0]
+        st.markdown("**Field-only / 100pp mode**")
+        st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
+        target_value = 100.0
+        st.caption("Main LUT target PP is fixed to `100` and current is excluded from shape selection.")
         compensation_target_type = st.selectbox(
             "파형 보정 목표 항목",
             options=["field", "current"],
