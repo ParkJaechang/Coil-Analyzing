@@ -20,6 +20,11 @@ ENTRYPOINTS = [
     REPO_ROOT / "src" / "field_analysis" / "ui_validation_retune.py",
     REPO_ROOT / "src" / "field_analysis" / "validation_retune.py",
 ]
+LOCAL_LAUNCHERS = [
+    REPO_ROOT / "launch_streamlit_with_free_port_local.cmd",
+    REPO_ROOT / "launch_quick_lut_local.cmd",
+    REPO_ROOT / "launch_field_analysis_latest_local.cmd",
+]
 
 
 def _read_text(path: Path) -> str:
@@ -39,6 +44,11 @@ def test_entrypoints_exist_and_compile() -> None:
     for path in ENTRYPOINTS:
         assert path.is_file(), f"Missing expected file: {path}"
         py_compile.compile(str(path), doraise=True)
+
+
+def test_local_launchers_exist() -> None:
+    for path in LOCAL_LAUNCHERS:
+        assert path.is_file(), f"Missing expected local launcher: {path}"
 
 
 def test_app_ui_snapshot_exposes_expected_entrypoints() -> None:

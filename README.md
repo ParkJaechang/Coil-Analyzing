@@ -54,6 +54,18 @@ or:
 
 The launcher chooses an available local Streamlit port automatically.
 
+## Run On Another PC
+
+From a fresh clone:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.\launch_quick_lut_local.cmd
+```
+
+Use `.\launch_field_analysis_latest_local.cmd` for the full app. These local launchers prefer the repo `.venv`, then PATH `streamlit`, then `python -m streamlit`.
+
 ## Git Workflow
 
 Safe default workflow:
