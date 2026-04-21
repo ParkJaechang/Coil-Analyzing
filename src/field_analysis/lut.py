@@ -17,6 +17,9 @@ TARGET_LABELS = {
     "achieved_bproj_mT_pp_mean": "Achieved Bproj PP (mT)",
 }
 CURRENT_DEBUG_TARGET_METRICS = {"achieved_current_pp_a_mean"}
+FIELD_ONLY_FIXED_TARGET_PP = 100.0
+LOW_FREQ_REGULARIZATION_HZ = 5.0
+TEMPLATE_POINTS_PER_CYCLE = 300
 
 
 def target_metric_label(metric: str) -> str:
@@ -49,13 +52,44 @@ def prioritize_lut_target_metrics(
         for metric in metric_options
         if metric not in ordered and metric not in CURRENT_DEBUG_TARGET_METRICS
     )
-    if include_current_debug or not ordered:
+    if include_current_debug:
         ordered.extend(
             metric
             for metric in metric_options
             if metric in CURRENT_DEBUG_TARGET_METRICS and metric not in ordered
         )
     return ordered
+
+
+def resolve_field_only_target_metric(
+    metric_options: list[str],
+    preferred_metric: str | None = None,
+) -> str | None:
+    preferred_order: list[str] = []
+    if (
+        preferred_metric
+        and preferred_metric in metric_options
+        and preferred_metric not in CURRENT_DEBUG_TARGET_METRICS
+    ):
+        preferred_order.append(preferred_metric)
+    preferred_order.extend(
+        metric
+        for metric in (
+            "achieved_bz_mT_pp_mean",
+            "achieved_bmag_mT_pp_mean",
+            "achieved_bproj_mT_pp_mean",
+        )
+        if metric in metric_options
+    )
+    preferred_order.extend(
+        metric
+        for metric in metric_options
+        if metric.startswith("achieved_")
+        and metric.endswith("_pp_mean")
+        and metric not in CURRENT_DEBUG_TARGET_METRICS
+        and metric not in preferred_order
+    )
+    return preferred_order[0] if preferred_order else None
 
 
 def build_lut_recommendation_display_context(
@@ -122,22 +156,26 @@ def recommend_voltage_waveform(
 ) -> dict[str, Any] | None:
     """Recommend a continuous or finite-cycle voltage waveform from measured LUT data."""
 
-    if (
-        per_test_summary.empty
-        or target_metric not in per_test_summary.columns
-        or voltage_metric not in per_test_summary.columns
-    ):
+    if per_test_summary.empty or voltage_metric not in per_test_summary.columns:
+        return None
+
+    resolved_target_metric = resolve_field_only_target_metric(
+        [column for column in per_test_summary.columns if column.startswith("achieved_") and column.endswith("_pp_mean")],
+        preferred_metric=target_metric,
+    )
+    if resolved_target_metric is None or resolved_target_metric not in per_test_summary.columns:
         return None
 
     waveform_type = canonicalize_waveform_type(waveform_type)
     if waveform_type is None:
         return None
 
+    requested_target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
     requested_freq_hz = float(freq_hz)
     waveform_subset = per_test_summary[
         per_test_summary["waveform_type"].map(canonicalize_waveform_type) == waveform_type
     ].copy()
-    waveform_subset = waveform_subset.dropna(subset=[target_metric, voltage_metric, "freq_hz"])
+    waveform_subset = waveform_subset.dropna(subset=[resolved_target_metric, voltage_metric, "freq_hz"])
     if waveform_subset.empty:
         return None
 
@@ -152,8 +190,8 @@ def recommend_voltage_waveform(
 
     frequency_support_table = _build_frequency_support_table(
         subset=subset,
-        target_metric=target_metric,
-        target_value=float(target_value),
+        target_metric=resolved_target_metric,
+        target_value=requested_target_value,
         voltage_metric=voltage_metric,
         allow_target_extrapolation=allow_target_extrapolation,
     )
@@ -228,8 +266,9 @@ def recommend_voltage_waveform(
         else:
             recommendation_mode = frequency_mode_used
 
-    template_waveform = _build_frequency_aware_template(
+    template_waveform, template_debug = _build_frequency_aware_template(
         analyses_by_test_id=analyses_by_test_id,
+        support_subset=subset,
         frequency_support_table=frequency_support_table,
         requested_freq_hz=requested_freq_hz,
         used_freq_hz=used_freq_hz,
@@ -265,8 +304,8 @@ def recommend_voltage_waveform(
     )
     command_waveform["waveform_type"] = waveform_type
     command_waveform["freq_hz"] = requested_freq_hz
-    command_waveform["target_metric"] = target_metric
-    command_waveform["target_value"] = target_value
+    command_waveform["target_metric"] = resolved_target_metric
+    command_waveform["target_value"] = requested_target_value
     command_waveform["finite_cycle_mode"] = finite_cycle_mode
     command_waveform["target_cycle_count"] = (
         max(float(target_cycle_count), 0.25)
@@ -280,18 +319,18 @@ def recommend_voltage_waveform(
     )
 
     support_point_count = int(len(subset))
-    distinct_target_count = int(pd.Series(subset[target_metric]).dropna().nunique())
+    distinct_target_count = int(pd.Series(subset[resolved_target_metric]).dropna().nunique())
     selected_frequency_subset = subset[
         np.isclose(subset["freq_hz"], float(selected_frequency_row["freq_hz"]), atol=1e-6, equal_nan=False)
     ].copy()
-    selected_target_values = selected_frequency_subset[target_metric].to_numpy(dtype=float)
+    selected_target_values = selected_frequency_subset[resolved_target_metric].to_numpy(dtype=float)
     min_target = float(np.nanmin(selected_target_values))
     max_target = float(np.nanmax(selected_target_values))
-    in_range = min_target <= target_value <= max_target
+    in_range = min_target <= requested_target_value <= max_target
 
     neighbor_points = _build_neighbor_points(
         subset=subset,
-        target_metric=target_metric,
+        target_metric=resolved_target_metric,
         clamped_target=clamped_target,
         requested_freq_hz=requested_freq_hz,
         used_freq_hz=used_freq_hz,
@@ -301,7 +340,7 @@ def recommend_voltage_waveform(
         recommendation_mode = "single_point_only"
 
     display_context = build_lut_recommendation_display_context(
-        target_metric=target_metric,
+        target_metric=resolved_target_metric,
         used_target_value=clamped_target,
         estimated_current_pp=estimated_current_pp,
         estimated_bz_pp=estimated_bz_pp,
@@ -312,9 +351,9 @@ def recommend_voltage_waveform(
     return {
         "waveform_type": waveform_type,
         "freq_hz": requested_freq_hz,
-        "target_metric": target_metric,
-        "target_label": target_metric_label(target_metric),
-        "requested_target_value": float(target_value),
+        "target_metric": resolved_target_metric,
+        "target_label": target_metric_label(resolved_target_metric),
+        "requested_target_value": requested_target_value,
         "used_target_value": clamped_target,
         "in_range": in_range,
         "recommendation_mode": recommendation_mode,
@@ -332,6 +371,7 @@ def recommend_voltage_waveform(
         "estimated_voltage_pp": estimated_voltage_pp,
         "estimated_voltage_peak": estimated_voltage_pp / 2.0,
         "finite_cycle_mode": finite_cycle_mode,
+        "field_only_fixed_target_pp": float(FIELD_ONLY_FIXED_TARGET_PP),
         "target_cycle_count": (
             max(float(target_cycle_count), 0.25)
             if finite_cycle_mode and target_cycle_count is not None
@@ -362,8 +402,12 @@ def recommend_voltage_waveform(
         "frequency_support_table": frequency_support_table,
         "lookup_table": subset,
         "neighbor_points": neighbor_points,
-        "template_test_id": str(selected_frequency_row["template_test_id"]),
+        "template_test_id": str(template_debug["template_test_id"]),
         "template_waveform": template_waveform,
+        "field_shape_corr": float(template_debug["field_shape_corr"]),
+        "field_shape_nrmse": float(template_debug["field_shape_nrmse"]),
+        "field_model_route": str(template_debug["field_model_route"]),
+        "freq_regularization_applied": bool(template_debug["freq_regularization_applied"]),
         "command_waveform": command_waveform,
         **display_context,
     }
@@ -393,6 +437,7 @@ def build_voltage_template(
     grid = np.linspace(0.0, 1.0, points_per_cycle)
     waveforms: list[np.ndarray] = []
     durations: list[float] = []
+    reference_waveform: np.ndarray | None = None
 
     for _, cycle_frame in frame.dropna(subset=["cycle_index"]).groupby("cycle_index", sort=True):
         valid = cycle_frame[["cycle_progress", voltage_channel, "cycle_time_s"]].dropna().copy()
@@ -405,7 +450,12 @@ def build_voltage_template(
         amplitude = float(np.nanmax(np.abs(centered)))
         if not np.isfinite(amplitude) or amplitude <= 0:
             continue
-        waveforms.append(np.interp(grid, progress, centered / amplitude))
+        normalized_cycle = _normalize_template_values(np.interp(grid, progress, centered / amplitude))
+        if reference_waveform is None:
+            reference_waveform = normalized_cycle
+        else:
+            normalized_cycle, _ = _align_template_values_to_reference(reference_waveform, normalized_cycle)
+        waveforms.append(normalized_cycle)
         durations.append(float(valid["cycle_time_s"].max()))
 
     if not waveforms:
@@ -438,6 +488,82 @@ def build_voltage_template(
             "voltage_normalized": normalized,
         }
     )
+
+
+def _normalize_template_values(values: np.ndarray) -> np.ndarray:
+    normalized = np.asarray(values, dtype=float).copy()
+    if len(normalized) == 0:
+        return normalized
+    normalized = normalized - float(np.nanmean(normalized))
+    max_abs = float(np.nanmax(np.abs(normalized)))
+    if np.isfinite(max_abs) and max_abs > 0:
+        normalized = normalized / max_abs
+    normalized[0] = 0.0
+    if len(normalized) > 1:
+        normalized[-1] = normalized[0]
+    return normalized
+
+
+def _shape_correlation(left: np.ndarray, right: np.ndarray) -> float:
+    left_values = np.asarray(left, dtype=float)
+    right_values = np.asarray(right, dtype=float)
+    valid = np.isfinite(left_values) & np.isfinite(right_values)
+    if int(valid.sum()) < 4:
+        return float("nan")
+    left_centered = left_values[valid] - float(np.nanmean(left_values[valid]))
+    right_centered = right_values[valid] - float(np.nanmean(right_values[valid]))
+    left_std = float(np.nanstd(left_centered))
+    right_std = float(np.nanstd(right_centered))
+    if left_std <= 1e-12 or right_std <= 1e-12:
+        return float("nan")
+    return float(np.corrcoef(left_centered, right_centered)[0, 1])
+
+
+def _shape_nrmse(left: np.ndarray, right: np.ndarray) -> float:
+    left_values = np.asarray(left, dtype=float)
+    right_values = np.asarray(right, dtype=float)
+    valid = np.isfinite(left_values) & np.isfinite(right_values)
+    if int(valid.sum()) < 4:
+        return float("nan")
+    error = left_values[valid] - right_values[valid]
+    rmse = float(np.sqrt(np.nanmean(np.square(error))))
+    scale = max(float(np.nanmax(np.abs(left_values[valid]))), 1e-12)
+    return rmse / scale
+
+
+def _align_template_values_to_reference(
+    reference_values: np.ndarray,
+    candidate_values: np.ndarray,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    reference = _normalize_template_values(reference_values)
+    candidate = _normalize_template_values(candidate_values)
+    if len(reference) != len(candidate):
+        grid = np.linspace(0.0, 1.0, max(len(reference), len(candidate), TEMPLATE_POINTS_PER_CYCLE))
+        reference = np.interp(grid, np.linspace(0.0, 1.0, len(reference)), reference)
+        candidate = np.interp(grid, np.linspace(0.0, 1.0, len(candidate)), candidate)
+        reference = _normalize_template_values(reference)
+        candidate = _normalize_template_values(candidate)
+
+    best_corr = float("-inf")
+    best_values = candidate.copy()
+    best_shift = 0
+    best_polarity = 1
+    for polarity in (1, -1):
+        candidate_with_polarity = candidate * polarity
+        for shift in range(len(candidate_with_polarity)):
+            shifted = np.roll(candidate_with_polarity, shift)
+            corr = _shape_correlation(reference, shifted)
+            if np.isfinite(corr) and corr > best_corr:
+                best_corr = corr
+                best_values = shifted
+                best_shift = shift
+                best_polarity = polarity
+    return _normalize_template_values(best_values), {
+        "corr": float(best_corr) if np.isfinite(best_corr) else float("nan"),
+        "nrmse": _shape_nrmse(reference, best_values),
+        "shift": int(best_shift),
+        "polarity_flipped": bool(best_polarity < 0),
+    }
 
 
 def _interpolate_metric(
@@ -494,6 +620,7 @@ def _build_frequency_support_table(
         working = working.loc[working[target_metric].diff().fillna(1).ne(0)].copy()
         if working.empty:
             continue
+        template_test_ids = sorted({str(value) for value in working.get("test_id", pd.Series(dtype=object)).dropna().tolist()})
 
         target_values = working[target_metric].to_numpy(dtype=float)
         voltage_values = working[voltage_metric].to_numpy(dtype=float)
@@ -506,13 +633,16 @@ def _build_frequency_support_table(
         )
         support_point_count = int(len(working))
         distinct_target_count = int(pd.Series(target_values).nunique())
+        template_amp_gain_setting = float(
+            pd.to_numeric(working.get("amp_gain_setting_mean", pd.Series(dtype=float)), errors="coerce").median()
+        ) if "amp_gain_setting_mean" in working.columns else float("nan")
 
         if distinct_target_count < 2:
-            nearest_row = working.iloc[0]
-            estimated_voltage_pp = float(nearest_row[voltage_metric])
-            estimated_current_pp = float(nearest_row.get("achieved_current_pp_a_mean", np.nan))
-            estimated_bz_pp = float(nearest_row.get("achieved_bz_mT_pp_mean", np.nan))
-            estimated_bmag_pp = float(nearest_row.get("achieved_bmag_mT_pp_mean", np.nan))
+            representative_row = working.iloc[0]
+            estimated_voltage_pp = float(representative_row[voltage_metric])
+            estimated_current_pp = float(representative_row.get("achieved_current_pp_a_mean", np.nan))
+            estimated_bz_pp = float(representative_row.get("achieved_bz_mT_pp_mean", np.nan))
+            estimated_bmag_pp = float(representative_row.get("achieved_bmag_mT_pp_mean", np.nan))
             local_mode = "single_point_only"
         else:
             estimated_voltage_pp = _interpolate_or_extrapolate_metric(target_values, voltage_values, used_target_value)
@@ -537,7 +667,6 @@ def _build_frequency_support_table(
                 target_metric,
                 allow_target_extrapolation=allow_target_extrapolation,
             )
-            nearest_row = working.iloc[(working[target_metric] - used_target_value).abs().argmin()]
             if available_target_min <= target_value <= available_target_max:
                 local_mode = "interpolated"
             else:
@@ -556,8 +685,9 @@ def _build_frequency_support_table(
                 "estimated_bz_pp": estimated_bz_pp,
                 "estimated_bmag_pp": estimated_bmag_pp,
                 "local_mode": local_mode,
-                "template_test_id": str(nearest_row["test_id"]),
-                "template_amp_gain_setting": float(nearest_row.get("amp_gain_setting_mean", np.nan)),
+                "template_test_id": template_test_ids[0] if template_test_ids else "",
+                "template_test_ids": template_test_ids,
+                "template_amp_gain_setting": template_amp_gain_setting,
             }
         )
 
@@ -594,57 +724,190 @@ def _select_nearest_frequency_row(
     return working.sort_values(["freq_distance_hz", "support_point_count"], ascending=[True, False]).iloc[0]
 
 
+def _build_frequency_bucket_template(
+    analyses_by_test_id: dict[str, DatasetAnalysis],
+    support_subset: pd.DataFrame,
+    voltage_channel: str,
+    waveform_type: str,
+    freq_hz: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    template_arrays: list[np.ndarray] = []
+    template_ids: list[str] = []
+    reference_values: np.ndarray | None = None
+    grid = np.linspace(0.0, 1.0, TEMPLATE_POINTS_PER_CYCLE)
+
+    for test_id in sorted({str(value) for value in support_subset.get("test_id", pd.Series(dtype=object)).dropna().tolist()}):
+        template = _load_template_for_test(
+            analyses_by_test_id=analyses_by_test_id,
+            test_id=test_id,
+            voltage_channel=voltage_channel,
+            waveform_type=waveform_type,
+            freq_hz=freq_hz,
+        )
+        values = np.interp(
+            grid,
+            template["cycle_progress"].to_numpy(dtype=float),
+            template["voltage_normalized"].to_numpy(dtype=float),
+        )
+        values = _normalize_template_values(values)
+        if reference_values is None:
+            reference_values = values
+        else:
+            values, _ = _align_template_values_to_reference(reference_values, values)
+        template_arrays.append(values)
+        template_ids.append(test_id)
+
+    if not template_arrays:
+        fallback = _theoretical_template(
+            waveform_type=waveform_type,
+            freq_hz=freq_hz,
+            points_per_cycle=TEMPLATE_POINTS_PER_CYCLE,
+        )
+        return fallback, {
+            "template_test_id": "",
+            "source_test_ids": [],
+            "source_count": 0,
+        }
+
+    averaged = _normalize_template_values(np.vstack(template_arrays).mean(axis=0))
+    template = pd.DataFrame(
+        {
+            "cycle_progress": grid,
+            "time_s": grid * (1.0 / freq_hz if freq_hz > 0 else 1.0),
+            "voltage_normalized": averaged,
+        }
+    )
+    return template, {
+        "template_test_id": template_ids[0],
+        "source_test_ids": template_ids,
+        "source_count": len(template_ids),
+    }
+
+
+def _build_single_template_shape_metrics(
+    template: pd.DataFrame,
+    waveform_type: str,
+) -> dict[str, Any]:
+    values = template["voltage_normalized"].to_numpy(dtype=float)
+    reference = _theoretical_template(
+        waveform_type=waveform_type,
+        freq_hz=1.0,
+        points_per_cycle=len(values),
+    )["voltage_normalized"].to_numpy(dtype=float)
+    return {
+        "field_shape_corr": _shape_correlation(reference, values),
+        "field_shape_nrmse": _shape_nrmse(reference, values),
+    }
+
+
 def _build_frequency_aware_template(
     analyses_by_test_id: dict[str, DatasetAnalysis],
+    support_subset: pd.DataFrame,
     frequency_support_table: pd.DataFrame,
     requested_freq_hz: float,
     used_freq_hz: float,
     voltage_channel: str,
     waveform_type: str,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     if frequency_support_table.empty:
-        return _theoretical_template(
+        fallback = _theoretical_template(
             waveform_type=waveform_type,
             freq_hz=requested_freq_hz,
-            points_per_cycle=300,
+            points_per_cycle=TEMPLATE_POINTS_PER_CYCLE,
         )
+        metrics = _build_single_template_shape_metrics(fallback, waveform_type)
+        return fallback, {
+            "template_test_id": "",
+            "field_shape_corr": metrics["field_shape_corr"],
+            "field_shape_nrmse": metrics["field_shape_nrmse"],
+            "field_model_route": "field_only_theoretical_fallback",
+            "freq_regularization_applied": False,
+        }
 
     working = frequency_support_table.sort_values("freq_hz").reset_index(drop=True)
-    lower = working.loc[working["freq_hz"] <= used_freq_hz]
-    upper = working.loc[working["freq_hz"] >= used_freq_hz]
-    lower_row = lower.iloc[-1] if not lower.empty else working.iloc[0]
-    upper_row = upper.iloc[0] if not upper.empty else working.iloc[-1]
+    regularized = bool(requested_freq_hz < LOW_FREQ_REGULARIZATION_HZ and len(working) > 1)
+    if regularized:
+        sorted_by_distance = working.assign(freq_distance_hz=(working["freq_hz"] - float(used_freq_hz)).abs())
+        sorted_by_distance = sorted_by_distance.sort_values(["freq_distance_hz", "freq_hz"]).reset_index(drop=True)
+        lower_row = sorted_by_distance.iloc[0]
+        upper_row = sorted_by_distance.iloc[1] if len(sorted_by_distance) > 1 else sorted_by_distance.iloc[0]
+    else:
+        lower = working.loc[working["freq_hz"] <= used_freq_hz]
+        upper = working.loc[working["freq_hz"] >= used_freq_hz]
+        lower_row = lower.iloc[-1] if not lower.empty else working.iloc[0]
+        upper_row = upper.iloc[0] if not upper.empty else working.iloc[-1]
 
-    lower_template = _load_template_for_test(
+    lower_template, lower_meta = _build_frequency_bucket_template(
         analyses_by_test_id=analyses_by_test_id,
-        test_id=str(lower_row["template_test_id"]),
+        support_subset=support_subset[
+            np.isclose(support_subset["freq_hz"], float(lower_row["freq_hz"]), atol=1e-6, equal_nan=False)
+        ].copy(),
         voltage_channel=voltage_channel,
         waveform_type=waveform_type,
         freq_hz=float(lower_row["freq_hz"]),
     )
-    if str(lower_row["template_test_id"]) == str(upper_row["template_test_id"]):
+    if np.isclose(float(lower_row["freq_hz"]), float(upper_row["freq_hz"]), atol=1e-9, equal_nan=False):
         template = lower_template.copy()
+        metrics = _build_single_template_shape_metrics(template, waveform_type)
+        route = "field_only_low_freq_regularized_single" if regularized else "field_only_single_frequency"
     else:
-        upper_template = _load_template_for_test(
+        upper_template, upper_meta = _build_frequency_bucket_template(
             analyses_by_test_id=analyses_by_test_id,
-            test_id=str(upper_row["template_test_id"]),
+            support_subset=support_subset[
+                np.isclose(support_subset["freq_hz"], float(upper_row["freq_hz"]), atol=1e-6, equal_nan=False)
+            ].copy(),
             voltage_channel=voltage_channel,
             waveform_type=waveform_type,
             freq_hz=float(upper_row["freq_hz"]),
         )
-        template = _blend_templates(
-            lower_template=lower_template,
-            upper_template=upper_template,
-            lower_freq_hz=float(lower_row["freq_hz"]),
-            upper_freq_hz=float(upper_row["freq_hz"]),
-            used_freq_hz=float(used_freq_hz),
-            output_freq_hz=float(requested_freq_hz),
+        grid = np.linspace(0.0, 1.0, TEMPLATE_POINTS_PER_CYCLE)
+        lower_values = np.interp(
+            grid,
+            lower_template["cycle_progress"].to_numpy(dtype=float),
+            lower_template["voltage_normalized"].to_numpy(dtype=float),
         )
+        upper_values = np.interp(
+            grid,
+            upper_template["cycle_progress"].to_numpy(dtype=float),
+            upper_template["voltage_normalized"].to_numpy(dtype=float),
+        )
+        aligned_upper_values, alignment = _align_template_values_to_reference(lower_values, upper_values)
+        if regularized:
+            lower_distance = abs(float(lower_row["freq_hz"]) - float(used_freq_hz))
+            upper_distance = abs(float(upper_row["freq_hz"]) - float(used_freq_hz))
+            total_distance = lower_distance + upper_distance
+            weight = 0.5 if total_distance <= 1e-12 else lower_distance / total_distance
+        else:
+            denominator = float(upper_row["freq_hz"]) - float(lower_row["freq_hz"])
+            weight = (
+                (float(used_freq_hz) - float(lower_row["freq_hz"])) / denominator
+                if abs(denominator) > 1e-12
+                else 0.0
+            )
+        weight = float(np.clip(weight, 0.0, 1.0))
+        blended = _normalize_template_values((1.0 - weight) * lower_values + weight * aligned_upper_values)
+        template = pd.DataFrame(
+            {
+                "cycle_progress": grid,
+                "time_s": grid * (1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0),
+                "voltage_normalized": blended,
+            }
+        )
+        metrics = {
+            "field_shape_corr": alignment["corr"],
+            "field_shape_nrmse": alignment["nrmse"],
+        }
+        route = "field_only_low_freq_regularized" if regularized else "field_only_frequency_interpolated"
+        lower_meta["template_test_id"] = f"{lower_meta['template_test_id']}+{upper_meta['template_test_id']}"
 
-    template["time_s"] = template["cycle_progress"] * (
-        1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0
-    )
-    return template
+    template["time_s"] = template["cycle_progress"] * (1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0)
+    return template, {
+        "template_test_id": lower_meta["template_test_id"],
+        "field_shape_corr": metrics["field_shape_corr"],
+        "field_shape_nrmse": metrics["field_shape_nrmse"],
+        "field_model_route": route,
+        "freq_regularization_applied": regularized,
+    }
 
 
 def _load_template_for_test(
