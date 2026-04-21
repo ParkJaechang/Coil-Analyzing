@@ -3,9 +3,11 @@ from __future__ import annotations
 import streamlit as st
 
 from .dataset_library import (
+    build_dataset_payloads,
     build_dataset_manifest,
     get_dataset_manifest_path,
     get_default_settings_path,
+    list_manifest_entries,
     load_dataset_library_settings,
     load_dataset_manifest,
     save_dataset_library_settings,
@@ -67,4 +69,60 @@ def render_dataset_library_panel() -> None:
             st.caption("Manifest has not been generated yet.")
 
 
-__all__ = ["render_dataset_library_panel"]
+def render_dataset_library_file_selector(
+    *,
+    dataset_mode: str,
+    key_prefix: str,
+) -> list[tuple[str, bytes]]:
+    settings = load_dataset_library_settings()
+    dataset_root = str(settings.get("dataset_root") or "").strip()
+    mode_label = {
+        "continuous": "Continuous",
+        "finite_cycle": "Finite-cycle",
+        "unknown": "Unknown",
+    }.get(dataset_mode, dataset_mode)
+
+    with st.expander(f"Dataset Library: {mode_label}", expanded=False):
+        if not dataset_root:
+            st.caption("Save a dataset root first.")
+            return []
+
+        manifest_path = get_dataset_manifest_path(dataset_root)
+        if not manifest_path.exists():
+            st.caption("Manifest Refresh first.")
+            return []
+
+        entries = list_manifest_entries(dataset_root, dataset_mode=dataset_mode)
+        if not entries:
+            st.caption(f"No {mode_label.lower()} files are available in the manifest.")
+            return []
+
+        option_lookup = {
+            str(entry["path"]): entry
+            for entry in entries
+        }
+        selected_paths = st.multiselect(
+            f"{mode_label} library files",
+            options=list(option_lookup.keys()),
+            format_func=lambda path: _format_dataset_entry_option(option_lookup[path]),
+            key=f"{key_prefix}_dataset_library_paths",
+        )
+        st.caption(f"{len(selected_paths)} selected / {len(option_lookup)} available")
+
+        if not selected_paths:
+            return []
+
+        try:
+            return build_dataset_payloads(dataset_root, selected_paths)
+        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+            st.error(str(exc))
+            return []
+
+
+def _format_dataset_entry_option(entry: dict[str, object]) -> str:
+    path = str(entry.get("path") or "")
+    size_bytes = int(entry.get("size_bytes") or 0)
+    return f"{path} ({size_bytes} bytes)"
+
+
+__all__ = ["render_dataset_library_file_selector", "render_dataset_library_panel"]
