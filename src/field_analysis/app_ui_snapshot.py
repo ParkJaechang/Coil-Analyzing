@@ -47,6 +47,7 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
+from .ui_run_readiness import render_run_readiness_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .utils import first_number, infer_current_from_text, infer_frequency_from_text, infer_waveform_from_text
@@ -361,7 +362,7 @@ def _run_app_shell(
     if usage_mode == "간단 LUT":
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
+            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
             horizontal=True,
             key="quick_section_nav",
         )
@@ -370,6 +371,7 @@ def _run_app_shell(
             "분석 화면",
             options=[
                 "Data Import",
+                "Run Readiness",
                 "Field Model Diagnostics",
                 "Validation / Retune",
                 "Catalogs / Diagnostics",
@@ -391,6 +393,10 @@ def _run_app_shell(
     validation_payloads = category_payloads("validation", validation_files)
     lcr_payloads = category_payloads("lcr", lcr_files)
     lcr_records = list_persisted_uploads("lcr")
+
+    if active_section == "Run Readiness":
+        render_run_readiness_section()
+        return
 
     if not uploaded_payloads and not transient_payloads and not validation_payloads and not lcr_payloads:
         st.info("CSV 또는 Excel 파일을 업로드하면 구조 인식과 분석이 시작됩니다.")
