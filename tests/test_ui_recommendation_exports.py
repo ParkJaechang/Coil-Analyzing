@@ -17,6 +17,8 @@ from field_analysis.ui_recommendation_exports import (
     build_artifact_bundle_zip_bytes,
     build_recommendation_artifact_map,
     build_recommendation_export_payloads,
+    build_recommendation_summary_csv_bytes,
+    build_recommendation_summary_row,
     payload_to_json_text,
 )
 
@@ -83,6 +85,7 @@ def test_artifact_bundle_zip_contains_expected_files() -> None:
     assert names == [
         "continuous_recommended_voltage_waveform_sine_10Hz_test_debug.json",
         "continuous_recommended_voltage_waveform_sine_10Hz_test_primary.json",
+        "continuous_recommended_voltage_waveform_sine_10Hz_test_summary.csv",
         "continuous_recommended_voltage_waveform_sine_10Hz_test_waveform.csv",
     ]
 
@@ -100,10 +103,66 @@ def test_artifact_map_keeps_continuous_and_finite_file_stems_distinct() -> None:
     assert sorted(continuous) == [
         "continuous_recommended_voltage_waveform_case_debug.json",
         "continuous_recommended_voltage_waveform_case_primary.json",
+        "continuous_recommended_voltage_waveform_case_summary.csv",
         "continuous_recommended_voltage_waveform_case_waveform.csv",
     ]
     assert sorted(finite) == [
         "finite_cycle_stop_waveform_case_debug.json",
         "finite_cycle_stop_waveform_case_primary.json",
+        "finite_cycle_stop_waveform_case_summary.csv",
         "finite_cycle_stop_waveform_case_waveform.csv",
     ]
+
+
+def test_summary_row_includes_compact_field_first_columns_only() -> None:
+    row = build_recommendation_summary_row(_base_recommendation(finite_cycle_mode=True))
+
+    assert row == {
+        "waveform_type": "sine",
+        "freq_hz": 10.0,
+        "finite_cycle_mode": True,
+        "target_metric": "achieved_bz_mT_pp_mean",
+        "target_value": 12.0,
+        "used_target_value": 11.5,
+        "recommendation_scope": None,
+        "recommendation_mode": None,
+        "frequency_mode": None,
+        "support_point_count": None,
+        "frequency_support_count": None,
+        "available_freq_min": None,
+        "available_freq_max": None,
+        "within_daq_limit": None,
+        "within_hardware_limits": None,
+        "estimated_voltage_pp": None,
+        "limited_voltage_pp": None,
+        "template_test_id": None,
+    }
+    assert "estimated_current_pp" not in row
+    assert "support_amp_gain_pct" not in row
+    assert "amp_max_output_pk_v" not in row
+
+
+def test_summary_csv_exports_expected_columns_and_values() -> None:
+    recommendation = _base_recommendation(finite_cycle_mode=False) | {
+        "recommendation_scope": "continuous",
+        "recommendation_mode": "frequency_interpolated",
+        "frequency_mode": "frequency_interpolated",
+        "support_point_count": 3,
+        "frequency_support_count": 2,
+        "available_freq_min": 8.0,
+        "available_freq_max": 12.0,
+        "within_daq_limit": True,
+        "within_hardware_limits": False,
+        "estimated_voltage_pp": 4.5,
+        "limited_voltage_pp": 4.0,
+        "template_test_id": "template_01",
+    }
+    csv_text = build_recommendation_summary_csv_bytes(recommendation).decode("utf-8-sig")
+
+    assert (
+        "waveform_type,freq_hz,finite_cycle_mode,target_metric,target_value,used_target_value,"
+        "recommendation_scope,recommendation_mode,frequency_mode,support_point_count,"
+        "frequency_support_count,available_freq_min,available_freq_max,within_daq_limit,"
+        "within_hardware_limits,estimated_voltage_pp,limited_voltage_pp,template_test_id"
+    ) in csv_text
+    assert "sine,10.0,False,achieved_bz_mT_pp_mean,12.0,11.5,continuous,frequency_interpolated,frequency_interpolated,3,2,8.0,12.0,True,False,4.5,4.0,template_01" in csv_text
