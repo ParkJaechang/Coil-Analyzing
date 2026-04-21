@@ -47,6 +47,7 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
+from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
@@ -1677,15 +1678,21 @@ def _render_quick_lut_tab_v2(
                 key="download_scalar_formula_coeffs_v2",
             )
 
-        csv_bytes = recommendation["command_waveform"].to_csv(index=False).encode("utf-8-sig")
-        file_name = (
+        recommendation_file_stem = (
             f"{recommendation['recommendation_scope']}_recommended_voltage_waveform_{target_waveform}_{float(target_freq):g}Hz_"
             f"{target_metric}_{target_value:g}_{(target_cycle_count if target_cycle_count is not None else 'steady')}cycle.csv"
         )
+        render_recommendation_export_panel(
+            recommendation,
+            file_stem=recommendation_file_stem.removesuffix(".csv"),
+            key_prefix="recommendation_export_v2",
+        )
+
+        csv_bytes = recommendation["command_waveform"].to_csv(index=False).encode("utf-8-sig")
         st.download_button(
             label="추천 전압 파형 CSV 다운로드",
             data=csv_bytes,
-            file_name=file_name,
+            file_name=recommendation_file_stem,
             mime="text/csv",
             key="download_scalar_waveform_v2",
         )
