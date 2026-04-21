@@ -12,7 +12,12 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, synthesize_current_waveform_compensation
+from field_analysis.compensation import (
+    FIELD_ROUTE_NORMALIZED_TARGET_PP,
+    _apply_terminal_stop_trim,
+    _register_profile_phase_to_command_zero_cross,
+    synthesize_current_waveform_compensation,
+)
 from field_analysis.models import (
     CycleDetectionResult,
     DatasetAnalysis,
@@ -170,6 +175,9 @@ def _run_field_compensation(
     *,
     freq_hz: float,
     target_output_pp: float,
+    finite_cycle_mode: bool = False,
+    target_cycle_count: float | None = None,
+    preview_tail_cycles: float = 0.25,
     lcr_measurements: pd.DataFrame | None = None,
     lcr_blend_weight: float = 0.0,
 ) -> dict[str, object]:
@@ -186,6 +194,9 @@ def _run_field_compensation(
         amp_gain_at_100_pct=1.0,
         amp_gain_limit_pct=100.0,
         amp_max_output_pk_v=1000.0,
+        finite_cycle_mode=finite_cycle_mode,
+        target_cycle_count=target_cycle_count,
+        preview_tail_cycles=preview_tail_cycles,
         lcr_measurements=lcr_measurements,
         lcr_blend_weight=lcr_blend_weight,
     )
@@ -273,3 +284,95 @@ def test_field_route_ignores_current_and_lcr_branches_for_shape_selection() -> N
         pd.to_numeric(mutated_profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float),
         atol=1e-6,
     )
+
+
+def test_phase_registration_handles_read_only_input_arrays() -> None:
+    phase = np.linspace(0.0, 1.0, 9)
+    voltage = np.sin(2.0 * np.pi * phase)
+    voltage.setflags(write=False)
+    field = np.cos(2.0 * np.pi * phase)
+    field.setflags(write=False)
+    profile = pd.DataFrame(
+        {
+            "cycle_progress": phase,
+            "time_s": phase,
+            "command_voltage_v": voltage,
+            "measured_field_mT": field,
+        }
+    )
+
+    registered = _register_profile_phase_to_command_zero_cross(
+        profile,
+        voltage_column="command_voltage_v",
+        rotate_columns=["command_voltage_v", "measured_field_mT"],
+    )
+
+    assert not registered.empty
+    assert float(registered["command_voltage_v"].iloc[0]) == 0.0
+
+
+def test_terminal_trim_reduces_last_peak_error() -> None:
+    time_s = np.linspace(0.0, 1.0, 21)
+    active_mask = time_s <= 0.8
+    ramp = np.clip((time_s - 0.55) / 0.25, 0.0, 1.0)
+    target_field = 50.0 * np.sin(2.0 * np.pi * time_s) + 18.0 * ramp
+    predicted_field = 40.0 * np.sin(2.0 * np.pi * time_s) + 6.0 * ramp
+    command_profile = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "recommended_voltage_v": np.sin(2.0 * np.pi * time_s),
+            "limited_voltage_v": np.sin(2.0 * np.pi * time_s),
+            "is_active_target": active_mask,
+            "target_field_mT": target_field,
+            "used_target_field_mT": target_field,
+            "aligned_target_field_mT": target_field,
+            "aligned_used_target_field_mT": target_field,
+            "expected_field_mT": predicted_field,
+            "expected_output": predicted_field,
+        }
+    )
+    before_error = abs(
+        float(command_profile.loc[active_mask & (time_s >= 0.65), "expected_field_mT"].abs().max())
+        - float(command_profile.loc[active_mask & (time_s >= 0.65), "target_field_mT"].abs().max())
+    )
+
+    trimmed = _apply_terminal_stop_trim(
+        command_profile=command_profile,
+        freq_hz=2.0,
+        max_daq_voltage_pp=1000.0,
+        amp_gain_at_100_pct=1.0,
+        support_amp_gain_pct=100.0,
+        amp_gain_limit_pct=100.0,
+        amp_max_output_pk_v=1000.0,
+    )
+
+    after_error = abs(float(trimmed["predicted_terminal_peak_error_mT"].iloc[0]))
+    assert bool(trimmed["terminal_trim_applied"].iloc[0]) is True
+    assert after_error < before_error
+
+
+def test_finite_field_route_reports_terminal_trim_columns() -> None:
+    summary, analyses = _build_support_context()
+
+    finite = _run_field_compensation(
+        summary,
+        analyses,
+        freq_hz=3.0,
+        target_output_pp=45.0,
+        finite_cycle_mode=True,
+        target_cycle_count=2.5,
+        preview_tail_cycles=0.5,
+    )
+
+    profile = finite["command_profile"]
+    for column in (
+        "predicted_field_mT",
+        "target_field_mT",
+        "field_shape_corr",
+        "field_shape_nrmse",
+        "terminal_trim_applied",
+        "terminal_trim_gain",
+        "terminal_trim_bias_v",
+        "predicted_terminal_peak_error_mT",
+    ):
+        assert column in profile.columns

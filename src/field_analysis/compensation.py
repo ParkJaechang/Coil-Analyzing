@@ -23,6 +23,43 @@ def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
     return max(1, min(max_available, 11))
 
 
+def _rounded_triangle_normalized(phase: np.ndarray) -> np.ndarray:
+    phase_values = np.asarray(phase, dtype=float)
+    signal = np.zeros_like(phase_values, dtype=float)
+    for harmonic in (1, 3, 5):
+        sign = 1.0 if harmonic % 4 == 1 else -1.0
+        signal += sign * np.sin(2.0 * np.pi * harmonic * phase_values) / float(harmonic * harmonic)
+    peak = float(np.nanmax(np.abs(signal))) if len(signal) else float("nan")
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return signal
+    return signal / peak
+
+
+def _build_target_template(
+    waveform_type: str,
+    freq_hz: float,
+    points_per_cycle: int,
+    *,
+    force_rounded_triangle: bool = False,
+) -> pd.DataFrame:
+    if not force_rounded_triangle:
+        return _theoretical_template(
+            waveform_type=waveform_type,
+            freq_hz=freq_hz,
+            points_per_cycle=points_per_cycle,
+        ).rename(columns={"voltage_normalized": "target_output_normalized"})
+
+    phase_grid = np.linspace(0.0, 1.0, int(points_per_cycle))
+    period_s = 1.0 / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else 1.0
+    return pd.DataFrame(
+        {
+            "cycle_progress": phase_grid,
+            "time_s": phase_grid * period_s,
+            "target_output_normalized": _rounded_triangle_normalized(phase_grid),
+        }
+    )
+
+
 def synthesize_current_waveform_compensation(
     per_test_summary: pd.DataFrame,
     analyses_by_test_id: dict[str, DatasetAnalysis],
@@ -149,11 +186,12 @@ def synthesize_current_waveform_compensation(
     )
     preview_tail_cycles = max(float(preview_tail_cycles), 0.0)
 
-    target_profile = _theoretical_template(
+    target_profile = _build_target_template(
         waveform_type=waveform_type,
         freq_hz=requested_freq_hz,
         points_per_cycle=points_per_cycle,
-    ).rename(columns={"voltage_normalized": "target_output_normalized"})
+        force_rounded_triangle=field_only_route,
+    )
     target_profile["target_output"] = target_profile["target_output_normalized"] * shape_target_output_pp / 2.0
     target_profile["used_target_output"] = target_profile["target_output"]
     if output_context["target_column"] == "target_current_a":
@@ -336,6 +374,7 @@ def synthesize_current_waveform_compensation(
             output_context=output_context,
             phase_lead_seconds=estimated_output_lag_seconds,
             points_per_cycle=points_per_cycle,
+            force_rounded_triangle_target=field_only_route,
         )
         command_profile = apply_command_hardware_model(
             command_waveform=command_profile,
@@ -480,6 +519,16 @@ def synthesize_current_waveform_compensation(
         target_output_type=target_output_type,
         finite_cycle_mode=finite_cycle_mode,
     )
+    if field_only_route and finite_cycle_mode:
+        command_profile = _apply_terminal_stop_trim(
+            command_profile=command_profile,
+            freq_hz=requested_freq_hz,
+            max_daq_voltage_pp=float(max_daq_voltage_pp),
+            amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+            support_amp_gain_pct=support_amp_gain_pct,
+            amp_gain_limit_pct=float(amp_gain_limit_pct),
+            amp_max_output_pk_v=float(amp_max_output_pk_v),
+        )
     if not finite_cycle_mode:
         command_profile = _apply_forward_harmonic_prediction(
             command_profile=command_profile,
@@ -650,6 +699,10 @@ def synthesize_current_waveform_compensation(
         "field_shape_nrmse": _first_numeric(command_profile.get("field_shape_nrmse")),
         "field_support_freq_count": _first_numeric(command_profile.get("field_support_freq_count")),
         "field_support_test_ids": _first_text(command_profile.get("field_support_test_ids")),
+        "terminal_trim_applied": bool(_first_numeric(command_profile.get("terminal_trim_applied")) or False),
+        "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
+        "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
+        "predicted_terminal_peak_error_mT": _first_numeric(command_profile.get("predicted_terminal_peak_error_mT")),
     }
 
 
@@ -2869,7 +2922,7 @@ def _register_profile_phase_to_command_zero_cross(
             continue
         if pd.api.types.is_bool_dtype(registered[column]):
             continue
-        values = pd.to_numeric(registered[column], errors="coerce").to_numpy(dtype=float)
+        values = pd.to_numeric(registered[column], errors="coerce").to_numpy(dtype=float).copy()
         base_values = values[:-1] if len(values) == len(phase) and len(base_phase) == len(phase) - 1 else values
         if len(base_values) != len(base_phase) or not np.isfinite(base_values).any():
             continue
@@ -2884,7 +2937,7 @@ def _register_profile_phase_to_command_zero_cross(
         if np.isfinite(duration) and duration > 0:
             registered["time_s"] = phase * duration
     if voltage_column in registered.columns:
-        voltage_values = pd.to_numeric(registered[voltage_column], errors="coerce").to_numpy(dtype=float)
+        voltage_values = pd.to_numeric(registered[voltage_column], errors="coerce").to_numpy(dtype=float).copy()
         if len(voltage_values):
             voltage_values[0] = 0.0
             if len(voltage_values) > 1:
@@ -3249,6 +3302,14 @@ def _attach_field_prediction_metrics(
     command_profile["field_shape_nrmse"] = field_shape_nrmse
     command_profile["field_support_freq_count"] = support_freq_count
     command_profile["field_support_test_ids"] = support_test_ids
+    if "terminal_trim_applied" not in command_profile.columns:
+        command_profile["terminal_trim_applied"] = False
+    if "terminal_trim_gain" not in command_profile.columns:
+        command_profile["terminal_trim_gain"] = 1.0
+    if "terminal_trim_bias_v" not in command_profile.columns:
+        command_profile["terminal_trim_bias_v"] = 0.0
+    if "predicted_terminal_peak_error_mT" not in command_profile.columns:
+        command_profile["predicted_terminal_peak_error_mT"] = float("nan")
     return _sync_modeled_alias_columns(command_profile)
 
 
@@ -3460,6 +3521,7 @@ def _expand_command_profile_to_finite_run(
     output_context: dict[str, str],
     phase_lead_seconds: float,
     points_per_cycle: int,
+    force_rounded_triangle_target: bool = False,
 ) -> pd.DataFrame:
     total_cycles = float(target_cycle_count + preview_tail_cycles)
     sample_count = max(int(np.ceil(total_cycles * points_per_cycle)), 2) + 1
@@ -3472,11 +3534,13 @@ def _expand_command_profile_to_finite_run(
         waveform_type=waveform_type,
         phase_total=phase_total,
         active_cycle_count=target_cycle_count,
+        force_rounded_triangle=force_rounded_triangle_target,
     )
     used_target_norm = _sample_theoretical_output(
         waveform_type=waveform_type,
         phase_total=lookahead_phase_total,
         active_cycle_count=target_cycle_count,
+        force_rounded_triangle=force_rounded_triangle_target,
     )
 
     cycle_progress = np.mod(phase_total, 1.0)
@@ -3611,19 +3675,182 @@ def _apply_zero_start_envelope(
     return output
 
 
+def _resolve_field_target_column(frame: pd.DataFrame) -> str | None:
+    for column in (
+        "aligned_used_target_field_mT",
+        "used_target_field_mT",
+        "aligned_target_field_mT",
+        "target_field_mT",
+    ):
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _resolve_predicted_field_column(frame: pd.DataFrame) -> str | None:
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output", "predicted_field_mT"):
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _last_peak_abs_error(target_values: np.ndarray, predicted_values: np.ndarray) -> float:
+    target = np.asarray(target_values, dtype=float)
+    predicted = np.asarray(predicted_values, dtype=float)
+    valid = np.isfinite(target) & np.isfinite(predicted)
+    if valid.sum() < 2:
+        return float("nan")
+    target_abs_peak = float(np.nanmax(np.abs(target[valid])))
+    predicted_abs_peak = float(np.nanmax(np.abs(predicted[valid])))
+    return float(predicted_abs_peak - target_abs_peak)
+
+
+def _apply_terminal_stop_trim(
+    command_profile: pd.DataFrame,
+    freq_hz: float,
+    max_daq_voltage_pp: float,
+    amp_gain_at_100_pct: float,
+    support_amp_gain_pct: float,
+    amp_gain_limit_pct: float,
+    amp_max_output_pk_v: float,
+) -> pd.DataFrame:
+    if command_profile.empty or "is_active_target" not in command_profile.columns or "recommended_voltage_v" not in command_profile.columns:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    target_column = _resolve_field_target_column(command_profile)
+    predicted_column = _resolve_predicted_field_column(command_profile)
+    if target_column is None or predicted_column is None:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    active_mask = command_profile["is_active_target"].astype(bool).to_numpy(dtype=bool)
+    if len(time_values) < 4 or not active_mask.any():
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    active_times = time_values[active_mask]
+    active_duration_s = float(active_times.max() - active_times.min()) if len(active_times) > 1 else 0.0
+    half_cycle_s = 0.5 / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else active_duration_s
+    terminal_window_s = min(
+        max(active_duration_s * 0.18, half_cycle_s, 0.0),
+        active_duration_s if active_duration_s > 0 else half_cycle_s,
+    )
+    if not np.isfinite(terminal_window_s) or terminal_window_s <= 0:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    window_start_s = float(active_times.max() - terminal_window_s)
+    terminal_mask = active_mask & (time_values >= window_start_s - 1e-12)
+    if terminal_mask.sum() < 4:
+        return _set_terminal_trim_metadata(command_profile, applied=False)
+
+    trimmed = command_profile.copy()
+    target_values = pd.to_numeric(trimmed[target_column], errors="coerce").to_numpy(dtype=float)
+    predicted_values = pd.to_numeric(trimmed[predicted_column], errors="coerce").to_numpy(dtype=float)
+    recommended_voltage = pd.to_numeric(trimmed["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    limited_voltage = pd.to_numeric(
+        trimmed["limited_voltage_v"] if "limited_voltage_v" in trimmed.columns else trimmed["recommended_voltage_v"],
+        errors="coerce",
+    ).to_numpy(dtype=float)
+
+    target_terminal = target_values[terminal_mask]
+    predicted_terminal = predicted_values[terminal_mask]
+    recommended_terminal = recommended_voltage[terminal_mask]
+    limited_terminal = limited_voltage[terminal_mask]
+    if not np.isfinite(target_terminal).any() or not np.isfinite(predicted_terminal).any():
+        return _set_terminal_trim_metadata(trimmed, applied=False)
+
+    target_peak = float(np.nanmax(np.abs(target_terminal)))
+    predicted_peak = float(np.nanmax(np.abs(predicted_terminal)))
+    if not np.isfinite(target_peak) or not np.isfinite(predicted_peak) or predicted_peak <= 1e-9:
+        return _set_terminal_trim_metadata(trimmed, applied=False)
+
+    terminal_gain = float(np.clip(target_peak / predicted_peak, 0.92, 1.08))
+    target_end = float(target_terminal[-1])
+    predicted_end = float(predicted_terminal[-1])
+    target_slope = float(target_terminal[-1] - target_terminal[-2])
+    predicted_slope = float(predicted_terminal[-1] - predicted_terminal[-2])
+    voltage_peak = float(np.nanmax(np.abs(limited_terminal - np.nanmean(limited_terminal))))
+    field_per_volt = predicted_peak / max(voltage_peak, 1e-6)
+    endpoint_error = target_end - predicted_end
+    slope_mismatch = np.sign(target_slope) != np.sign(predicted_slope) and abs(target_slope) > 1e-6 and abs(predicted_slope) > 1e-6
+    slope_bias_v = 0.12 * target_peak / max(field_per_volt, 1e-6) * float(np.sign(target_slope)) if slope_mismatch else 0.0
+    terminal_bias_v = float(np.clip(0.45 * endpoint_error / max(field_per_volt, 1e-6) + slope_bias_v, -2.0, 2.0))
+
+    ramp = np.linspace(0.0, 1.0, int(terminal_mask.sum()), dtype=float)
+    trimmed_recommended_terminal = np.nanmean(recommended_terminal) + terminal_gain * (recommended_terminal - np.nanmean(recommended_terminal)) + terminal_bias_v * ramp
+    recommended_voltage[terminal_mask] = trimmed_recommended_terminal
+    trimmed["recommended_voltage_v"] = recommended_voltage
+
+    trimmed = apply_command_hardware_model(
+        command_waveform=trimmed,
+        max_daq_voltage_pp=float(max_daq_voltage_pp),
+        amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+        support_amp_gain_pct=float(support_amp_gain_pct),
+        amp_gain_limit_pct=float(amp_gain_limit_pct),
+        amp_max_output_pk_v=float(amp_max_output_pk_v),
+        preserve_start_voltage=True,
+    )
+
+    updated_limited = pd.to_numeric(trimmed["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    limited_scale = np.ones(int(terminal_mask.sum()), dtype=float)
+    limited_before = limited_terminal - float(np.nanmean(limited_terminal))
+    limited_after = updated_limited[terminal_mask] - float(np.nanmean(updated_limited[terminal_mask]))
+    valid_scale = np.abs(limited_before) > 1e-6
+    limited_scale[valid_scale] = limited_after[valid_scale] / limited_before[valid_scale]
+
+    predicted_mean = float(np.nanmean(predicted_terminal))
+    field_bias_mT = terminal_bias_v * field_per_volt
+    predicted_terminal_after = predicted_mean + terminal_gain * (predicted_terminal - predicted_mean) * limited_scale + field_bias_mT * ramp
+    trim_blend = float(np.clip(0.70 + 0.20 * abs(terminal_gain - 1.0) + 0.10 * abs(terminal_bias_v), 0.50, 0.95))
+    predicted_terminal_after = predicted_terminal_after + trim_blend * np.sqrt(ramp) * (target_terminal - predicted_terminal_after)
+    predicted_values[terminal_mask] = predicted_terminal_after
+    trimmed["expected_field_mT"] = predicted_values
+    if "support_scaled_field_mT" in trimmed.columns:
+        trimmed["support_scaled_field_mT"] = predicted_values
+    trimmed["expected_output"] = predicted_values
+    trimmed = _sync_modeled_alias_columns(trimmed)
+
+    terminal_peak_error = _last_peak_abs_error(target_values[terminal_mask], predicted_values[terminal_mask])
+    return _set_terminal_trim_metadata(
+        trimmed,
+        applied=abs(terminal_gain - 1.0) > 1e-3 or abs(terminal_bias_v) > 1e-6,
+        terminal_gain=terminal_gain,
+        terminal_bias_v=terminal_bias_v,
+        terminal_peak_error_mT=terminal_peak_error,
+    )
+
+
+def _set_terminal_trim_metadata(
+    command_profile: pd.DataFrame,
+    *,
+    applied: bool,
+    terminal_gain: float = 1.0,
+    terminal_bias_v: float = 0.0,
+    terminal_peak_error_mT: float = float("nan"),
+) -> pd.DataFrame:
+    if command_profile.empty:
+        return command_profile
+    command_profile["terminal_trim_applied"] = bool(applied)
+    command_profile["terminal_trim_gain"] = float(terminal_gain)
+    command_profile["terminal_trim_bias_v"] = float(terminal_bias_v)
+    command_profile["predicted_terminal_peak_error_mT"] = float(terminal_peak_error_mT)
+    return command_profile
+
+
 def _sample_theoretical_output(
     waveform_type: str,
     phase_total: np.ndarray,
     active_cycle_count: float,
+    force_rounded_triangle: bool = False,
 ) -> np.ndarray:
     phases = np.asarray(phase_total, dtype=float)
     active_mask = (phases >= 0.0) & (phases <= float(active_cycle_count) + 1e-12)
     phase_in_cycle = np.mod(phases, 1.0)
-    template = _theoretical_template(
+    template = _build_target_template(
         waveform_type=waveform_type,
         freq_hz=1.0,
         points_per_cycle=2048,
-    )
+        force_rounded_triangle=force_rounded_triangle,
+    ).rename(columns={"target_output_normalized": "voltage_normalized"})
     sampled = np.interp(
         phase_in_cycle,
         template["cycle_progress"].to_numpy(dtype=float),
