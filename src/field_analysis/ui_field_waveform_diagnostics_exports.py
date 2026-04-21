@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from collections.abc import Mapping
 from typing import Any
 
@@ -51,6 +53,31 @@ def payload_to_json_bytes(payload: Mapping[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def build_field_waveform_diagnostics_artifact_map(
+    diagnostics: Mapping[str, Any],
+    *,
+    file_stem: str = "field_waveform_diagnostics",
+) -> dict[str, bytes]:
+    export_payloads = build_field_waveform_diagnostics_export_payloads(diagnostics)
+    summary_payload = export_payloads["summary_json"]
+    table_exports = export_payloads["tables"]
+
+    artifacts = {
+        f"{file_stem}_summary.json": payload_to_json_bytes(summary_payload),
+    }
+    for table_name, frame in table_exports.items():
+        artifacts[f"{file_stem}_{table_name}.csv"] = dataframe_to_csv_bytes(frame)
+    return artifacts
+
+
+def build_field_waveform_diagnostics_bundle_zip_bytes(artifacts: Mapping[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_name, content in artifacts.items():
+            archive.writestr(file_name, content)
+    return buffer.getvalue()
+
+
 def render_field_waveform_diagnostics_export_panel(
     diagnostics: Mapping[str, Any],
     *,
@@ -60,9 +87,19 @@ def render_field_waveform_diagnostics_export_panel(
     export_payloads = build_field_waveform_diagnostics_export_payloads(diagnostics)
     summary_payload = export_payloads["summary_json"]
     table_exports = export_payloads["tables"]
+    artifacts = build_field_waveform_diagnostics_artifact_map(diagnostics, file_stem=file_stem)
+    bundle_bytes = build_field_waveform_diagnostics_bundle_zip_bytes(artifacts)
 
     with st.expander("Diagnostics Exports", expanded=False):
         st.caption("Download the current diagnostics snapshot as one summary JSON plus table-level CSV files.")
+        st.download_button(
+            label="Diagnostics ZIP 다운로드",
+            data=bundle_bytes,
+            file_name=f"{file_stem}_artifacts.zip",
+            mime="application/zip",
+            key=f"{key_prefix}_artifact_bundle_zip",
+        )
+
         st.markdown("#### Summary JSON")
         st.code(json.dumps(summary_payload, ensure_ascii=False, indent=2), language="json")
         st.download_button(
@@ -86,3 +123,13 @@ def render_field_waveform_diagnostics_export_panel(
                     mime="text/csv",
                     key=f"{key_prefix}_{table_name}_csv",
                 )
+
+
+__all__ = [
+    "build_field_waveform_diagnostics_artifact_map",
+    "build_field_waveform_diagnostics_bundle_zip_bytes",
+    "build_field_waveform_diagnostics_export_payloads",
+    "dataframe_to_csv_bytes",
+    "payload_to_json_bytes",
+    "render_field_waveform_diagnostics_export_panel",
+]

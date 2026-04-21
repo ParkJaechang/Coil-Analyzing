@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -13,6 +15,8 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.ui_field_waveform_diagnostics_exports import (
+    build_field_waveform_diagnostics_artifact_map,
+    build_field_waveform_diagnostics_bundle_zip_bytes,
     build_field_waveform_diagnostics_export_payloads,
     dataframe_to_csv_bytes,
     payload_to_json_bytes,
@@ -65,3 +69,49 @@ def test_payload_to_json_bytes_exports_readable_json() -> None:
 
     assert payload["summary"]["continuous_test_count"] == 2
     assert payload["notes"] == ["ok"]
+
+
+def test_diagnostics_bundle_zip_contains_expected_core_files() -> None:
+    artifacts = build_field_waveform_diagnostics_artifact_map(
+        _diagnostics_fixture(),
+        file_stem="field_model_diagnostics",
+    )
+    bundle_bytes = build_field_waveform_diagnostics_bundle_zip_bytes(artifacts)
+
+    with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+        names = sorted(archive.namelist())
+
+    assert names == [
+        "field_model_diagnostics_continuous_support.csv",
+        "field_model_diagnostics_continuous_test_details.csv",
+        "field_model_diagnostics_finite_support.csv",
+        "field_model_diagnostics_frequency_counts.csv",
+        "field_model_diagnostics_summary.json",
+        "field_model_diagnostics_target_metric_candidates.csv",
+        "field_model_diagnostics_transient_test_details.csv",
+        "field_model_diagnostics_waveform_counts.csv",
+    ]
+
+
+def test_diagnostics_bundle_still_builds_when_some_tables_are_empty() -> None:
+    diagnostics = _diagnostics_fixture()
+    diagnostics["continuous_test_details"] = pd.DataFrame(columns=["test_id", "has_main_field_axis"])
+    diagnostics["transient_test_details"] = pd.DataFrame(columns=["test_id", "has_main_field_axis"])
+    artifacts = build_field_waveform_diagnostics_artifact_map(
+        diagnostics,
+        file_stem="empty_field_model_diagnostics",
+    )
+    bundle_bytes = build_field_waveform_diagnostics_bundle_zip_bytes(artifacts)
+
+    with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+        names = sorted(archive.namelist())
+        continuous_details_csv = archive.read(
+            "empty_field_model_diagnostics_continuous_test_details.csv"
+        ).decode("utf-8-sig")
+        transient_details_csv = archive.read(
+            "empty_field_model_diagnostics_transient_test_details.csv"
+        ).decode("utf-8-sig")
+
+    assert "empty_field_model_diagnostics_summary.json" in names
+    assert "test_id,has_main_field_axis" in continuous_details_csv
+    assert "test_id,has_main_field_axis" in transient_details_csv
