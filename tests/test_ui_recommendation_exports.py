@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +14,8 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.ui_recommendation_exports import (
+    build_artifact_bundle_zip_bytes,
+    build_recommendation_artifact_map,
     build_recommendation_export_payloads,
     payload_to_json_text,
 )
@@ -64,3 +68,42 @@ def test_export_payload_builder_uses_finite_cycle_primary_type() -> None:
     assert payloads["primary"]["output_type"] == "finite_cycle_stop_waveform"
     assert payloads["primary"]["command_waveform"][0]["target_cycle_count"] == 3.0
     assert payloads["primary"]["command_waveform"][0]["preview_tail_cycles"] == 0.5
+
+
+def test_artifact_bundle_zip_contains_expected_files() -> None:
+    artifacts = build_recommendation_artifact_map(
+        _base_recommendation(finite_cycle_mode=False),
+        file_stem="continuous_recommended_voltage_waveform_sine_10Hz_test",
+    )
+    bundle_bytes = build_artifact_bundle_zip_bytes(artifacts)
+
+    with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+        names = sorted(archive.namelist())
+
+    assert names == [
+        "continuous_recommended_voltage_waveform_sine_10Hz_test_debug.json",
+        "continuous_recommended_voltage_waveform_sine_10Hz_test_primary.json",
+        "continuous_recommended_voltage_waveform_sine_10Hz_test_waveform.csv",
+    ]
+
+
+def test_artifact_map_keeps_continuous_and_finite_file_stems_distinct() -> None:
+    continuous = build_recommendation_artifact_map(
+        _base_recommendation(finite_cycle_mode=False),
+        file_stem="continuous_recommended_voltage_waveform_case",
+    )
+    finite = build_recommendation_artifact_map(
+        _base_recommendation(finite_cycle_mode=True),
+        file_stem="finite_cycle_stop_waveform_case",
+    )
+
+    assert sorted(continuous) == [
+        "continuous_recommended_voltage_waveform_case_debug.json",
+        "continuous_recommended_voltage_waveform_case_primary.json",
+        "continuous_recommended_voltage_waveform_case_waveform.csv",
+    ]
+    assert sorted(finite) == [
+        "finite_cycle_stop_waveform_case_debug.json",
+        "finite_cycle_stop_waveform_case_primary.json",
+        "finite_cycle_stop_waveform_case_waveform.csv",
+    ]
