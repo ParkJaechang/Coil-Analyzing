@@ -16,6 +16,28 @@ from .recommendation_output_contract import (
 )
 
 
+RECOMMENDATION_SUMMARY_FIELDS = (
+    "waveform_type",
+    "freq_hz",
+    "finite_cycle_mode",
+    "target_metric",
+    "target_value",
+    "used_target_value",
+    "recommendation_scope",
+    "recommendation_mode",
+    "frequency_mode",
+    "support_point_count",
+    "frequency_support_count",
+    "available_freq_min",
+    "available_freq_max",
+    "within_daq_limit",
+    "within_hardware_limits",
+    "estimated_voltage_pp",
+    "limited_voltage_pp",
+    "template_test_id",
+)
+
+
 def build_recommendation_export_payloads(recommendation: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     if bool(recommendation.get("finite_cycle_mode", False)):
         primary_payload = build_finite_cycle_recommendation_payload(recommendation)
@@ -44,6 +66,40 @@ def waveform_to_csv_bytes(recommendation: Mapping[str, Any]) -> bytes:
     return command_waveform.to_csv(index=False).encode("utf-8-sig")
 
 
+def build_recommendation_summary_row(recommendation: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "waveform_type": recommendation.get("waveform_type"),
+        "freq_hz": _normalize_summary_value(recommendation.get("freq_hz")),
+        "finite_cycle_mode": bool(recommendation.get("finite_cycle_mode", False)),
+        "target_metric": recommendation.get("target_metric"),
+        "target_value": _normalize_summary_value(
+            recommendation.get("requested_target_value", recommendation.get("target_value"))
+        ),
+        "used_target_value": _normalize_summary_value(recommendation.get("used_target_value")),
+        "recommendation_scope": recommendation.get("recommendation_scope"),
+        "recommendation_mode": recommendation.get("recommendation_mode"),
+        "frequency_mode": recommendation.get("frequency_mode"),
+        "support_point_count": _normalize_summary_value(recommendation.get("support_point_count")),
+        "frequency_support_count": _normalize_summary_value(recommendation.get("frequency_support_count")),
+        "available_freq_min": _normalize_summary_value(recommendation.get("available_freq_min")),
+        "available_freq_max": _normalize_summary_value(recommendation.get("available_freq_max")),
+        "within_daq_limit": _normalize_summary_value(recommendation.get("within_daq_limit")),
+        "within_hardware_limits": _normalize_summary_value(recommendation.get("within_hardware_limits")),
+        "estimated_voltage_pp": _normalize_summary_value(recommendation.get("estimated_voltage_pp")),
+        "limited_voltage_pp": _normalize_summary_value(recommendation.get("limited_voltage_pp")),
+        "template_test_id": recommendation.get("template_test_id"),
+    }
+
+
+def build_recommendation_summary_frame(recommendation: Mapping[str, Any]) -> pd.DataFrame:
+    row = build_recommendation_summary_row(recommendation)
+    return pd.DataFrame([{field: row.get(field) for field in RECOMMENDATION_SUMMARY_FIELDS}])
+
+
+def build_recommendation_summary_csv_bytes(recommendation: Mapping[str, Any]) -> bytes:
+    return build_recommendation_summary_frame(recommendation).to_csv(index=False).encode("utf-8-sig")
+
+
 def build_recommendation_artifact_map(
     recommendation: Mapping[str, Any],
     *,
@@ -53,6 +109,7 @@ def build_recommendation_artifact_map(
     return {
         f"{file_stem}_primary.json": payload_to_json_bytes(payloads["primary"]),
         f"{file_stem}_debug.json": payload_to_json_bytes(payloads["debug"]),
+        f"{file_stem}_summary.csv": build_recommendation_summary_csv_bytes(recommendation),
         f"{file_stem}_waveform.csv": waveform_to_csv_bytes(recommendation),
     }
 
@@ -76,6 +133,7 @@ def render_recommendation_export_panel(
     debug_payload = payloads["debug"]
     primary_json = payload_to_json_text(primary_payload)
     debug_json = payload_to_json_text(debug_payload)
+    summary_frame = build_recommendation_summary_frame(recommendation)
     artifacts = build_recommendation_artifact_map(recommendation, file_stem=file_stem)
     bundle_bytes = build_artifact_bundle_zip_bytes(artifacts)
 
@@ -88,6 +146,19 @@ def render_recommendation_export_panel(
             mime="application/zip",
             key=f"{key_prefix}_artifact_bundle_zip",
         )
+
+        summary_left, summary_right = st.columns([3, 1])
+        with summary_left:
+            st.markdown("#### Compact Summary")
+            st.dataframe(summary_frame, use_container_width=True, hide_index=True)
+        with summary_right:
+            st.download_button(
+                label="Summary CSV Download",
+                data=build_recommendation_summary_csv_bytes(recommendation),
+                file_name=f"{file_stem}_summary.csv",
+                mime="text/csv",
+                key=f"{key_prefix}_summary_csv",
+            )
 
         primary_left, primary_right = st.columns([3, 1])
         with primary_left:
@@ -114,3 +185,12 @@ def render_recommendation_export_panel(
                 mime="application/json",
                 key=f"{key_prefix}_debug_json",
             )
+
+
+def _normalize_summary_value(value: Any) -> Any:
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except ValueError:
+            return value
+    return value
