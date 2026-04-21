@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.compensation import (
+    FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS,
     FIELD_ROUTE_NORMALIZED_TARGET_PP,
     _apply_terminal_stop_trim,
     _register_profile_phase_to_command_zero_cross,
@@ -248,6 +249,7 @@ def test_field_route_ignores_current_and_lcr_branches_for_shape_selection() -> N
     mutated_summary = summary.copy()
     mutated_summary["current_pp_target_a"] = [3.0, 900.0]
     mutated_summary["achieved_current_pp_a_mean"] = [1.0, 1500.0]
+    mutated_summary["amp_gain_setting_mean"] = [5.0, 250.0]
     lcr_measurements = pd.DataFrame(
         {
             "freq_hz": [1.0, 3.0, 10.0],
@@ -351,7 +353,48 @@ def test_terminal_trim_reduces_last_peak_error() -> None:
     assert after_error < before_error
 
 
-def test_finite_field_route_reports_terminal_trim_columns() -> None:
+def test_terminal_trim_improves_last_slope_sign_match() -> None:
+    time_s = np.linspace(0.0, 1.0, 21)
+    active_mask = time_s <= 0.8
+    ramp = np.clip((time_s - 0.55) / 0.25, 0.0, 1.0)
+    target_field = 35.0 * np.sin(2.0 * np.pi * time_s) + 24.0 * ramp
+    predicted_field = 35.0 * np.sin(2.0 * np.pi * time_s) - 20.0 * ramp
+    command_profile = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "recommended_voltage_v": np.sin(2.0 * np.pi * time_s),
+            "limited_voltage_v": np.sin(2.0 * np.pi * time_s),
+            "is_active_target": active_mask,
+            "target_field_mT": target_field,
+            "used_target_field_mT": target_field,
+            "aligned_target_field_mT": target_field,
+            "aligned_used_target_field_mT": target_field,
+            "expected_field_mT": predicted_field,
+            "expected_output": predicted_field,
+        }
+    )
+
+    trimmed = _apply_terminal_stop_trim(
+        command_profile=command_profile,
+        freq_hz=2.0,
+        max_daq_voltage_pp=1000.0,
+        amp_gain_at_100_pct=1.0,
+        support_amp_gain_pct=100.0,
+        amp_gain_limit_pct=100.0,
+        amp_max_output_pk_v=1000.0,
+    )
+
+    terminal_mask = active_mask & (time_s >= 0.55)
+    target_slope = np.sign(np.diff(target_field[terminal_mask])[-1])
+    predicted_slope_before = np.sign(np.diff(predicted_field[terminal_mask])[-1])
+    predicted_after = pd.to_numeric(trimmed["expected_field_mT"], errors="coerce").to_numpy(dtype=float)
+    predicted_slope_after = np.sign(np.diff(predicted_after[terminal_mask])[-1])
+
+    assert predicted_slope_before != target_slope
+    assert predicted_slope_after == target_slope
+
+
+def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set() -> None:
     summary, analyses = _build_support_context()
 
     finite = _run_field_compensation(
@@ -360,11 +403,13 @@ def test_finite_field_route_reports_terminal_trim_columns() -> None:
         freq_hz=3.0,
         target_output_pp=45.0,
         finite_cycle_mode=True,
-        target_cycle_count=2.5,
+        target_cycle_count=1.5,
         preview_tail_cycles=0.5,
     )
 
     profile = finite["command_profile"]
+    assert float(profile["target_cycle_count"].iloc[0]) == 1.5
+    assert finite["allowed_finite_cycle_counts"] == list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS)
     for column in (
         "predicted_field_mT",
         "target_field_mT",
@@ -376,3 +421,19 @@ def test_finite_field_route_reports_terminal_trim_columns() -> None:
         "predicted_terminal_peak_error_mT",
     ):
         assert column in profile.columns
+
+
+def test_field_route_finite_cycle_count_snaps_to_allowed_set() -> None:
+    summary, analyses = _build_support_context()
+
+    finite = _run_field_compensation(
+        summary,
+        analyses,
+        freq_hz=3.0,
+        target_output_pp=45.0,
+        finite_cycle_mode=True,
+        target_cycle_count=1.32,
+        preview_tail_cycles=0.5,
+    )
+
+    assert float(finite["command_profile"]["target_cycle_count"].iloc[0]) == 1.25

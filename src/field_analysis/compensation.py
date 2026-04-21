@@ -13,6 +13,7 @@ from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
 from .utils import canonicalize_waveform_type
 
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
+FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 
 
 def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
@@ -58,6 +59,17 @@ def _build_target_template(
             "target_output_normalized": _rounded_triangle_normalized(phase_grid),
         }
     )
+
+
+def _normalize_field_finite_cycle_count(target_cycle_count: float | None) -> float | None:
+    if target_cycle_count is None or not np.isfinite(target_cycle_count):
+        return None
+    requested = float(target_cycle_count)
+    nearest = min(
+        FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS,
+        key=lambda value: (abs(float(value) - requested), float(value)),
+    )
+    return float(nearest)
 
 
 def synthesize_current_waveform_compensation(
@@ -184,6 +196,10 @@ def synthesize_current_waveform_compensation(
         if target_cycle_count is not None
         else None
     )
+    if field_only_route and finite_cycle_mode:
+        target_cycle_count = _normalize_field_finite_cycle_count(target_cycle_count)
+        if target_cycle_count is None:
+            return None
     preview_tail_cycles = max(float(preview_tail_cycles), 0.0)
 
     target_profile = _build_target_template(
@@ -703,6 +719,7 @@ def synthesize_current_waveform_compensation(
         "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
         "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
         "predicted_terminal_peak_error_mT": _first_numeric(command_profile.get("predicted_terminal_peak_error_mT")),
+        "allowed_finite_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS) if field_only_route else [],
     }
 
 
@@ -3743,13 +3760,13 @@ def _apply_terminal_stop_trim(
         return _set_terminal_trim_metadata(command_profile, applied=False)
 
     trimmed = command_profile.copy()
-    target_values = pd.to_numeric(trimmed[target_column], errors="coerce").to_numpy(dtype=float)
-    predicted_values = pd.to_numeric(trimmed[predicted_column], errors="coerce").to_numpy(dtype=float)
-    recommended_voltage = pd.to_numeric(trimmed["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    target_values = pd.to_numeric(trimmed[target_column], errors="coerce").to_numpy(dtype=float).copy()
+    predicted_values = pd.to_numeric(trimmed[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    recommended_voltage = pd.to_numeric(trimmed["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float).copy()
     limited_voltage = pd.to_numeric(
         trimmed["limited_voltage_v"] if "limited_voltage_v" in trimmed.columns else trimmed["recommended_voltage_v"],
         errors="coerce",
-    ).to_numpy(dtype=float)
+    ).to_numpy(dtype=float).copy()
 
     target_terminal = target_values[terminal_mask]
     predicted_terminal = predicted_values[terminal_mask]
