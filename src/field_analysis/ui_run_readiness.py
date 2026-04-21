@@ -7,6 +7,7 @@ import streamlit as st
 
 from .dataset_access_preflight import build_dataset_access_preflight
 from .dataset_library import get_dataset_manifest_path, load_dataset_library_settings, load_dataset_manifest
+from .ui_run_readiness_exports import render_run_readiness_export_panel
 
 
 def build_run_readiness_summary(
@@ -125,6 +126,11 @@ def render_run_readiness_section() -> None:
             st.write(f"- {sample['path']} ({sample['status']})")
     elif access_preflight["selected"]["checked_count"] > 0:
         st.success("Selected Dataset Library files are accessible on this PC.")
+
+    render_run_readiness_export_panel(
+        summary=summary,
+        access_preflight=access_preflight,
+    )
 
     st.write("- CI coverage in this repo is unit/smoke level only.")
     st.write("- Browser clickthrough, Streamlit interaction, and hardware-linked checks still need manual confirmation.")
