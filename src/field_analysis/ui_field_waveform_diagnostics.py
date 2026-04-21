@@ -7,6 +7,7 @@ import streamlit as st
 
 from .field_waveform_diagnostics import build_field_waveform_diagnostics
 from .ui_field_waveform_diagnostics_exports import render_field_waveform_diagnostics_export_panel
+from .ui_field_waveform_diagnostics_focus import render_field_waveform_diagnostics_focus_block
 
 
 def _continuous_frames_by_test_id(analysis_lookup: dict[str, Any]) -> dict[str, pd.DataFrame]:
@@ -51,11 +52,6 @@ def render_field_waveform_diagnostics_section(
         transient_frames=_transient_frames(transient_measurements),
         voltage_input_column=voltage_input_column,
     )
-    render_field_waveform_diagnostics_export_panel(
-        diagnostics,
-        file_stem="field_model_diagnostics",
-        key_prefix="field_model_diagnostics_export",
-    )
 
     summary = diagnostics["summary"]
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -73,6 +69,16 @@ def render_field_waveform_diagnostics_section(
 
     for note in diagnostics["notes"]:
         st.write(f"- {note}")
+
+    render_field_waveform_diagnostics_focus_block(
+        continuous_support=diagnostics["continuous_support"],
+        finite_support=diagnostics["finite_support"],
+    )
+    render_field_waveform_diagnostics_export_panel(
+        diagnostics,
+        file_stem="field_model_diagnostics",
+        key_prefix="field_model_diagnostics_export",
+    )
 
     st.markdown("#### Target Field Metric Candidates")
     st.dataframe(diagnostics["target_metric_candidates"], use_container_width=True, hide_index=True)
