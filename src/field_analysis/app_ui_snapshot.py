@@ -19,7 +19,13 @@ from .compensation import synthesize_current_waveform_compensation
 from .control_formula import build_control_formula
 from .exports import build_export_zip_bytes, export_analysis_bundle
 from .hardware import apply_command_hardware_model
-from .lut import TARGET_LABELS, prioritize_lut_target_metrics, recommend_voltage_waveform, target_metric_label
+from .lut import (
+    TARGET_LABELS,
+    prioritize_lut_target_metrics,
+    recommend_voltage_waveform,
+    resolve_field_only_target_metric,
+    target_metric_label,
+)
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
@@ -1084,14 +1090,17 @@ def _render_quick_lut_tab_v2(
         )
         st.caption(f"보유 주파수: {frequency_labels} Hz")
     with mid:
-        target_metric = _prioritize_metric_options(
+        target_metric = resolve_field_only_target_metric(
+            available_metric_options,
+            preferred_metric=f"achieved_{main_field_axis}_pp_mean",
+        ) or _prioritize_metric_options(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**Field-only / 100pp mode**")
+        st.markdown("**Field-only / rounded-triangle / 100pp fixed**")
         st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
         target_value = 100.0
-        st.caption("Main LUT target PP is fixed to `100` and current is excluded from shape selection.")
+        st.caption("Main LUT target field shape is a canonical rounded triangle and target PP is fixed to `100`.")
         compensation_target_type = st.selectbox(
             "파형 보정 목표 항목",
             options=["field", "current"],
@@ -1155,7 +1164,7 @@ def _render_quick_lut_tab_v2(
         )
 
     if not estimate_clicked and not compensation_clicked:
-        st.info("파형, 주파수, 목표값을 고른 뒤 계산 버튼을 누르십시오.")
+        st.info("파형과 주파수를 고른 뒤 계산 버튼을 누르십시오.")
         return
 
     if compensation_clicked:

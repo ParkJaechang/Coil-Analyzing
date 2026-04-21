@@ -13,7 +13,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from field_analysis.lut import FIELD_ONLY_FIXED_TARGET_PP, recommend_voltage_waveform
+from field_analysis.lut import (
+    FIELD_ONLY_FIXED_TARGET_PP,
+    build_field_target_shape_template,
+    recommend_voltage_waveform,
+)
 
 
 def _analysis_stub(*, test_id: str, waveform_type: str, freq_hz: float, voltage_values: np.ndarray) -> SimpleNamespace:
@@ -83,6 +87,23 @@ def _normalized_waveform(frame: pd.DataFrame) -> np.ndarray:
     return values / scale if scale > 0 else values
 
 
+def test_rounded_triangle_target_template_has_rounded_peaks() -> None:
+    template = build_field_target_shape_template(freq_hz=2.0, points_per_cycle=401)
+    values = template["voltage_normalized"].to_numpy(dtype=float)
+
+    peak_index = int(np.nanargmax(values))
+    mid_slope_index = int(np.argmin(np.abs(template["cycle_progress"].to_numpy(dtype=float) - 0.125)))
+    peak_span = abs(values[min(peak_index + 1, len(values) - 1)] - values[max(peak_index - 1, 0)])
+    slope_span = abs(values[mid_slope_index + 1] - values[mid_slope_index - 1])
+
+    assert np.isclose(values[0], 0.0, atol=1e-9)
+    assert np.isclose(values[-1], 0.0, atol=1e-9)
+    assert 0.2 < float(template["cycle_progress"].iloc[peak_index]) < 0.3
+    assert np.nanmax(values) > 0.95
+    assert np.nanmin(values) < -0.95
+    assert peak_span < slope_span
+
+
 def test_field_only_lut_ignores_current_metric_and_uses_fixed_100pp() -> None:
     recommendation = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
@@ -97,10 +118,10 @@ def test_field_only_lut_ignores_current_metric_and_uses_fixed_100pp() -> None:
     assert recommendation is not None
     assert recommendation["target_metric"] == "achieved_bz_mT_pp_mean"
     assert recommendation["requested_target_value"] == FIELD_ONLY_FIXED_TARGET_PP
-    assert recommendation["field_model_route"].startswith("field_only_")
+    assert recommendation["field_model_route"].startswith("field_only_rounded_triangle_")
 
 
-def test_low_frequency_shape_blending_keeps_positive_shape_continuity() -> None:
+def test_low_frequency_shape_blending_tracks_rounded_triangle_target() -> None:
     recommendation = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
         analyses_by_test_id=_analysis_lookup(),
@@ -113,16 +134,19 @@ def test_low_frequency_shape_blending_keeps_positive_shape_continuity() -> None:
 
     assert recommendation is not None
     template = recommendation["template_waveform"]["voltage_normalized"].to_numpy(dtype=float)
-    reference = np.sin(2.0 * np.pi * recommendation["template_waveform"]["cycle_progress"].to_numpy(dtype=float))
+    reference = build_field_target_shape_template(
+        freq_hz=1.1,
+        points_per_cycle=len(template),
+    )["voltage_normalized"].to_numpy(dtype=float)
     corr = float(np.corrcoef(template, reference)[0, 1])
 
     assert recommendation["freq_regularization_applied"] is True
     assert recommendation["field_shape_corr"] > 0.9
-    assert recommendation["field_shape_nrmse"] < 0.5
-    assert corr > 0.8
+    assert recommendation["field_shape_nrmse"] < 0.35
+    assert corr > 0.9
 
 
-def test_small_frequency_changes_keep_normalized_shape_stable() -> None:
+def test_neighboring_low_frequencies_keep_normalized_shape_stable() -> None:
     low = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
         analyses_by_test_id=_analysis_lookup(),
