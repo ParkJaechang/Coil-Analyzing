@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import streamlit as st
 
+from .dataset_access_preflight import build_dataset_access_preflight
 from .dataset_library import get_dataset_manifest_path, load_dataset_library_settings, load_dataset_manifest
 
 
@@ -60,6 +61,14 @@ def render_run_readiness_section() -> None:
             "finite_cycle": len(_selected_paths("transient")),
         },
     )
+    access_preflight = build_dataset_access_preflight(
+        dataset_root=dataset_root,
+        selected_paths_by_mode={
+            "continuous": _selected_paths("continuous"),
+            "finite_cycle": _selected_paths("transient"),
+        },
+        manifest_entries=(load_dataset_manifest(dataset_root_path).get("files", []) if manifest_exists and dataset_root_path is not None else []),
+    )
 
     st.markdown("#### Run Readiness")
     st.caption("Quick preflight for local testability before manual browser or hardware checks.")
@@ -79,6 +88,11 @@ def render_run_readiness_section() -> None:
     selected_right.metric("Selected Finite-Cycle", summary["selected_library_counts"]["finite_cycle"])
     selected_total.metric("Selected Library Files", summary["selected_library_counts"]["total"])
 
+    access_left, access_right, access_total = st.columns(3)
+    access_left.metric("Accessible Continuous", access_preflight["selected_by_mode"]["continuous"]["ok_count"])
+    access_right.metric("Accessible Finite-Cycle", access_preflight["selected_by_mode"]["finite_cycle"]["ok_count"])
+    access_total.metric("Selected Missing / Unavailable", access_preflight["selected"]["unavailable_count"])
+
     if summary["dataset_root_saved"]:
         st.caption(f"dataset_root: {summary['dataset_root']}")
     else:
@@ -93,6 +107,24 @@ def render_run_readiness_section() -> None:
         st.warning("Dataset root exists but no manifest was found. Open `Dataset Library` and run `Manifest Refresh`.")
     elif summary["manifest_exists"]:
         st.success("Dataset Library manifest is available for local test inputs.")
+
+    manifest_summary = access_preflight["manifest"]
+    st.caption(
+        "Manifest entry access: "
+        f"{manifest_summary['ok_count']} ok / "
+        f"{manifest_summary['missing_count']} missing / "
+        f"{manifest_summary['unreadable_count']} unreadable / "
+        f"{manifest_summary['blocked_count']} blocked"
+    )
+
+    if summary["dataset_root_exists"] and manifest_summary["missing_count"] > 0:
+        st.warning("Dataset root is present on this PC, but some manifest-backed files are missing or no longer synced.")
+    if access_preflight["selected"]["unavailable_count"] > 0:
+        st.warning("Some selected Dataset Library files are not accessible on this PC.")
+        for sample in access_preflight["selected"]["problem_samples"]:
+            st.write(f"- {sample['path']} ({sample['status']})")
+    elif access_preflight["selected"]["checked_count"] > 0:
+        st.success("Selected Dataset Library files are accessible on this PC.")
 
     st.write("- CI coverage in this repo is unit/smoke level only.")
     st.write("- Browser clickthrough, Streamlit interaction, and hardware-linked checks still need manual confirmation.")
