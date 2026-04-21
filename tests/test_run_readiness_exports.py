@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import zipfile
+from io import BytesIO
+
 from src.field_analysis.ui_run_readiness_exports import (
     build_json_bytes,
     build_problem_csv_bytes,
     build_problem_rows,
+    build_run_readiness_artifact_map,
+    build_run_readiness_bundle_zip_bytes,
     build_run_readiness_report_payload,
 )
 
@@ -64,3 +69,65 @@ def test_build_problem_rows_and_csv_bytes_filter_out_ok_checks() -> None:
     assert "continuous/run_ok.csv" not in csv_text
     assert "continuous/run_missing.csv" in csv_text
     assert "manifest/run_blocked.csv" in csv_text
+
+
+def test_run_readiness_bundle_zip_contains_expected_files() -> None:
+    artifacts = build_run_readiness_artifact_map(
+        summary={"dataset_root": "D:/Datasets", "manifest_exists": True},
+        access_preflight={
+            "selected_by_mode": {
+                "continuous": {
+                    "checks": [
+                        {"path": "continuous/run_missing.csv", "status": "missing", "message": "missing"},
+                    ]
+                },
+                "finite_cycle": {"checks": []},
+            },
+            "manifest": {
+                "checks": [
+                    {"path": "manifest/run_blocked.csv", "status": "blocked", "message": "blocked"},
+                ]
+            },
+        },
+        file_stem="run_readiness",
+    )
+    bundle_bytes = build_run_readiness_bundle_zip_bytes(artifacts)
+
+    with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+        names = sorted(archive.namelist())
+
+    assert names == [
+        "run_readiness_access_preflight.json",
+        "run_readiness_manifest_problem_files.csv",
+        "run_readiness_selected_problem_files.csv",
+        "run_readiness_summary.json",
+    ]
+
+
+def test_run_readiness_bundle_still_builds_when_problem_rows_are_empty() -> None:
+    artifacts = build_run_readiness_artifact_map(
+        summary={"dataset_root": "D:/Datasets", "manifest_exists": False},
+        access_preflight={
+            "selected_by_mode": {
+                "continuous": {"checks": []},
+                "finite_cycle": {"checks": []},
+            },
+            "manifest": {"checks": []},
+        },
+        file_stem="empty_run_readiness",
+    )
+    bundle_bytes = build_run_readiness_bundle_zip_bytes(artifacts)
+
+    with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+        names = sorted(archive.namelist())
+        selected_csv = archive.read("empty_run_readiness_selected_problem_files.csv").decode("utf-8")
+        manifest_csv = archive.read("empty_run_readiness_manifest_problem_files.csv").decode("utf-8")
+
+    assert names == [
+        "empty_run_readiness_access_preflight.json",
+        "empty_run_readiness_manifest_problem_files.csv",
+        "empty_run_readiness_selected_problem_files.csv",
+        "empty_run_readiness_summary.json",
+    ]
+    assert "source,path,status,message" in selected_csv
+    assert "source,path,status,message" in manifest_csv

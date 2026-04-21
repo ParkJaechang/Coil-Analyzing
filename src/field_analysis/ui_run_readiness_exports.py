@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -56,6 +58,39 @@ def build_json_bytes(payload: Mapping[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def build_run_readiness_artifact_map(
+    *,
+    summary: Mapping[str, Any],
+    access_preflight: Mapping[str, Any],
+    file_stem: str = "run_readiness",
+) -> dict[str, bytes]:
+    selected_problem_rows = build_problem_rows(
+        {
+            "selected_continuous": access_preflight.get("selected_by_mode", {}).get("continuous", {}),
+            "selected_finite_cycle": access_preflight.get("selected_by_mode", {}).get("finite_cycle", {}),
+        }
+    )
+    manifest_problem_rows = build_problem_rows(
+        {
+            "manifest": access_preflight.get("manifest", {}),
+        }
+    )
+    return {
+        f"{file_stem}_summary.json": build_json_bytes(summary),
+        f"{file_stem}_access_preflight.json": build_json_bytes(access_preflight),
+        f"{file_stem}_selected_problem_files.csv": build_problem_csv_bytes(selected_problem_rows),
+        f"{file_stem}_manifest_problem_files.csv": build_problem_csv_bytes(manifest_problem_rows),
+    }
+
+
+def build_run_readiness_bundle_zip_bytes(artifacts: Mapping[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_name, content in artifacts.items():
+            archive.writestr(file_name, content)
+    return buffer.getvalue()
+
+
 def render_run_readiness_export_panel(
     *,
     summary: Mapping[str, Any],
@@ -76,9 +111,22 @@ def render_run_readiness_export_panel(
             "manifest": access_preflight.get("manifest", {}),
         }
     )
+    artifact_map = build_run_readiness_artifact_map(
+        summary=summary,
+        access_preflight=access_preflight,
+    )
+    bundle_bytes = build_run_readiness_bundle_zip_bytes(artifact_map)
 
     st.markdown("#### Run Readiness Report")
     st.caption("Export the current-PC readiness snapshot as JSON/CSV before a manual test run.")
+    st.download_button(
+        label="Run Readiness ZIP",
+        data=bundle_bytes,
+        file_name="run_readiness_artifacts.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="run_readiness_artifact_bundle_zip",
+    )
 
     download_left, download_right = st.columns(2)
     download_left.download_button(
@@ -139,6 +187,8 @@ __all__ = [
     "build_problem_csv_bytes",
     "build_problem_frame",
     "build_problem_rows",
+    "build_run_readiness_artifact_map",
+    "build_run_readiness_bundle_zip_bytes",
     "build_run_readiness_report_payload",
     "render_run_readiness_export_panel",
 ]
