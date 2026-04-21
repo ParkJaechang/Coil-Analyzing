@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import ast
 import pandas as pd
+from pathlib import Path
 
 from src.field_analysis.ui_field_waveform_diagnostics_focus import (
     build_diagnostics_focus_summary,
     extract_continuous_problem_combos,
     extract_finite_missing_support_combos,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_focus_helper_extracts_only_problem_rows_in_fixed_risk_order() -> None:
@@ -56,3 +61,18 @@ def test_focus_helper_returns_empty_frames_and_zero_summary_for_empty_inputs() -
     assert summary["finite_missing_combo_count"] == 0
     assert summary["continuous_problem_rows"].empty
     assert summary["finite_missing_rows"].empty
+
+
+def test_diagnostics_ui_keeps_both_focus_and_export_helpers_connected() -> None:
+    source = (REPO_ROOT / "src" / "field_analysis" / "ui_field_waveform_diagnostics.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    called_names = {
+        node.func.id
+        for node in ast.walk(module)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "render_field_waveform_diagnostics_focus_block" in source
+    assert "render_field_waveform_diagnostics_export_panel" in source
+    assert "render_field_waveform_diagnostics_focus_block" in called_names
+    assert "render_field_waveform_diagnostics_export_panel" in called_names

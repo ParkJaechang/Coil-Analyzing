@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from .field_waveform_diagnostics import build_field_waveform_diagnostics
+from .ui_field_waveform_diagnostics_exports import render_field_waveform_diagnostics_export_panel
 from .ui_field_waveform_diagnostics_focus import render_field_waveform_diagnostics_focus_block
 
 
@@ -72,6 +73,11 @@ def render_field_waveform_diagnostics_section(
     render_field_waveform_diagnostics_focus_block(
         continuous_support=diagnostics["continuous_support"],
         finite_support=diagnostics["finite_support"],
+    )
+    render_field_waveform_diagnostics_export_panel(
+        diagnostics,
+        file_stem="field_model_diagnostics",
+        key_prefix="field_model_diagnostics_export",
     )
 
     st.markdown("#### Target Field Metric Candidates")
