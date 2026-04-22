@@ -102,6 +102,7 @@ def synthesize_current_waveform_compensation(
     amp_max_output_pk_v: float = 180.0,
     default_support_amp_gain_pct: float = 100.0,
     allow_output_extrapolation: bool = True,
+    finite_support_entries: list[dict[str, Any]] | None = None,
     lcr_measurements: pd.DataFrame | None = None,
     lcr_blend_weight: float = 0.0,
     apply_startup_correction: bool = False,
@@ -114,6 +115,7 @@ def synthesize_current_waveform_compensation(
     waveform_type = canonicalize_waveform_type(waveform_type)
     if waveform_type is None:
         return None
+    finite_support_entries = finite_support_entries or []
 
     output_context = _resolve_output_context(
         target_output_type=target_output_type,
@@ -294,8 +296,36 @@ def synthesize_current_waveform_compensation(
             output_scale=output_scale,
         )
     lcr_prior_used = bool(not lcr_prior_table.empty and float(lcr_policy["lcr_weight"]) > 0.0)
+    finite_empirical_model = (
+        synthesize_finite_empirical_compensation(
+            finite_support_entries=finite_support_entries,
+            waveform_type=waveform_type,
+            freq_hz=requested_freq_hz,
+            target_cycle_count=target_cycle_count,
+            target_output_type=output_context["output_type"],
+            target_output_pp=shape_target_output_pp,
+            current_channel=current_channel,
+            field_channel=field_channel,
+            max_daq_voltage_pp=float(max_daq_voltage_pp),
+            amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+            amp_gain_limit_pct=float(amp_gain_limit_pct),
+            amp_max_output_pk_v=float(amp_max_output_pk_v),
+            default_support_amp_gain_pct=float(default_support_amp_gain_pct),
+            preview_tail_cycles=preview_tail_cycles,
+        )
+        if field_only_route and finite_cycle_mode and finite_support_entries
+        else None
+    )
+    use_finite_empirical_route = bool(finite_empirical_model)
 
-    if field_only_route:
+    if use_finite_empirical_route:
+        command_profile = finite_empirical_model["command_profile"].copy()
+        transfer_model = {}
+        mode = str(finite_empirical_model["mode"])
+        clamped_ratio = float("nan")
+        clamp_fraction = 0.0
+        estimated_output_lag_seconds = 0.0
+    elif field_only_route:
         command_profile, transfer_model = _harmonic_inverse_field_only_compensation(
             support_profiles=support_profiles,
             target_profile=target_profile,
@@ -373,21 +403,24 @@ def synthesize_current_waveform_compensation(
                 else (0.0 if support_min <= target_output_pp <= support_max else 1.0)
             )
 
-    estimated_output_lag_seconds = _estimate_weighted_output_lag_seconds(
-        support_profiles=support_profiles,
-        output_signal_column=output_context["signal_column"],
-        output_metric=output_context["output_metric"],
-        target_freq_hz=used_freq_hz,
-        target_output_pp=target_output_pp,
-        prefer_frequency_only=field_only_route,
-    )
-    period_s = 1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0
-    max_reasonable_lag = 0.45 * period_s
-    estimated_output_lag_seconds = float(
-        np.clip(estimated_output_lag_seconds, -max_reasonable_lag, max_reasonable_lag)
-    )
+    if not use_finite_empirical_route:
+        estimated_output_lag_seconds = _estimate_weighted_output_lag_seconds(
+            support_profiles=support_profiles,
+            output_signal_column=output_context["signal_column"],
+            output_metric=output_context["output_metric"],
+            target_freq_hz=used_freq_hz,
+            target_output_pp=target_output_pp,
+            prefer_frequency_only=field_only_route,
+        )
+        period_s = 1.0 / requested_freq_hz if requested_freq_hz > 0 else 1.0
+        max_reasonable_lag = 0.45 * period_s
+        estimated_output_lag_seconds = float(
+            np.clip(estimated_output_lag_seconds, -max_reasonable_lag, max_reasonable_lag)
+        )
 
-    if finite_cycle_mode and target_cycle_count is not None:
+    if use_finite_empirical_route:
+        pass
+    elif finite_cycle_mode and target_cycle_count is not None:
         command_profile = _expand_command_profile_to_finite_run(
             command_cycle_profile=command_profile,
             waveform_type=waveform_type,
@@ -489,6 +522,8 @@ def synthesize_current_waveform_compensation(
             + np.square(support_table["output_distance"] / output_range)
         )
         support_table = support_table.sort_values(["combined_distance", "freq_distance_hz", "output_distance"]).reset_index(drop=True)
+    if use_finite_empirical_route:
+        support_table = finite_empirical_model["support_table"].copy()
 
     nearest_profile = nearest_support["profile"].copy()
     nearest_profile["nearest_test_id"] = nearest_test_id
@@ -541,12 +576,18 @@ def synthesize_current_waveform_compensation(
         if finite_cycle_mode and target_cycle_count is not None
         else support_profile.copy()
     )
-    command_profile = _attach_expected_response_columns(
-        command_profile=command_profile,
-        support_profile_preview=support_profile_preview,
-        target_output_type=target_output_type,
-        finite_cycle_mode=finite_cycle_mode,
-    )
+    if use_finite_empirical_route:
+        nearest_profile = command_profile.copy()
+        nearest_profile_preview = command_profile.copy()
+        support_profile = command_profile.copy()
+        support_profile_preview = command_profile.copy()
+    else:
+        command_profile = _attach_expected_response_columns(
+            command_profile=command_profile,
+            support_profile_preview=support_profile_preview,
+            target_output_type=target_output_type,
+            finite_cycle_mode=finite_cycle_mode,
+        )
     if not finite_cycle_mode:
         command_profile = _apply_forward_harmonic_prediction(
             command_profile=command_profile,
@@ -601,6 +642,102 @@ def synthesize_current_waveform_compensation(
         finite_terminal_correction_applied = bool(_first_boolish(command_profile.get("finite_terminal_correction_applied")))
         finite_terminal_correction_reason = _first_text(command_profile.get("finite_terminal_correction_reason"))
         finite_terminal_correction_gain = _first_numeric(command_profile.get("finite_terminal_correction_gain"))
+    finite_support_used = bool(use_finite_empirical_route)
+    finite_support_fallback_reason = None
+    request_route = finite_empirical_model.get("request_route") if use_finite_empirical_route else "fallback"
+    plot_source = finite_empirical_model.get("plot_source") if use_finite_empirical_route else "steady_state_harmonic_preview"
+    support_tests_used = finite_empirical_model.get("support_tests_used", []) if use_finite_empirical_route else []
+    support_count_used = int(finite_empirical_model.get("support_count_used", 0)) if use_finite_empirical_route else 0
+    support_cycle_count = finite_empirical_model.get("support_cycle_count") if use_finite_empirical_route else None
+    support_freq_hz = finite_empirical_model.get("support_freq_hz") if use_finite_empirical_route else None
+    selected_support_waveform = finite_empirical_model.get("selected_support_waveform") if use_finite_empirical_route else None
+    zero_padded_fraction = finite_empirical_model.get("zero_padded_fraction") if use_finite_empirical_route else None
+    support_waveform_role = finite_empirical_model.get("support_waveform_role") if use_finite_empirical_route else None
+    support_family_sensitivity_flag = finite_empirical_model.get("support_family_sensitivity_flag") if use_finite_empirical_route else False
+    support_family_sensitivity_reason = finite_empirical_model.get("support_family_sensitivity_reason") if use_finite_empirical_route else None
+    support_blended_output_nonzero = finite_empirical_model.get("support_blended_output_nonzero") if use_finite_empirical_route else None
+    support_blended_zero_guard_applied = finite_empirical_model.get("support_blended_zero_guard_applied") if use_finite_empirical_route else False
+    target_active_end_s = (
+        float(np.nanmax(pd.to_numeric(command_profile.loc[command_profile["is_active_target"] == True, "time_s"], errors="coerce").to_numpy(dtype=float)))
+        if finite_cycle_mode and "is_active_target" in command_profile.columns and bool(pd.Series(command_profile["is_active_target"]).fillna(False).any())
+        else None
+    )
+    finite_route_mode = None
+    finite_route_reason = None
+    finite_route_warning = None
+    if field_only_route and finite_cycle_mode and not use_finite_empirical_route:
+        finite_support_fallback_reason = (
+            "no_finite_support_entries"
+            if not finite_support_entries
+            else "finite_empirical_route_unavailable_using_steady_state_fallback"
+        )
+        finite_route_mode = "steady_state_harmonic_expanded"
+        finite_route_reason = "finite_support_unavailable"
+        finite_route_warning = "finite transient data not used"
+    elif use_finite_empirical_route:
+        finite_route_mode = str(finite_empirical_model.get("mode") or "finite_empirical_field_support")
+        finite_route_reason = (
+            "exact_finite_support_match"
+            if str(finite_empirical_model.get("request_route")) == "exact"
+            else "nearest_finite_support_blend"
+        )
+    if use_finite_empirical_route:
+        nearest_test_id = str(finite_empirical_model.get("support_test_id") or nearest_test_id)
+        support_selection_meta = {
+            "selected_support_id": finite_empirical_model.get("selected_support_id") or nearest_test_id,
+            "selected_support_family": finite_empirical_model.get("selected_support_family"),
+            "support_selection_reason": finite_empirical_model.get("support_selection_reason"),
+            "support_family_metric": finite_empirical_model.get("support_family_metric"),
+            "support_family_value": finite_empirical_model.get("support_family_value"),
+            "estimated_family_level": None,
+            "support_family_lock_applied": bool(finite_empirical_model.get("support_family_lock_applied", False)),
+            "support_bz_to_current_ratio": finite_empirical_model.get("support_bz_to_current_ratio"),
+        }
+        support_min = min(support_min, float(finite_empirical_model.get("support_output_pp", support_min)))
+        support_max = max(support_max, float(finite_empirical_model.get("support_output_pp", support_max)))
+    finite_stop_policy = _summarize_finite_command_stop_policy(
+        command_profile=command_profile,
+        target_active_end_s=target_active_end_s,
+        phase_lead_seconds=estimated_output_lag_seconds if (field_only_route and finite_cycle_mode and not use_finite_empirical_route) else 0.0,
+        finite_command_stop_policy=(
+            "finite_empirical_support_timing"
+            if use_finite_empirical_route
+            else (
+                "phase_lead_sampling_only_preserve_target_window"
+                if field_only_route and finite_cycle_mode
+                else "not_applicable"
+            )
+        ),
+        phase_lead_applied_to_sampling_only=bool(field_only_route and finite_cycle_mode),
+    )
+    command_nonzero_end_s = finite_stop_policy["command_nonzero_end_s"]
+    target_active_end_s = finite_stop_policy["target_active_end_s"]
+    early_command_cutoff_warning = finite_stop_policy["early_command_cutoff_warning"]
+    if field_only_route and finite_cycle_mode:
+        command_profile["finite_route_mode"] = finite_route_mode
+        command_profile["finite_route_reason"] = finite_route_reason
+        command_profile["finite_support_used"] = bool(finite_support_used)
+        command_profile["finite_support_fallback_reason"] = finite_support_fallback_reason
+        command_profile["finite_route_warning"] = finite_route_warning
+        command_profile["request_route"] = request_route
+        command_profile["plot_source"] = plot_source
+        command_profile["support_count_used"] = int(support_count_used)
+        command_profile["support_tests_used"] = "|".join(str(item) for item in support_tests_used)
+        command_profile["support_cycle_count"] = support_cycle_count
+        command_profile["support_freq_hz"] = support_freq_hz
+        command_profile["selected_support_waveform"] = selected_support_waveform
+        command_profile["zero_padded_fraction"] = zero_padded_fraction
+        command_profile["support_blended_output_nonzero"] = support_blended_output_nonzero
+        command_profile["support_blended_zero_guard_applied"] = bool(support_blended_zero_guard_applied)
+        command_profile["finite_command_stop_policy"] = finite_stop_policy["finite_command_stop_policy"]
+        command_profile["command_nonzero_end_s"] = finite_stop_policy["command_nonzero_end_s"]
+        command_profile["target_active_end_s"] = finite_stop_policy["target_active_end_s"]
+        command_profile["command_early_stop_s"] = finite_stop_policy["command_early_stop_s"]
+        command_profile["command_extends_through_target_end"] = finite_stop_policy["command_extends_through_target_end"]
+        command_profile["post_target_command_tail_s"] = finite_stop_policy["post_target_command_tail_s"]
+        command_profile["phase_lead_seconds_applied"] = finite_stop_policy["phase_lead_seconds_applied"]
+        command_profile["phase_lead_applied_to_sampling_only"] = finite_stop_policy["phase_lead_applied_to_sampling_only"]
+        command_profile["early_command_cutoff_warning"] = finite_stop_policy["early_command_cutoff_warning"]
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
     startup_diagnostics.setdefault("source_test_id", nearest_test_id)
@@ -692,7 +829,7 @@ def synthesize_current_waveform_compensation(
         "target_current_pp_a": float(target_current_pp_a),
         "available_output_pp_min": support_min,
         "available_output_pp_max": support_max,
-        "support_point_count": int(len(support_profiles)),
+        "support_point_count": int(finite_empirical_model.get("support_count_used", len(support_profiles))) if use_finite_empirical_route else int(len(support_profiles)),
         "nearest_test_id": nearest_test_id,
         "selected_support_id": support_selection_meta.get("selected_support_id") or nearest_test_id,
         "selected_support_family": support_selection_meta.get("selected_support_family"),
@@ -702,7 +839,11 @@ def synthesize_current_waveform_compensation(
         "estimated_family_level": support_selection_meta.get("estimated_family_level"),
         "support_family_lock_applied": bool(support_selection_meta.get("support_family_lock_applied", False)),
         "support_bz_to_current_ratio": support_selection_meta.get("support_bz_to_current_ratio"),
-        "nearest_support_output_pp": float(nearest_row[output_context["output_metric"]]),
+        "nearest_support_output_pp": (
+            float(finite_empirical_model.get("support_output_pp", np.nan))
+            if use_finite_empirical_route
+            else float(nearest_row[output_context["output_metric"]])
+        ),
         "scale_ratio_from_nearest": clamped_ratio,
         "phase_clamp_fraction": float(clamp_fraction),
         "finite_cycle_mode": finite_cycle_mode,
@@ -759,6 +900,33 @@ def synthesize_current_waveform_compensation(
         "field_shape_nrmse": _first_numeric(command_profile.get("field_shape_nrmse")),
         "field_support_freq_count": _first_numeric(command_profile.get("field_support_freq_count")),
         "field_support_test_ids": _first_text(command_profile.get("field_support_test_ids")),
+        "finite_support_used": finite_support_used,
+        "finite_route_mode": finite_route_mode,
+        "finite_route_reason": finite_route_reason,
+        "finite_route_warning": finite_route_warning,
+        "finite_support_fallback_reason": finite_support_fallback_reason,
+        "request_route": request_route,
+        "plot_source": plot_source,
+        "support_tests_used": support_tests_used,
+        "support_count_used": support_count_used,
+        "support_cycle_count": support_cycle_count,
+        "support_freq_hz": support_freq_hz,
+        "selected_support_waveform": selected_support_waveform,
+        "support_waveform_role": support_waveform_role,
+        "support_family_sensitivity_flag": bool(support_family_sensitivity_flag),
+        "support_family_sensitivity_reason": support_family_sensitivity_reason,
+        "zero_padded_fraction": zero_padded_fraction,
+        "support_blended_output_nonzero": support_blended_output_nonzero,
+        "support_blended_zero_guard_applied": bool(support_blended_zero_guard_applied),
+        "finite_command_stop_policy": finite_stop_policy["finite_command_stop_policy"],
+        "command_nonzero_end_s": command_nonzero_end_s,
+        "target_active_end_s": target_active_end_s,
+        "command_early_stop_s": finite_stop_policy["command_early_stop_s"],
+        "command_extends_through_target_end": bool(finite_stop_policy["command_extends_through_target_end"]),
+        "post_target_command_tail_s": finite_stop_policy["post_target_command_tail_s"],
+        "phase_lead_seconds_applied": finite_stop_policy["phase_lead_seconds_applied"],
+        "phase_lead_applied_to_sampling_only": bool(finite_stop_policy["phase_lead_applied_to_sampling_only"]),
+        "early_command_cutoff_warning": bool(early_command_cutoff_warning),
         "terminal_trim_applied": bool(_first_numeric(command_profile.get("terminal_trim_applied")) or False),
         "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
         "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
@@ -1084,9 +1252,8 @@ def _build_finite_modeled_profile(
     modeled["recommended_voltage_v"] = np.asarray(support_payload["voltage_v"], dtype=float)
     modeled["expected_current_a"] = np.asarray(support_payload["current_a"], dtype=float)
     modeled["expected_field_mT"] = np.asarray(support_payload["field_mT"], dtype=float)
-    if plot_source == "support_blended_preview":
-        modeled["support_scaled_current_a"] = modeled["expected_current_a"]
-        modeled["support_scaled_field_mT"] = modeled["expected_field_mT"]
+    modeled["support_scaled_current_a"] = modeled["expected_current_a"]
+    modeled["support_scaled_field_mT"] = modeled["expected_field_mT"]
     modeled["target_output"] = _finite_target_template(
         time_grid=time_grid,
         waveform_type=waveform_type,
@@ -1152,22 +1319,22 @@ def synthesize_finite_empirical_compensation(
     output_column = "field_pp" if target_output_type == "field" else "current_pp"
     target_output_unit = "mT" if target_output_type == "field" else "A"
     harmonic_weights = _finite_harmonic_weights(waveform_type)
-    waveform_matches = [
+    same_waveform_entries = [
         entry
         for entry in finite_support_entries
         if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type
     ]
-    if not waveform_matches:
+    if not finite_support_entries:
         return None
 
     exact_freq_matches = [
         entry
-        for entry in waveform_matches
+        for entry in same_waveform_entries
         if np.isfinite(entry.get("freq_hz", np.nan))
         and abs(float(entry.get("freq_hz", np.nan)) - float(freq_hz)) <= float(freq_match_tolerance_hz)
     ]
     frequency_bucket_mode = "exact_frequency_bucket" if exact_freq_matches else "nearest_frequency_blend"
-    frequency_candidates = exact_freq_matches or waveform_matches
+    frequency_candidates = exact_freq_matches or list(finite_support_entries)
 
     exact_cycle_matches = [
         entry
@@ -1218,7 +1385,7 @@ def synthesize_finite_empirical_compensation(
         waveform_distance = (
             0.0
             if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type
-            else 5.0
+            else 1.75
         )
         shape_mismatch = _finite_shape_mismatch_score(
             frame=entry.get("active_frame", entry.get("frame", pd.DataFrame())),
@@ -1378,6 +1545,35 @@ def synthesize_finite_empirical_compensation(
         selected_support_waveform=str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or ""),
         harmonic_weights_used=harmonic_weights,
     )
+    support_blended_zero_guard_applied = False
+    if target_output_type == "field" and "support_scaled_field_mT" in modeled.columns:
+        support_scaled_field = pd.to_numeric(modeled["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float)
+        selected_support_has_field = any(
+            np.isfinite(float(record[1].get("field_pp", np.nan))) and abs(float(record[1].get("field_pp", np.nan))) > 1e-9
+            for record in selected_records
+        )
+        if selected_support_has_field and np.nanmax(np.abs(support_scaled_field)) <= 1e-9:
+            nearest_entry = selected_records[0][1]
+            nearest_field_pp = float(nearest_entry.get("field_pp", np.nan))
+            if np.isfinite(nearest_field_pp) and abs(nearest_field_pp) > 1e-9:
+                guarded_payload = _resample_finite_support_record(
+                    entry=nearest_entry,
+                    time_grid=time_grid,
+                    active_duration_s=float(active_duration_s),
+                    tail_duration_s=float(tail_duration_s),
+                    scale_ratio=float(target_output_pp / nearest_field_pp),
+                    current_channel=current_channel,
+                    field_channel=field_channel,
+                )
+                if guarded_payload is not None:
+                    guarded_field = np.asarray(guarded_payload["field_mT"], dtype=float)
+                    guarded_current = np.asarray(guarded_payload["current_a"], dtype=float)
+                    modeled["expected_field_mT"] = guarded_field
+                    modeled["expected_current_a"] = guarded_current
+                    modeled["support_scaled_field_mT"] = guarded_field
+                    modeled["support_scaled_current_a"] = guarded_current
+                    modeled["expected_output"] = guarded_field if target_output_type == "field" else guarded_current
+                    support_blended_zero_guard_applied = True
     modeled = apply_command_hardware_model(
         command_waveform=modeled,
         max_daq_voltage_pp=float(max_daq_voltage_pp),
@@ -1389,6 +1585,24 @@ def synthesize_finite_empirical_compensation(
     )
     support_table = pd.DataFrame(support_rows)
     support_tests_used = [str(row["test_id"]) for row in support_rows]
+    selected_support_waveform = str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or "")
+    candidate_waveform_types = sorted(
+        {
+            str(canonicalize_waveform_type(entry.get("waveform_type")) or entry.get("waveform_type") or "")
+            for entry in candidate_entries
+        }
+    )
+    support_family_sensitivity_flag = bool(len([wave for wave in candidate_waveform_types if wave]) > 1)
+    support_family_sensitivity_reason = "cross_family_candidate_pool" if support_family_sensitivity_flag else None
+    command_voltage = pd.to_numeric(modeled["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    nonzero_mask = np.isfinite(command_voltage) & (np.abs(command_voltage) > 1e-6)
+    command_nonzero_end_s = float(np.nanmax(time_grid[nonzero_mask])) if nonzero_mask.any() else float("nan")
+    target_active_end_s = float(active_duration_s)
+    early_command_cutoff_warning = bool(
+        np.isfinite(command_nonzero_end_s)
+        and np.isfinite(target_active_end_s)
+        and command_nonzero_end_s < target_active_end_s - max(float(np.nanmedian(np.diff(time_grid))) if len(time_grid) > 1 else 0.0, 1e-6)
+    )
 
     freq_in_range = bool(freq_values) and min(freq_values) <= float(freq_hz) <= max(freq_values)
     cycle_in_range = bool(cycle_values) and min(cycle_values) <= float(target_cycle_count) <= max(cycle_values)
@@ -1423,7 +1637,7 @@ def synthesize_finite_empirical_compensation(
     expected_current_source_hint = "exact_current_direct" if plot_source == "exact_prediction" else "support_blended_preview"
 
     return {
-        "mode": "finite_exact_direct" if request_route == "exact" else ("finite_empirical_weighted_support" if support_count_used > 1 else "finite_empirical_nearest_support"),
+        "mode": "finite_empirical_field_support" if request_route == "exact" else "finite_empirical_weighted_support",
         "frequency_bucket_mode": frequency_bucket_mode,
         "cycle_bucket_mode": cycle_bucket_mode,
         "target_output_type": target_output_type,
@@ -1444,7 +1658,10 @@ def synthesize_finite_empirical_compensation(
         "model_confidence": model_confidence,
         "request_route": request_route,
         "plot_source": plot_source,
-        "selected_support_waveform": str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or ""),
+        "selected_support_waveform": selected_support_waveform,
+        "support_waveform_role": "input_support_family",
+        "support_family_sensitivity_flag": support_family_sensitivity_flag,
+        "support_family_sensitivity_reason": support_family_sensitivity_reason,
         "selected_support_id": selected_support_id,
         "selected_support_family": selected_support_family,
         "support_selection_reason": support_selection_reason,
@@ -1456,6 +1673,14 @@ def synthesize_finite_empirical_compensation(
         "active_window_end_s": selected_active_window_end_s,
         "active_duration_s": float(active_duration_s),
         "zero_padded_fraction": float(selected_zero_padded_fraction),
+        "finite_support_used": True,
+        "support_blended_output_nonzero": bool(np.nanmax(np.abs(pd.to_numeric(modeled["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float))) > 1e-9)
+        if "support_scaled_field_mT" in modeled.columns and len(modeled) > 0
+        else False,
+        "support_blended_zero_guard_applied": support_blended_zero_guard_applied,
+        "command_nonzero_end_s": command_nonzero_end_s,
+        "target_active_end_s": target_active_end_s,
+        "early_command_cutoff_warning": early_command_cutoff_warning,
         "harmonic_weights_used": harmonic_weights,
         "field_prediction_source_hint": field_prediction_source_hint,
         "expected_current_source_hint": expected_current_source_hint,
@@ -3636,6 +3861,7 @@ def _expand_command_profile_to_finite_run(
     time_grid = np.linspace(0.0, total_cycles * period_s, sample_count)
     phase_total = time_grid / period_s
     lookahead_phase_total = phase_total + (phase_lead_seconds / period_s if period_s > 0 else 0.0)
+    command_sampling_phase_total = np.clip(lookahead_phase_total, 0.0, float(target_cycle_count))
 
     target_norm = _sample_theoretical_output(
         waveform_type=waveform_type,
@@ -3653,11 +3879,11 @@ def _expand_command_profile_to_finite_run(
     cycle_progress = np.mod(phase_total, 1.0)
     active_mask = phase_total <= target_cycle_count + 1e-12
     lookahead_mask = (lookahead_phase_total >= 0.0) & (lookahead_phase_total <= target_cycle_count + 1e-12)
-    command_phase = np.mod(lookahead_phase_total, 1.0)
+    command_phase = np.mod(command_sampling_phase_total, 1.0)
     cycle_phase_grid = command_cycle_profile["cycle_progress"].to_numpy(dtype=float)
     cycle_voltage = pd.to_numeric(command_cycle_profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
     command_voltage = np.interp(command_phase, cycle_phase_grid, cycle_voltage)
-    command_voltage[~lookahead_mask] = 0.0
+    command_voltage[~active_mask] = 0.0
     startup_duration_s = max(
         abs(float(phase_lead_seconds)),
         period_s / max(points_per_cycle / 4.0, 1.0),
@@ -3690,6 +3916,7 @@ def _expand_command_profile_to_finite_run(
             "recommended_voltage_v": command_voltage,
             "is_active_target": active_mask,
             "is_lookahead_target": lookahead_mask,
+            "command_sampling_phase_total": command_sampling_phase_total,
         }
     )
 
@@ -3728,6 +3955,7 @@ def _expand_measured_profile_preview(
     phase_total = time_grid / period_s
     active_mask = phase_total <= target_cycle_count + 1e-12
     lookahead_phase_total = phase_total + (phase_lead_seconds / period_s if period_s > 0 else 0.0)
+    command_sampling_phase_total = np.clip(lookahead_phase_total, 0.0, float(target_cycle_count))
     lookahead_mask = (lookahead_phase_total >= 0.0) & (lookahead_phase_total <= target_cycle_count + 1e-12)
     cycle_progress = np.mod(phase_total, 1.0)
 
@@ -3745,11 +3973,11 @@ def _expand_measured_profile_preview(
             continue
         values = pd.to_numeric(profile[column], errors="coerce").to_numpy(dtype=float)
         sampled = np.interp(
-            np.mod(phase_total if column == output_signal_column else lookahead_phase_total, 1.0),
+            np.mod(phase_total if column == output_signal_column else command_sampling_phase_total, 1.0),
             profile["cycle_progress"].to_numpy(dtype=float),
             values,
         )
-        sampled[~(active_mask if column == output_signal_column else lookahead_mask)] = 0.0
+        sampled[~active_mask] = 0.0
         if column == "command_voltage_v":
             sampled = _apply_zero_start_envelope(
                 values=sampled,
@@ -3758,6 +3986,7 @@ def _expand_measured_profile_preview(
             )
         preview[column] = sampled
     preview["waveform_type"] = waveform_type
+    preview["command_sampling_phase_total"] = command_sampling_phase_total
     return preview
 
 
@@ -3780,6 +4009,61 @@ def _apply_zero_start_envelope(
     output *= envelope
     output[0] = 0.0
     return output
+
+
+def _summarize_finite_command_stop_policy(
+    command_profile: pd.DataFrame,
+    *,
+    target_active_end_s: float | None,
+    phase_lead_seconds: float,
+    finite_command_stop_policy: str,
+    phase_lead_applied_to_sampling_only: bool,
+) -> dict[str, Any]:
+    if command_profile.empty or "time_s" not in command_profile.columns or "recommended_voltage_v" not in command_profile.columns:
+        return {
+            "finite_command_stop_policy": finite_command_stop_policy,
+            "target_active_end_s": float(target_active_end_s) if target_active_end_s is not None and np.isfinite(target_active_end_s) else float("nan"),
+            "command_nonzero_end_s": float("nan"),
+            "command_early_stop_s": float("nan"),
+            "command_extends_through_target_end": False,
+            "post_target_command_tail_s": float("nan"),
+            "phase_lead_seconds_applied": float(phase_lead_seconds),
+            "phase_lead_applied_to_sampling_only": bool(phase_lead_applied_to_sampling_only),
+            "early_command_cutoff_warning": False,
+        }
+
+    time_grid = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    command_voltage = pd.to_numeric(command_profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    nonzero_mask = np.isfinite(time_grid) & np.isfinite(command_voltage) & (np.abs(command_voltage) > 1e-6)
+    command_nonzero_end_s = float(np.nanmax(time_grid[nonzero_mask])) if nonzero_mask.any() else float("nan")
+    resolved_target_active_end_s = float(target_active_end_s) if target_active_end_s is not None and np.isfinite(target_active_end_s) else float("nan")
+    tolerance = max(float(np.nanmedian(np.diff(time_grid))) if len(time_grid) > 1 else 0.0, 1e-6)
+    command_extends_through_target_end = bool(
+        np.isfinite(command_nonzero_end_s)
+        and np.isfinite(resolved_target_active_end_s)
+        and command_nonzero_end_s >= resolved_target_active_end_s - tolerance
+    )
+    command_early_stop_s = (
+        max(resolved_target_active_end_s - command_nonzero_end_s, 0.0)
+        if np.isfinite(command_nonzero_end_s) and np.isfinite(resolved_target_active_end_s)
+        else float("nan")
+    )
+    post_target_command_tail_s = (
+        max(command_nonzero_end_s - resolved_target_active_end_s, 0.0)
+        if np.isfinite(command_nonzero_end_s) and np.isfinite(resolved_target_active_end_s)
+        else float("nan")
+    )
+    return {
+        "finite_command_stop_policy": finite_command_stop_policy,
+        "target_active_end_s": resolved_target_active_end_s,
+        "command_nonzero_end_s": command_nonzero_end_s,
+        "command_early_stop_s": command_early_stop_s,
+        "command_extends_through_target_end": command_extends_through_target_end,
+        "post_target_command_tail_s": post_target_command_tail_s,
+        "phase_lead_seconds_applied": float(phase_lead_seconds),
+        "phase_lead_applied_to_sampling_only": bool(phase_lead_applied_to_sampling_only),
+        "early_command_cutoff_warning": bool(np.isfinite(command_early_stop_s) and command_early_stop_s > tolerance),
+    }
 
 
 def _resolve_field_target_column(frame: pd.DataFrame) -> str | None:

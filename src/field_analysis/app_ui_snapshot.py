@@ -15,7 +15,10 @@ import pandas as pd
 import streamlit as st
 
 from .analysis import analyze_measurements, build_shape_phase_comparison, build_warning_table, combine_analysis_frames
-from .compensation import synthesize_current_waveform_compensation
+from .compensation import (
+    build_finite_support_entries as build_backend_finite_support_entries,
+    synthesize_current_waveform_compensation,
+)
 from .control_formula import build_control_formula
 from .exports import build_export_zip_bytes, export_analysis_bundle
 from .hardware import apply_command_hardware_model
@@ -1153,6 +1156,66 @@ def _render_finite_cycle_correction_summary(
         st.caption(f"Improvement summary: {improvement_summary}")
 
 
+def _is_nonempty_frame(value: object) -> bool:
+    return isinstance(value, pd.DataFrame) and not value.empty
+
+
+def _resolve_compensation_plot_reference(
+    compensation: dict[str, object],
+) -> tuple[pd.DataFrame | None, str]:
+    support_profile_preview = compensation.get("support_profile_preview")
+    if _is_nonempty_frame(support_profile_preview):
+        return support_profile_preview, "Support-Blended Output"
+
+    nearest_profile_preview = compensation.get("nearest_profile_preview")
+    if _is_nonempty_frame(nearest_profile_preview):
+        return nearest_profile_preview, "Nearest Support Preview"
+
+    nearest_profile = compensation.get("nearest_profile")
+    if _is_nonempty_frame(nearest_profile):
+        return nearest_profile, "Nearest Support Output"
+
+    return None, "Nearest Support Output"
+
+
+def _normalize_support_tests_used(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) or "n/a"
+    if value is None:
+        return "n/a"
+    text = str(value).strip()
+    return text or "n/a"
+
+
+def _render_finite_route_marker(compensation: dict[str, object]) -> None:
+    finite_support_used = bool(compensation.get("finite_support_used"))
+    route_mode = str(compensation.get("finite_route_mode") or compensation.get("mode") or "n/a")
+    route_reason = str(
+        compensation.get("finite_route_reason")
+        or compensation.get("finite_support_fallback_reason")
+        or "n/a"
+    )
+    selected_support_id = str(compensation.get("selected_support_id") or compensation.get("nearest_test_id") or "n/a")
+    support_count_used = compensation.get("support_count_used", "n/a")
+    support_tests_used = _normalize_support_tests_used(compensation.get("support_tests_used"))
+    support_blended_output_nonzero = compensation.get("support_blended_output_nonzero")
+
+    st.caption(
+        f"Route: {route_mode} | finite_support_used={'yes' if finite_support_used else 'no'} | reason={route_reason}"
+    )
+    st.caption(
+        f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
+        f"| support_tests_used={support_tests_used}"
+    )
+    if support_blended_output_nonzero is not None:
+        st.caption(f"support_blended_output_nonzero={bool(support_blended_output_nonzero)}")
+
+    if finite_support_used:
+        st.success("Finite empirical support route used. Using uploaded transient finite-cycle support data.")
+    else:
+        st.warning("Steady-state fallback: finite transient support was unavailable or unusable.")
+
+
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
     with st.expander("Equipment / Debug", expanded=False):
         st.write(
@@ -1361,16 +1424,21 @@ def _render_quick_lut_tab_v2(
         compensation_title = f"{main_field_axis} 파형 보정"
         compensation_basis = f"fixed rounded-triangle measured {main_field_axis} waveform"
         clamp_label = f"목표 {main_field_axis} 크기"
+        finite_support_entries = (
+            _build_finite_support_entries(
+                transient_measurements=transient_measurements or [],
+                transient_preprocess_results=transient_preprocess_results or [],
+                current_channel=current_channel,
+                main_field_axis=main_field_axis,
+            )
+            if finite_cycle_mode
+            else []
+        )
         st.markdown(f"#### {compensation_title}")
         st.caption(
             f"이 기능은 {compensation_basis} (100pp fixed)을 기준으로 recommended voltage waveform을 계산합니다. "
             "Current, gain, hardware, and LCR are not the main shape-selection basis in this path."
         )
-        if finite_cycle_mode:
-            st.warning(
-                "finite-cycle은 아직 실험적 기능입니다. 현재 추천은 steady-state support를 기반으로 0초 시작/종료를 맞춘 보조 계산이며, "
-                "전용 transient 데이터 없이 0.75 / 1.25 cycle 응답을 정확 모델처럼 해석하면 안 됩니다."
-            )
         frequency_mode = "interpolate" if use_frequency_trend else "exact"
         compensation = synthesize_current_waveform_compensation(
             per_test_summary=per_test_summary,
@@ -1392,6 +1460,7 @@ def _render_quick_lut_tab_v2(
             amp_max_output_pk_v=amp_max_output_pk_v,
             default_support_amp_gain_pct=default_support_amp_gain_pct,
             allow_output_extrapolation=allow_target_extrapolation,
+            finite_support_entries=finite_support_entries,
         )
         if compensation is None:
             frequency_scope = "this frequency or nearby frequencies" if use_frequency_trend else "the exact frequency"
@@ -1425,7 +1494,10 @@ def _render_quick_lut_tab_v2(
                     f"harmonic transfer가 clamp되었습니다. ratio={compensation['phase_clamp_fraction']:.1%}"
                 )
             else:
-                st.success("harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.")
+                if compensation.get("finite_support_used"):
+                    st.success("finite empirical support route로 추천 전압 파형을 계산했습니다.")
+                else:
+                    st.success("harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.")
             if compensation["frequency_mode"] == "frequency_interpolated":
                 st.info(
                     f"주파수 trend 보간 사용: 요청 {compensation['requested_freq_hz']:.3f} Hz, "
@@ -1437,6 +1509,7 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
+            reference_profile, reference_label = _resolve_compensation_plot_reference(compensation)
             recommended_voltage_pp = float(command_profile["recommended_voltage_pp"].iloc[0])
             limited_voltage_pp = float(command_profile["limited_voltage_pp"].iloc[0])
             required_gain_multiplier = float(command_profile["required_amp_gain_multiplier"].iloc[0])
@@ -1472,7 +1545,7 @@ def _render_quick_lut_tab_v2(
                 st.plotly_chart(
                     plot_output_compensation_waveforms(
                         command_profile=command_profile,
-                        nearest_profile=compensation.get("nearest_profile_preview", compensation["nearest_profile"]),
+                        nearest_profile=reference_profile,
                         nearest_column=(
                             "measured_current_a"
                             if compensation_target_type == "current"
@@ -1484,6 +1557,7 @@ def _render_quick_lut_tab_v2(
                             else f"Field Waveform Compensation: {main_field_axis}"
                         ),
                         yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
+                        reference_label=reference_label,
                     ),
                     use_container_width=True,
                 )
@@ -1497,6 +1571,7 @@ def _render_quick_lut_tab_v2(
                     "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬된 목표이고, "
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
                 )
+                _render_finite_route_marker(compensation)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
@@ -1595,12 +1670,6 @@ def _render_quick_lut_tab_v2(
             )
 
             if finite_cycle_mode:
-                finite_support_entries = _build_finite_support_entries(
-                    transient_measurements=transient_measurements or [],
-                    transient_preprocess_results=transient_preprocess_results or [],
-                    current_channel=current_channel,
-                    main_field_axis=main_field_axis,
-                )
                 finite_model = _build_empirical_finite_model(
                     finite_support_entries=finite_support_entries,
                     waveform_type=target_waveform,
@@ -2475,20 +2544,12 @@ def _build_finite_support_entries(
     current_channel: str,
     main_field_axis: str,
 ) -> list[dict[str, object]]:
-    entries: list[dict[str, object]] = []
-    for parsed, preprocess in zip(transient_measurements, transient_preprocess_results, strict=False):
-        corrected = preprocess.corrected_frame.copy()
-        summary = _build_finite_run_summary(parsed, corrected)
-        entries.append(
-            {
-                **summary,
-                "current_pp": _signal_peak_to_peak(corrected, current_channel),
-                "field_pp": _signal_peak_to_peak(corrected, main_field_axis),
-                "daq_voltage_pp": _signal_peak_to_peak(corrected, "daq_input_v"),
-                "frame": corrected,
-            }
-        )
-    return entries
+    return build_backend_finite_support_entries(
+        transient_measurements=transient_measurements,
+        transient_preprocess_results=transient_preprocess_results,
+        current_channel=current_channel,
+        field_channel=main_field_axis,
+    )
 
 
 def _build_empirical_finite_model(

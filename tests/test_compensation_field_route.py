@@ -456,6 +456,9 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
     assert isinstance(after_metrics, dict)
     assert isinstance(improvement_summary, dict)
     assert metrics["evaluation_status"] == "ok"
+    assert finite["finite_route_mode"] == "steady_state_harmonic_expanded"
+    assert finite["finite_route_reason"] == "finite_support_unavailable"
+    assert finite["finite_route_warning"] == "finite transient data not used"
     for column in (
         "predicted_field_mT",
         "target_field_mT",
@@ -487,10 +490,21 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
         "finite_tail_residual_ratio_after",
         "finite_active_nrmse_before",
         "finite_active_nrmse_after",
+        "finite_route_mode",
+        "finite_route_reason",
+        "finite_command_stop_policy",
+        "command_nonzero_end_s",
+        "target_active_end_s",
+        "command_early_stop_s",
+        "command_extends_through_target_end",
+        "post_target_command_tail_s",
+        "phase_lead_seconds_applied",
+        "phase_lead_applied_to_sampling_only",
     ):
         assert column in profile.columns
     assert str(profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
     assert float(profile["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert bool(profile["command_extends_through_target_end"].iloc[0]) is True
     assert "terminal_trim_applied" in profile.columns
     assert "active_window_nrmse" in metrics
     assert "terminal_peak_error_mT" in metrics
