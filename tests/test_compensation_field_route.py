@@ -181,6 +181,10 @@ def _run_field_compensation(
     preview_tail_cycles: float = 0.25,
     lcr_measurements: pd.DataFrame | None = None,
     lcr_blend_weight: float = 0.0,
+    max_daq_voltage_pp: float = 1000.0,
+    amp_gain_at_100_pct: float = 1.0,
+    amp_gain_limit_pct: float = 100.0,
+    amp_max_output_pk_v: float = 1000.0,
 ) -> dict[str, object]:
     result = synthesize_current_waveform_compensation(
         per_test_summary=per_test_summary,
@@ -191,10 +195,10 @@ def _run_field_compensation(
         target_output_type="field",
         target_output_pp=float(target_output_pp),
         points_per_cycle=128,
-        max_daq_voltage_pp=1000.0,
-        amp_gain_at_100_pct=1.0,
-        amp_gain_limit_pct=100.0,
-        amp_max_output_pk_v=1000.0,
+        max_daq_voltage_pp=max_daq_voltage_pp,
+        amp_gain_at_100_pct=amp_gain_at_100_pct,
+        amp_gain_limit_pct=amp_gain_limit_pct,
+        amp_max_output_pk_v=amp_max_output_pk_v,
         finite_cycle_mode=finite_cycle_mode,
         target_cycle_count=target_cycle_count,
         preview_tail_cycles=preview_tail_cycles,
@@ -239,8 +243,28 @@ def test_field_route_target_scale_changes_do_not_change_normalized_prediction_sh
 
     assert float(small_profile["target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
     assert float(large_profile["target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert float(small_profile["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert float(large_profile["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert float(small_profile["requested_target_output_pp"].iloc[0]) == 25.0
+    assert float(large_profile["requested_target_output_pp"].iloc[0]) == 250.0
+    assert str(small_profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
+    assert str(large_profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
+    assert bool(small_profile["target_shape_locked"].iloc[0]) is True
+    assert bool(large_profile["target_shape_locked"].iloc[0]) is True
+    assert bool(small_profile["target_pp_locked"].iloc[0]) is True
+    assert bool(large_profile["target_pp_locked"].iloc[0]) is True
     assert small_target["shape_target_output_pp"] == FIELD_ROUTE_NORMALIZED_TARGET_PP
     assert large_target["shape_target_output_pp"] == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert small_target["requested_target_output_pp"] == 25.0
+    assert large_target["requested_target_output_pp"] == 250.0
+    assert small_target["field_only_target_shape"] == "rounded_triangle"
+    assert large_target["field_only_target_shape"] == "rounded_triangle"
+    assert small_target["target_shape_locked"] is True
+    assert large_target["target_shape_locked"] is True
+    assert small_target["target_pp_locked"] is True
+    assert large_target["target_pp_locked"] is True
+    assert small_target["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
+    assert large_target["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
     assert np.allclose(small_shape, large_shape, atol=1e-6)
 
 
@@ -266,6 +290,10 @@ def test_field_route_ignores_current_and_lcr_branches_for_shape_selection() -> N
         target_output_pp=40.0,
         lcr_measurements=lcr_measurements,
         lcr_blend_weight=0.9,
+        max_daq_voltage_pp=850.0,
+        amp_gain_at_100_pct=4.5,
+        amp_gain_limit_pct=85.0,
+        amp_max_output_pk_v=140.0,
     )
 
     baseline_profile = baseline["command_profile"]
@@ -281,11 +309,9 @@ def test_field_route_ignores_current_and_lcr_branches_for_shape_selection() -> N
         _normalized_shape(mutated_profile["predicted_field_mT"]),
         atol=1e-6,
     )
-    assert np.allclose(
-        pd.to_numeric(baseline_profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float),
-        pd.to_numeric(mutated_profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float),
-        atol=1e-6,
-    )
+    assert baseline["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
+    assert mutated["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
+    assert str(mutated_profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
 
 
 def test_phase_registration_handles_read_only_input_arrays() -> None:
@@ -392,6 +418,11 @@ def test_terminal_trim_improves_last_slope_sign_match() -> None:
 
     assert predicted_slope_before != target_slope
     assert predicted_slope_after == target_slope
+    assert float(trimmed["terminal_target_slope_sign"].iloc[0]) == float(target_slope)
+    assert float(trimmed["terminal_predicted_slope_sign_before"].iloc[0]) == float(predicted_slope_before)
+    assert float(trimmed["terminal_predicted_slope_sign_after"].iloc[0]) == float(predicted_slope_after)
+    assert bool(trimmed["terminal_direction_match_after"].iloc[0]) is True
+    assert float(trimmed["terminal_trim_window_fraction"].iloc[0]) > 0.0
 
 
 def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set() -> None:
@@ -415,12 +446,24 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
         "target_field_mT",
         "field_shape_corr",
         "field_shape_nrmse",
+        "shape_target_output_pp",
+        "requested_target_output_pp",
+        "field_only_target_shape",
+        "target_shape_locked",
+        "target_pp_locked",
         "terminal_trim_applied",
         "terminal_trim_gain",
         "terminal_trim_bias_v",
         "predicted_terminal_peak_error_mT",
+        "terminal_target_slope_sign",
+        "terminal_predicted_slope_sign_before",
+        "terminal_predicted_slope_sign_after",
+        "terminal_direction_match_after",
+        "terminal_trim_window_fraction",
     ):
         assert column in profile.columns
+    assert str(profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
+    assert float(profile["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
 
 
 def test_field_route_finite_cycle_count_snaps_to_allowed_set() -> None:
