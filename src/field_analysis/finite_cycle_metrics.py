@@ -197,6 +197,50 @@ def attach_finite_cycle_metrics(
     return command_profile
 
 
+def build_finite_metric_improvement_summary(
+    before: FiniteCycleMetrics,
+    after: FiniteCycleMetrics,
+) -> dict[str, Any]:
+    epsilon = 1e-9
+    before_dict = before.to_dict()
+    after_dict = after.to_dict()
+    before_peak_abs = abs(float(before.terminal_peak_error_mT)) if np.isfinite(before.terminal_peak_error_mT) else float("nan")
+    after_peak_abs = abs(float(after.terminal_peak_error_mT)) if np.isfinite(after.terminal_peak_error_mT) else float("nan")
+    before_lag_abs = abs(float(before.estimated_lag_seconds)) if np.isfinite(before.estimated_lag_seconds) else float("nan")
+    after_lag_abs = abs(float(after.estimated_lag_seconds)) if np.isfinite(after.estimated_lag_seconds) else float("nan")
+    return {
+        "before_status": before.evaluation_status,
+        "after_status": after.evaluation_status,
+        "active_nrmse_before": before.active_window_nrmse,
+        "active_nrmse_after": after.active_window_nrmse,
+        "active_nrmse_delta": _safe_delta(after.active_window_nrmse, before.active_window_nrmse),
+        "terminal_peak_error_abs_before": before_peak_abs,
+        "terminal_peak_error_abs_after": after_peak_abs,
+        "terminal_peak_error_abs_delta": _safe_delta(after_peak_abs, before_peak_abs),
+        "terminal_value_error_abs_before": abs(float(before.terminal_value_error_mT)) if np.isfinite(before.terminal_value_error_mT) else float("nan"),
+        "terminal_value_error_abs_after": abs(float(after.terminal_value_error_mT)) if np.isfinite(after.terminal_value_error_mT) else float("nan"),
+        "tail_residual_ratio_before": before.tail_residual_ratio,
+        "tail_residual_ratio_after": after.tail_residual_ratio,
+        "tail_residual_ratio_delta": _safe_delta(after.tail_residual_ratio, before.tail_residual_ratio),
+        "estimated_lag_abs_before": before_lag_abs,
+        "estimated_lag_abs_after": after_lag_abs,
+        "estimated_lag_abs_delta": _safe_delta(after_lag_abs, before_lag_abs),
+        "terminal_direction_before": before.terminal_direction_match,
+        "terminal_direction_after": after.terminal_direction_match,
+        "terminal_direction_improved": bool(before.terminal_direction_match is not True and after.terminal_direction_match is True),
+        "terminal_peak_improved": bool(np.isfinite(before_peak_abs) and np.isfinite(after_peak_abs) and after_peak_abs < before_peak_abs - epsilon),
+        "tail_residual_improved": bool(
+            np.isfinite(before.tail_residual_ratio)
+            and np.isfinite(after.tail_residual_ratio)
+            and after.tail_residual_ratio < before.tail_residual_ratio - epsilon
+        ),
+        "lag_improved": bool(np.isfinite(before_lag_abs) and np.isfinite(after_lag_abs) and after_lag_abs < before_lag_abs - epsilon),
+        "overall_improved": bool(_finite_metrics_score(after) < _finite_metrics_score(before) - epsilon),
+        "before_metrics": before_dict,
+        "after_metrics": after_dict,
+    }
+
+
 def _resolve_first_existing_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
     for candidate in candidates:
         if candidate in frame.columns:
@@ -295,6 +339,29 @@ def _safe_corr(left: np.ndarray, right: np.ndarray) -> float:
     if np.allclose(np.nanstd(left_valid), 0.0) or np.allclose(np.nanstd(right_valid), 0.0):
         return float("nan")
     return float(np.corrcoef(left_valid, right_valid)[0, 1])
+
+
+def _safe_delta(after_value: float, before_value: float) -> float:
+    if not np.isfinite(after_value) or not np.isfinite(before_value):
+        return float("nan")
+    return float(after_value - before_value)
+
+
+def _finite_metrics_score(metrics: FiniteCycleMetrics) -> float:
+    direction_penalty = 0.0 if metrics.terminal_direction_match is True else 1.0
+    lag_penalty = abs(float(metrics.estimated_lag_seconds)) if np.isfinite(metrics.estimated_lag_seconds) else 0.0
+    peak_penalty = abs(float(metrics.terminal_peak_error_ratio)) if np.isfinite(metrics.terminal_peak_error_ratio) else 0.0
+    value_penalty = abs(float(metrics.terminal_value_error_mT)) / max(abs(float(metrics.target_peak_mT)), 1e-12) if np.isfinite(metrics.terminal_value_error_mT) and np.isfinite(metrics.target_peak_mT) else 0.0
+    active_penalty = float(metrics.active_window_nrmse) if np.isfinite(metrics.active_window_nrmse) else 0.0
+    tail_penalty = float(metrics.tail_residual_ratio) if np.isfinite(metrics.tail_residual_ratio) else 0.0
+    return float(
+        active_penalty
+        + 0.9 * peak_penalty
+        + 0.7 * value_penalty
+        + 0.8 * tail_penalty
+        + 0.5 * lag_penalty
+        + 0.35 * direction_penalty
+    )
 
 
 def _first_numeric(series: pd.Series | Any) -> float:

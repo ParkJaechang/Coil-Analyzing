@@ -15,6 +15,7 @@ if str(SRC_ROOT) not in sys.path:
 from field_analysis.compensation import (
     FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS,
     FIELD_ROUTE_NORMALIZED_TARGET_PP,
+    FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES,
     _apply_terminal_stop_trim,
     _register_profile_phase_to_command_zero_cross,
     synthesize_current_waveform_compensation,
@@ -445,9 +446,15 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
 
     profile = finite["command_profile"]
     metrics = finite["finite_cycle_metrics"]
+    before_metrics = finite["finite_cycle_metrics_before"]
+    after_metrics = finite["finite_cycle_metrics_after"]
+    improvement_summary = finite["finite_metric_improvement_summary"]
     assert float(profile["target_cycle_count"].iloc[0]) == 1.5
     assert finite["allowed_finite_cycle_counts"] == list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS)
     assert isinstance(metrics, dict)
+    assert isinstance(before_metrics, dict)
+    assert isinstance(after_metrics, dict)
+    assert isinstance(improvement_summary, dict)
     assert metrics["evaluation_status"] == "ok"
     for column in (
         "predicted_field_mT",
@@ -473,6 +480,13 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
         "finite_terminal_direction_match",
         "finite_tail_residual_ratio",
         "finite_estimated_lag_seconds",
+        "finite_terminal_correction_applied",
+        "finite_terminal_correction_reason",
+        "finite_terminal_correction_gain",
+        "finite_tail_residual_ratio_before",
+        "finite_tail_residual_ratio_after",
+        "finite_active_nrmse_before",
+        "finite_active_nrmse_after",
     ):
         assert column in profile.columns
     assert str(profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
@@ -481,6 +495,8 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
     assert "active_window_nrmse" in metrics
     assert "terminal_peak_error_mT" in metrics
     assert "tail_residual_ratio" in metrics
+    assert abs(float(after_metrics["active_window_nrmse"])) <= abs(float(before_metrics["active_window_nrmse"])) + 0.05
+    assert "overall_improved" in improvement_summary
 
 
 def test_finite_field_route_metrics_stay_on_fixed_100pp_basis() -> None:
@@ -513,6 +529,8 @@ def test_finite_field_route_metrics_stay_on_fixed_100pp_basis() -> None:
     assert float(large["command_profile"]["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
     assert abs(float(small_metrics["target_peak_mT"]) - float(large_metrics["target_peak_mT"])) <= 1e-6
     assert abs(float(small_metrics["active_window_nrmse"]) - float(large_metrics["active_window_nrmse"])) <= 1e-6
+    assert small["shape_selection_excludes"] == list(FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES)
+    assert large["shape_selection_excludes"] == list(FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES)
 
 
 def test_field_route_finite_cycle_count_snaps_to_allowed_set() -> None:
