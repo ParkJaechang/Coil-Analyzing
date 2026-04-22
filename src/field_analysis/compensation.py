@@ -14,6 +14,7 @@ from .utils import canonicalize_waveform_type
 
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
 FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
+FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
 
 
 def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
@@ -113,12 +114,13 @@ def synthesize_current_waveform_compensation(
         field_channel=field_channel,
         current_metric=current_metric,
     )
-    target_output_pp = float(target_output_pp if target_output_pp is not None else target_current_pp_a)
+    requested_target_output_pp = float(target_output_pp if target_output_pp is not None else target_current_pp_a)
+    target_output_pp = requested_target_output_pp
     field_only_route = output_context["output_type"] == "field"
     shape_target_output_pp = (
         float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
         if field_only_route
-        else target_output_pp
+        else requested_target_output_pp
     )
     max_harmonics = _default_harmonic_count(waveform_type, points_per_cycle)
 
@@ -423,7 +425,11 @@ def synthesize_current_waveform_compensation(
             command_profile[aligned_used_target_column] = command_profile[output_context["used_target_column"]]
 
     command_profile["target_output_pp"] = shape_target_output_pp
-    command_profile["requested_target_output_pp"] = target_output_pp
+    command_profile["shape_target_output_pp"] = shape_target_output_pp
+    command_profile["requested_target_output_pp"] = requested_target_output_pp
+    command_profile["field_only_target_shape"] = "rounded_triangle" if field_only_route else waveform_type
+    command_profile["target_shape_locked"] = bool(field_only_route)
+    command_profile["target_pp_locked"] = bool(field_only_route)
     command_profile["waveform_type"] = waveform_type
     command_profile["freq_hz"] = float(freq_hz)
     command_profile["finite_cycle_mode"] = finite_cycle_mode
@@ -644,7 +650,11 @@ def synthesize_current_waveform_compensation(
         "target_output_unit": output_context["unit"],
         "target_output_pp": target_output_pp,
         "shape_target_output_pp": shape_target_output_pp,
-        "requested_target_output_pp": target_output_pp,
+        "requested_target_output_pp": requested_target_output_pp,
+        "field_only_target_shape": "rounded_triangle" if field_only_route else waveform_type,
+        "target_shape_locked": bool(field_only_route),
+        "target_pp_locked": bool(field_only_route),
+        "shape_selection_excludes": list(FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES) if field_only_route else [],
         "target_current_pp_a": float(target_current_pp_a),
         "available_output_pp_min": support_min,
         "available_output_pp_max": support_max,
@@ -719,6 +729,11 @@ def synthesize_current_waveform_compensation(
         "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
         "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
         "predicted_terminal_peak_error_mT": _first_numeric(command_profile.get("predicted_terminal_peak_error_mT")),
+        "terminal_target_slope_sign": _first_numeric(command_profile.get("terminal_target_slope_sign")),
+        "terminal_predicted_slope_sign_before": _first_numeric(command_profile.get("terminal_predicted_slope_sign_before")),
+        "terminal_predicted_slope_sign_after": _first_numeric(command_profile.get("terminal_predicted_slope_sign_after")),
+        "terminal_direction_match_after": bool(_first_numeric(command_profile.get("terminal_direction_match_after")) or False),
+        "terminal_trim_window_fraction": _first_numeric(command_profile.get("terminal_trim_window_fraction")),
         "allowed_finite_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS) if field_only_route else [],
     }
 
@@ -3722,6 +3737,16 @@ def _last_peak_abs_error(target_values: np.ndarray, predicted_values: np.ndarray
     return float(predicted_abs_peak - target_abs_peak)
 
 
+def _terminal_slope_sign(values: np.ndarray) -> float:
+    slope_values = np.asarray(values, dtype=float)
+    if slope_values.size < 2:
+        return float("nan")
+    slope = float(slope_values[-1] - slope_values[-2])
+    if not np.isfinite(slope) or abs(slope) <= 1e-6:
+        return 0.0
+    return float(np.sign(slope))
+
+
 def _apply_terminal_stop_trim(
     command_profile: pd.DataFrame,
     freq_hz: float,
@@ -3785,6 +3810,8 @@ def _apply_terminal_stop_trim(
     predicted_end = float(predicted_terminal[-1])
     target_slope = float(target_terminal[-1] - target_terminal[-2])
     predicted_slope = float(predicted_terminal[-1] - predicted_terminal[-2])
+    target_slope_sign = _terminal_slope_sign(target_terminal)
+    predicted_slope_sign_before = _terminal_slope_sign(predicted_terminal)
     voltage_peak = float(np.nanmax(np.abs(limited_terminal - np.nanmean(limited_terminal))))
     field_per_volt = predicted_peak / max(voltage_peak, 1e-6)
     endpoint_error = target_end - predicted_end
@@ -3827,12 +3854,28 @@ def _apply_terminal_stop_trim(
     trimmed = _sync_modeled_alias_columns(trimmed)
 
     terminal_peak_error = _last_peak_abs_error(target_values[terminal_mask], predicted_values[terminal_mask])
+    predicted_slope_sign_after = _terminal_slope_sign(predicted_values[terminal_mask])
+    terminal_direction_match_after = bool(
+        np.isfinite(target_slope_sign)
+        and np.isfinite(predicted_slope_sign_after)
+        and target_slope_sign == predicted_slope_sign_after
+    )
+    terminal_trim_window_fraction = (
+        float(np.clip(terminal_window_s / active_duration_s, 0.0, 1.0))
+        if np.isfinite(active_duration_s) and active_duration_s > 0
+        else 1.0
+    )
     return _set_terminal_trim_metadata(
         trimmed,
         applied=abs(terminal_gain - 1.0) > 1e-3 or abs(terminal_bias_v) > 1e-6,
         terminal_gain=terminal_gain,
         terminal_bias_v=terminal_bias_v,
         terminal_peak_error_mT=terminal_peak_error,
+        terminal_target_slope_sign=target_slope_sign,
+        terminal_predicted_slope_sign_before=predicted_slope_sign_before,
+        terminal_predicted_slope_sign_after=predicted_slope_sign_after,
+        terminal_direction_match_after=terminal_direction_match_after,
+        terminal_trim_window_fraction=terminal_trim_window_fraction,
     )
 
 
@@ -3843,6 +3886,11 @@ def _set_terminal_trim_metadata(
     terminal_gain: float = 1.0,
     terminal_bias_v: float = 0.0,
     terminal_peak_error_mT: float = float("nan"),
+    terminal_target_slope_sign: float = float("nan"),
+    terminal_predicted_slope_sign_before: float = float("nan"),
+    terminal_predicted_slope_sign_after: float = float("nan"),
+    terminal_direction_match_after: bool = False,
+    terminal_trim_window_fraction: float = float("nan"),
 ) -> pd.DataFrame:
     if command_profile.empty:
         return command_profile
@@ -3850,6 +3898,11 @@ def _set_terminal_trim_metadata(
     command_profile["terminal_trim_gain"] = float(terminal_gain)
     command_profile["terminal_trim_bias_v"] = float(terminal_bias_v)
     command_profile["predicted_terminal_peak_error_mT"] = float(terminal_peak_error_mT)
+    command_profile["terminal_target_slope_sign"] = float(terminal_target_slope_sign)
+    command_profile["terminal_predicted_slope_sign_before"] = float(terminal_predicted_slope_sign_before)
+    command_profile["terminal_predicted_slope_sign_after"] = float(terminal_predicted_slope_sign_after)
+    command_profile["terminal_direction_match_after"] = bool(terminal_direction_match_after)
+    command_profile["terminal_trim_window_fraction"] = float(terminal_trim_window_fraction)
     return command_profile
 
 
