@@ -13,7 +13,14 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from field_analysis.lut import FIELD_ONLY_FIXED_TARGET_PP, recommend_voltage_waveform
+from field_analysis.lut import (
+    FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS,
+    FIELD_ONLY_FIXED_TARGET_PP,
+    build_fixed_field_target_template,
+    build_field_target_shape_template,
+    normalize_field_only_target_cycle_count,
+    recommend_voltage_waveform,
+)
 
 
 def _analysis_stub(*, test_id: str, waveform_type: str, freq_hz: float, voltage_values: np.ndarray) -> SimpleNamespace:
@@ -83,6 +90,34 @@ def _normalized_waveform(frame: pd.DataFrame) -> np.ndarray:
     return values / scale if scale > 0 else values
 
 
+def test_rounded_triangle_target_template_has_rounded_peaks() -> None:
+    template = build_fixed_field_target_template(freq_hz=2.0, points_per_cycle=401)
+    values = template["voltage_normalized"].to_numpy(dtype=float)
+
+    peak_index = int(np.nanargmax(values))
+    mid_slope_index = int(np.argmin(np.abs(template["cycle_progress"].to_numpy(dtype=float) - 0.125)))
+    peak_span = abs(values[min(peak_index + 1, len(values) - 1)] - values[max(peak_index - 1, 0)])
+    slope_span = abs(values[mid_slope_index + 1] - values[mid_slope_index - 1])
+
+    assert np.isclose(values[0], 0.0, atol=1e-9)
+    assert np.isclose(values[-1], 0.0, atol=1e-9)
+    assert 0.2 < float(template["cycle_progress"].iloc[peak_index]) < 0.3
+    assert np.nanmax(values) > 0.95
+    assert np.nanmin(values) < -0.95
+    assert peak_span < slope_span
+
+
+def test_field_target_template_alias_matches_fixed_template() -> None:
+    fixed_template = build_fixed_field_target_template(freq_hz=2.0, points_per_cycle=301)
+    alias_template = build_field_target_shape_template(freq_hz=2.0, points_per_cycle=301)
+
+    assert np.allclose(
+        fixed_template["voltage_normalized"].to_numpy(dtype=float),
+        alias_template["voltage_normalized"].to_numpy(dtype=float),
+        atol=1e-9,
+    )
+
+
 def test_field_only_lut_ignores_current_metric_and_uses_fixed_100pp() -> None:
     recommendation = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
@@ -97,10 +132,39 @@ def test_field_only_lut_ignores_current_metric_and_uses_fixed_100pp() -> None:
     assert recommendation is not None
     assert recommendation["target_metric"] == "achieved_bz_mT_pp_mean"
     assert recommendation["requested_target_value"] == FIELD_ONLY_FIXED_TARGET_PP
-    assert recommendation["field_model_route"].startswith("field_only_")
+    assert recommendation["field_model_route"].startswith("field_only_rounded_triangle_")
+    assert recommendation["field_only_target_shape"] == "rounded_triangle"
+    assert recommendation["field_only_fixed_target_pp"] == FIELD_ONLY_FIXED_TARGET_PP
+    assert recommendation["target_shape_locked"] is True
+    assert recommendation["target_pp_locked"] is True
+    assert recommendation["primary_output_family"] == "field"
+    assert recommendation["primary_output_unit"] == "mT"
+    assert recommendation["support_waveform_type"] == "sine"
+    assert recommendation["support_waveform_role"] == "input_support_family"
+    assert recommendation["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
 
 
-def test_low_frequency_shape_blending_keeps_positive_shape_continuity() -> None:
+def test_target_value_changes_do_not_change_normalized_shape_across_requested_scales() -> None:
+    normalized_shapes: list[np.ndarray] = []
+    for requested_target in (20.0, 50.0, 100.0, 200.0):
+        recommendation = recommend_voltage_waveform(
+            per_test_summary=_support_summary(),
+            analyses_by_test_id=_analysis_lookup(),
+            waveform_type="sine",
+            freq_hz=1.1,
+            target_metric="achieved_bz_mT_pp_mean",
+            target_value=requested_target,
+            frequency_mode="interpolate",
+        )
+        assert recommendation is not None
+        assert recommendation["requested_target_value"] == FIELD_ONLY_FIXED_TARGET_PP
+        normalized_shapes.append(_normalized_waveform(recommendation["command_waveform"]))
+
+    for shape in normalized_shapes[1:]:
+        assert np.allclose(normalized_shapes[0], shape, atol=1e-6)
+
+
+def test_low_frequency_shape_blending_tracks_rounded_triangle_target() -> None:
     recommendation = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
         analyses_by_test_id=_analysis_lookup(),
@@ -113,16 +177,19 @@ def test_low_frequency_shape_blending_keeps_positive_shape_continuity() -> None:
 
     assert recommendation is not None
     template = recommendation["template_waveform"]["voltage_normalized"].to_numpy(dtype=float)
-    reference = np.sin(2.0 * np.pi * recommendation["template_waveform"]["cycle_progress"].to_numpy(dtype=float))
+    reference = build_field_target_shape_template(
+        freq_hz=1.1,
+        points_per_cycle=len(template),
+    )["voltage_normalized"].to_numpy(dtype=float)
     corr = float(np.corrcoef(template, reference)[0, 1])
 
     assert recommendation["freq_regularization_applied"] is True
     assert recommendation["field_shape_corr"] > 0.9
-    assert recommendation["field_shape_nrmse"] < 0.5
-    assert corr > 0.8
+    assert recommendation["field_shape_nrmse"] < 0.35
+    assert corr > 0.9
 
 
-def test_small_frequency_changes_keep_normalized_shape_stable() -> None:
+def test_neighboring_low_frequencies_keep_normalized_shape_stable() -> None:
     low = recommend_voltage_waveform(
         per_test_summary=_support_summary(),
         analyses_by_test_id=_analysis_lookup(),
@@ -175,3 +242,47 @@ def test_target_scale_changes_do_not_change_normalized_shape() -> None:
         _normalized_waveform(high_target["command_waveform"]),
         atol=1e-6,
     )
+
+
+def test_support_waveform_role_is_separate_from_fixed_target_shape_metadata() -> None:
+    recommendation = recommend_voltage_waveform(
+        per_test_summary=_support_summary(),
+        analyses_by_test_id=_analysis_lookup(),
+        waveform_type="sine",
+        freq_hz=1.1,
+        target_metric="achieved_bz_mT_pp_mean",
+        target_value=100.0,
+        frequency_mode="interpolate",
+    )
+
+    assert recommendation is not None
+    assert recommendation["waveform_type"] == "sine"
+    assert recommendation["support_waveform_type"] == "sine"
+    assert recommendation["field_only_target_shape"] == "rounded_triangle"
+    assert recommendation["support_waveform_type"] != recommendation["field_only_target_shape"]
+
+
+def test_finite_cycle_target_count_is_normalized_to_allowed_set() -> None:
+    recommendation = recommend_voltage_waveform(
+        per_test_summary=_support_summary(),
+        analyses_by_test_id=_analysis_lookup(),
+        waveform_type="sine",
+        freq_hz=1.1,
+        target_metric="achieved_bz_mT_pp_mean",
+        target_value=100.0,
+        frequency_mode="interpolate",
+        finite_cycle_mode=True,
+        target_cycle_count=1.37,
+        preview_tail_cycles=0.25,
+    )
+
+    assert recommendation is not None
+    assert recommendation["allowed_target_cycle_counts"] == list(FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS)
+    assert recommendation["target_cycle_count"] == 1.25
+    assert float(recommendation["command_waveform"]["target_cycle_count"].dropna().iloc[0]) == 1.25
+
+
+def test_finite_cycle_helper_uses_nearest_allowed_value() -> None:
+    assert normalize_field_only_target_cycle_count(1.02) == 1.0
+    assert normalize_field_only_target_cycle_count(1.38) == 1.5
+    assert normalize_field_only_target_cycle_count(1.73) == 1.75

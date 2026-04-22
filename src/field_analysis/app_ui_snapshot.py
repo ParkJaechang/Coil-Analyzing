@@ -19,7 +19,15 @@ from .compensation import synthesize_current_waveform_compensation
 from .control_formula import build_control_formula
 from .exports import build_export_zip_bytes, export_analysis_bundle
 from .hardware import apply_command_hardware_model
-from .lut import TARGET_LABELS, prioritize_lut_target_metrics, recommend_voltage_waveform, target_metric_label
+from .lut import (
+    FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS,
+    FIELD_ONLY_FIXED_TARGET_PP,
+    TARGET_LABELS,
+    prioritize_lut_target_metrics,
+    recommend_voltage_waveform,
+    resolve_field_only_target_metric,
+    target_metric_label,
+)
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
@@ -1017,12 +1025,13 @@ def _render_quick_lut_tab_v2(
     transient_preprocess_results: list | None = None,
 ) -> None:
     st.info(
-        "Usage: `scalar LUT` gives a first-pass voltage estimate for a target field PP value. "
-        "`waveform compensation` recommends a drive command while keeping measured field waveform as the primary reference."
+        "Usage: `scalar LUT` estimates the voltage command for a fixed field-only target: "
+        "rounded-triangle field shape at 100pp. `waveform compensation` keeps the same field-first target philosophy."
     )
     st.markdown("#### Review Quick LUT and waveform compensation with a field-first modeling focus.")
     st.caption(
-        "현재 메인 보정은 steady-state support 기반 harmonic inverse입니다. finite-cycle은 별도 transient support가 있을 때만 제한적으로 참고하십시오."
+        "Quick LUT main route excludes current, gain, hardware, and LCR from shape selection. "
+        "The waveform selector below chooses only the input/support waveform family."
     )
     if per_test_summary.empty:
         st.warning(
@@ -1041,7 +1050,6 @@ def _render_quick_lut_tab_v2(
         f"achieved_{main_field_axis}_pp_mean",
         "achieved_bz_mT_pp_mean",
         "achieved_bmag_mT_pp_mean",
-        "achieved_current_pp_a_mean",
     ]
     available_metric_options = [
         metric for metric in dict.fromkeys(metric_candidates) if metric in per_test_summary.columns
@@ -1066,7 +1074,13 @@ def _render_quick_lut_tab_v2(
 
     left, mid, right = st.columns(3)
     with left:
-        target_waveform = st.selectbox("파형", options=waveform_options or ["sine"], key="lut_waveform_v2")
+        target_waveform = st.selectbox(
+            "지원 입력/파형 family",
+            options=waveform_options or ["sine"],
+            key="lut_waveform_v2",
+            help="이 선택은 목표 자기장 shape가 아니라 support/input waveform family를 고릅니다.",
+        )
+        st.caption("Target field shape is fixed to a rounded triangle. This selector only chooses the DAQ/support waveform family.")
         target_freq = float(
             st.number_input(
                 "주파수 (Hz)",
@@ -1084,34 +1098,21 @@ def _render_quick_lut_tab_v2(
         )
         st.caption(f"보유 주파수: {frequency_labels} Hz")
     with mid:
-        target_metric = _prioritize_metric_options(
+        target_metric = resolve_field_only_target_metric(
+            available_metric_options,
+            preferred_metric=f"achieved_{main_field_axis}_pp_mean",
+        ) or _prioritize_metric_options(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**Field-only / 100pp mode**")
+        st.markdown("**Field-only / rounded-triangle / 100pp fixed**")
         st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
-        target_value = 100.0
-        st.caption("Main LUT target PP is fixed to `100` and current is excluded from shape selection.")
-        compensation_target_type = st.selectbox(
-            "파형 보정 목표 항목",
-            options=["field", "current"],
-            format_func=lambda value: "전류" if value == "current" else f"자기장 ({main_field_axis})",
-            key="comp_target_type_v2",
-        )
-        st.caption("Field waveform is the default recommendation target. Current mode is kept only for advanced/debug comparison.")
-        compensation_target_label = (
-            "파형 보정 목표 Current PP (A)"
-            if compensation_target_type == "current"
-            else f"파형 보정 목표 {main_field_axis} PP (mT)"
-        )
-        compensation_target_current_pp = float(
-            st.number_input(
-                compensation_target_label,
-                min_value=0.0,
-                value=20.0,
-                step=1.0,
-                key="comp_target_current_pp_v2",
-            )
+        target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
+        compensation_target_type = "field"
+        compensation_target_current_pp = float(FIELD_ONLY_FIXED_TARGET_PP)
+        st.caption(
+            "Main LUT target field shape is a canonical rounded triangle and target PP is locked to `100`. "
+            "Current and equipment values remain debug/reference only."
         )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
@@ -1121,12 +1122,12 @@ def _render_quick_lut_tab_v2(
         )
         if finite_cycle_mode:
             target_cycle_count = float(
-                st.number_input(
+                st.selectbox(
                     "구동 cycle 수",
-                    min_value=0.25,
-                    value=1.25,
-                    step=0.25,
+                    options=[float(value) for value in FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS],
+                    index=1,
                     key="target_cycle_count_v2",
+                    help="Field-only finite cycle support is currently constrained to the validated cycle set.",
                 )
             )
             preview_tail_cycles = float(
@@ -1142,40 +1143,29 @@ def _render_quick_lut_tab_v2(
             target_cycle_count = None
             preview_tail_cycles = 0.25
     with right:
-        st.write("")
-        st.write("")
+        st.caption("Both actions below use the same fixed target: field-only, rounded-triangle, 100pp.")
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
-        compensation_button_label = (
-            f"{main_field_axis} 파형 보정 계산" if compensation_target_type == "field" else "전류 파형 보정 계산"
-        )
+        compensation_button_label = f"{main_field_axis} 파형 보정 계산"
         compensation_clicked = st.button(
             compensation_button_label,
             use_container_width=True,
             key="lut_comp_button_v2",
         )
+        st.caption("`크기 LUT 계산` returns the scalar voltage estimate for the fixed field target. "
+                   f"`{compensation_button_label}` keeps the same field target and solves the waveform command.")
 
     if not estimate_clicked and not compensation_clicked:
-        st.info("파형, 주파수, 목표값을 고른 뒤 계산 버튼을 누르십시오.")
+        st.info("지원 파형 family와 주파수를 고른 뒤 계산 버튼을 누르십시오.")
         return
 
     if compensation_clicked:
-        compensation_title = (
-            f"{main_field_axis} 파형 보정" if compensation_target_type == "field" else "전류 파형 보정"
-        )
-        compensation_basis = (
-            f"목표 measured {main_field_axis} waveform"
-            if compensation_target_type == "field"
-            else "목표 measured current waveform"
-        )
-        clamp_label = (
-            f"목표 {main_field_axis} 크기"
-            if compensation_target_type == "field"
-            else "목표 current 크기"
-        )
+        compensation_title = f"{main_field_axis} 파형 보정"
+        compensation_basis = f"fixed rounded-triangle measured {main_field_axis} waveform"
+        clamp_label = f"목표 {main_field_axis} 크기"
         st.markdown(f"#### {compensation_title}")
         st.caption(
-            f"이 기능은 {compensation_basis}을 기준으로 recommended voltage waveform을 계산합니다. "
-            "실제 구동용은 이쪽을 우선 보고, 위의 크기 LUT는 대략적인 전압 범위 확인용으로 쓰면 됩니다."
+            f"이 기능은 {compensation_basis} (100pp fixed)을 기준으로 recommended voltage waveform을 계산합니다. "
+            "Current, gain, hardware, and LCR are not the main shape-selection basis in this path."
         )
         if finite_cycle_mode:
             st.warning(
@@ -1588,6 +1578,11 @@ def _render_quick_lut_tab_v2(
             )
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
+        st.write(f"- support waveform family: `{recommendation['support_waveform_type']}` (`{recommendation['support_waveform_role']}`)")
+        st.write(
+            f"- fixed field target: `{recommendation['field_only_target_shape']}` / "
+            f"`{recommendation['field_only_fixed_target_pp']:.0f}pp`"
+        )
         st.write(f"- target metric: `{target_metric_label(target_metric)}`")
         st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
         st.write(f"- finite cycle mode: `{recommendation['finite_cycle_mode']}`")
@@ -1612,6 +1607,10 @@ def _render_quick_lut_tab_v2(
         st.write(f"- mode: `{recommendation['recommendation_mode']}`")
         st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
         st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
+        st.write(
+            "- main shape-selection excludes: "
+            f"`{', '.join(recommendation['shape_selection_excludes'])}`"
+        )
         st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
 
         st.markdown("#### 근거 실험점")
