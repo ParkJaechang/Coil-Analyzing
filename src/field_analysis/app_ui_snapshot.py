@@ -995,6 +995,80 @@ def _format_optional_metric(value: object, unit: str = "", digits: int = 3) -> s
     return f"{float(numeric):.{digits}f}{suffix}"
 
 
+def _is_nonempty_frame(value: object) -> bool:
+    return isinstance(value, pd.DataFrame) and not value.empty
+
+
+def _resolve_compensation_plot_reference(
+    compensation: dict[str, object],
+) -> tuple[pd.DataFrame | None, str]:
+    support_profile_preview = compensation.get("support_profile_preview")
+    if _is_nonempty_frame(support_profile_preview):
+        return support_profile_preview, "Support-Blended Output"
+
+    nearest_profile_preview = compensation.get("nearest_profile_preview")
+    if _is_nonempty_frame(nearest_profile_preview):
+        return nearest_profile_preview, "Nearest Support Preview"
+
+    nearest_profile = compensation.get("nearest_profile")
+    if _is_nonempty_frame(nearest_profile):
+        return nearest_profile, "Nearest Support Output"
+
+    return None, "Nearest Support Output"
+
+
+def _resolve_finite_route_marker(compensation: dict[str, object]) -> str:
+    mode = str(compensation.get("mode") or "")
+    prediction_basis = str(compensation.get("prediction_basis") or "")
+    support_selection_reason = str(compensation.get("support_selection_reason") or "")
+
+    if mode in {"finite_exact_direct", "finite_empirical_weighted_support"}:
+        return "finite_empirical_support"
+    if mode == "finite_empirical_nearest_support" or support_selection_reason == "finite_nearest_support_preview":
+        return "finite_empirical_preview"
+    if mode.startswith("harmonic_inverse_field_only") or prediction_basis == "support_scaled_preview":
+        return "steady_state_harmonic_expanded"
+    if mode.startswith("harmonic_inverse"):
+        return "fallback_harmonic_inverse"
+    return prediction_basis or mode or "unknown"
+
+
+def _render_finite_route_marker(
+    compensation: dict[str, object],
+    finite_support_entries: list[dict[str, object]],
+) -> None:
+    route_marker = _resolve_finite_route_marker(compensation)
+    finite_support_used = route_marker in {"finite_empirical_support", "finite_empirical_preview"}
+    backend_mode = str(compensation.get("mode") or "n/a")
+    prediction_basis = str(compensation.get("prediction_basis") or "n/a")
+    selected_support_id = str(compensation.get("selected_support_id") or compensation.get("nearest_test_id") or "n/a")
+    support_count_used = compensation.get("support_count_used", compensation.get("support_point_count", "n/a"))
+    support_tests_used = compensation.get("support_tests_used") or compensation.get("field_support_test_ids") or "n/a"
+    if isinstance(support_tests_used, list):
+        support_tests_text = ", ".join(str(value) for value in support_tests_used) or "n/a"
+    else:
+        support_tests_text = str(support_tests_used)
+
+    st.caption(
+        f"Route: {route_marker} | backend mode={backend_mode} | prediction_basis={prediction_basis} "
+        f"| finite support used={'yes' if finite_support_used else 'no'}"
+    )
+    st.caption(
+        f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
+        f"| support_tests_used={support_tests_text}"
+    )
+
+    if finite_support_entries and not finite_support_used:
+        st.info(
+            f"Route: {route_marker} | finite transient uploads are available ({len(finite_support_entries)}) "
+            "but are not used by this main solver path."
+        )
+    elif finite_support_used:
+        st.success(f"Route: {route_marker} | finite empirical support contributes to this finite-cycle preview.")
+    else:
+        st.caption("No finite empirical support entries are available for this run.")
+
+
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
     with st.expander("Equipment / Debug", expanded=False):
         st.write(
@@ -1279,6 +1353,17 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
+            finite_support_entries = (
+                _build_finite_support_entries(
+                    transient_measurements=transient_measurements or [],
+                    transient_preprocess_results=transient_preprocess_results or [],
+                    current_channel=current_channel,
+                    main_field_axis=main_field_axis,
+                )
+                if finite_cycle_mode
+                else []
+            )
+            reference_profile, reference_label = _resolve_compensation_plot_reference(compensation)
             recommended_voltage_pp = float(command_profile["recommended_voltage_pp"].iloc[0])
             limited_voltage_pp = float(command_profile["limited_voltage_pp"].iloc[0])
             required_gain_multiplier = float(command_profile["required_amp_gain_multiplier"].iloc[0])
@@ -1314,7 +1399,7 @@ def _render_quick_lut_tab_v2(
                 st.plotly_chart(
                     plot_output_compensation_waveforms(
                         command_profile=command_profile,
-                        nearest_profile=compensation.get("nearest_profile_preview", compensation["nearest_profile"]),
+                        nearest_profile=reference_profile,
                         nearest_column=(
                             "measured_current_a"
                             if compensation_target_type == "current"
@@ -1326,6 +1411,7 @@ def _render_quick_lut_tab_v2(
                             else f"Field Waveform Compensation: {main_field_axis}"
                         ),
                         yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
+                        reference_label=reference_label,
                     ),
                     use_container_width=True,
                 )
@@ -1341,6 +1427,9 @@ def _render_quick_lut_tab_v2(
                 )
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
+
+            if finite_cycle_mode:
+                _render_finite_route_marker(compensation, finite_support_entries)
 
             st.write(f"- mode: `{compensation['mode']}`")
             st.write(f"- current axis: `{current_channel}`")
@@ -1436,12 +1525,6 @@ def _render_quick_lut_tab_v2(
             )
 
             if finite_cycle_mode:
-                finite_support_entries = _build_finite_support_entries(
-                    transient_measurements=transient_measurements or [],
-                    transient_preprocess_results=transient_preprocess_results or [],
-                    current_channel=current_channel,
-                    main_field_axis=main_field_axis,
-                )
                 finite_model = _build_empirical_finite_model(
                     finite_support_entries=finite_support_entries,
                     waveform_type=target_waveform,
