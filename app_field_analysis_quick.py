@@ -25,9 +25,13 @@ def _prepend_sys_path(src_path: Path) -> None:
     sys.path[:] = [resolved, *filtered_paths]
 
 
-for src_path in reversed(SRC_CANDIDATES):
-    if src_path.exists():
-        _prepend_sys_path(src_path)
+def _install_src_path_guardrails() -> None:
+    for src_path in reversed(SRC_CANDIDATES):
+        if src_path.exists():
+            _prepend_sys_path(src_path)
+
+
+_install_src_path_guardrails()
 
 LAST_ERROR: Exception | None = None
 for module_name in ("field_analysis.app_ui", "field_analysis.app_ui_snapshot"):

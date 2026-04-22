@@ -1044,6 +1044,14 @@ def _render_field_only_quick_lut_banner() -> None:
         "The waveform selector below chooses only the support/input waveform family. "
         "Target field shape is always rounded triangle, and current / gain / hardware / LCR are excluded from main shape selection."
     )
+    st.caption(
+        "Runtime: Quick LUT field-only renderer v2 · target=rounded_triangle · "
+        "target_pp=100 fixed · source=repo-local src"
+    )
+    st.caption(
+        "변경 후에도 legacy target control이 보이면 기존 Streamlit 프로세스를 종료하고 "
+        "`launch_quick_lut_local.cmd`를 다시 실행하십시오."
+    )
 
 
 def _render_quick_lut_tab_v2(
