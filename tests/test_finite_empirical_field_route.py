@@ -213,11 +213,16 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     profile = result["command_profile"]
     assert result["mode"] == "finite_empirical_field_support"
     assert result["finite_support_used"] is True
+    assert result["finite_route_mode"] == "finite_empirical_field_support"
+    assert result["finite_route_reason"] == "exact_finite_support_match"
     assert result["request_route"] == "exact"
     assert result["plot_source"] == "exact_prediction"
+    assert result["support_count_used"] == 1
     assert float(np.nanmax(np.abs(pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float)))) > 1e-9
     assert float(np.nanmax(np.abs(pd.to_numeric(profile["predicted_field_mT"], errors="coerce").to_numpy(dtype=float)))) > 1e-9
     assert float(result["command_nonzero_end_s"]) >= float(result["target_active_end_s"]) - 0.02
+    assert bool(result["command_extends_through_target_end"]) is True
+    assert bool(result["phase_lead_applied_to_sampling_only"]) is True
 
 
 def test_nearest_finite_support_preview_route_keeps_metadata() -> None:
@@ -235,8 +240,10 @@ def test_nearest_finite_support_preview_route_keeps_metadata() -> None:
 
     assert result["mode"] == "finite_empirical_weighted_support"
     assert result["finite_support_used"] is True
+    assert result["finite_route_mode"] == "finite_empirical_weighted_support"
+    assert result["finite_route_reason"] == "nearest_finite_support_blend"
     assert result["request_route"] == "preview"
-    assert result["support_point_count"] > 0
+    assert result["support_count_used"] > 0
     assert result["zero_padded_fraction"] is not None
     assert float(result["shape_target_output_pp"]) == 100.0
 
@@ -245,6 +252,9 @@ def test_no_finite_support_falls_back_to_harmonic_route_with_reason() -> None:
     result = _run_field_compensation(finite_support_entries=[])
 
     assert result["finite_support_used"] is False
+    assert result["finite_route_mode"] == "steady_state_harmonic_expanded"
+    assert result["finite_route_reason"] == "finite_support_unavailable"
+    assert result["finite_route_warning"] == "finite transient data not used"
     assert result["finite_support_fallback_reason"] == "no_finite_support_entries"
     assert str(result["mode"]).startswith("harmonic_inverse_field_only")
 
