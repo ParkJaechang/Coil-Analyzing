@@ -309,6 +309,11 @@ def test_field_route_ignores_current_and_lcr_branches_for_shape_selection() -> N
         _normalized_shape(mutated_profile["predicted_field_mT"]),
         atol=1e-6,
     )
+    assert np.allclose(
+        _normalized_shape(pd.to_numeric(baseline_profile["recommended_voltage_v"], errors="coerce")),
+        _normalized_shape(pd.to_numeric(mutated_profile["recommended_voltage_v"], errors="coerce")),
+        atol=1e-6,
+    )
     assert baseline["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
     assert mutated["shape_selection_excludes"] == ["current", "gain", "hardware", "lcr"]
     assert str(mutated_profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
