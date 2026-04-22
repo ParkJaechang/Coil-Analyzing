@@ -444,8 +444,11 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
     )
 
     profile = finite["command_profile"]
+    metrics = finite["finite_cycle_metrics"]
     assert float(profile["target_cycle_count"].iloc[0]) == 1.5
     assert finite["allowed_finite_cycle_counts"] == list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS)
+    assert isinstance(metrics, dict)
+    assert metrics["evaluation_status"] == "ok"
     for column in (
         "predicted_field_mT",
         "target_field_mT",
@@ -465,10 +468,51 @@ def test_finite_field_route_reports_terminal_trim_columns_and_allowed_cycle_set(
         "terminal_predicted_slope_sign_after",
         "terminal_direction_match_after",
         "terminal_trim_window_fraction",
+        "finite_active_nrmse",
+        "finite_terminal_peak_error_mT",
+        "finite_terminal_direction_match",
+        "finite_tail_residual_ratio",
+        "finite_estimated_lag_seconds",
     ):
         assert column in profile.columns
     assert str(profile["field_only_target_shape"].iloc[0]) == "rounded_triangle"
     assert float(profile["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert "terminal_trim_applied" in profile.columns
+    assert "active_window_nrmse" in metrics
+    assert "terminal_peak_error_mT" in metrics
+    assert "tail_residual_ratio" in metrics
+
+
+def test_finite_field_route_metrics_stay_on_fixed_100pp_basis() -> None:
+    summary, analyses = _build_support_context()
+
+    small = _run_field_compensation(
+        summary,
+        analyses,
+        freq_hz=3.0,
+        target_output_pp=25.0,
+        finite_cycle_mode=True,
+        target_cycle_count=1.5,
+        preview_tail_cycles=0.5,
+    )
+    large = _run_field_compensation(
+        summary,
+        analyses,
+        freq_hz=3.0,
+        target_output_pp=250.0,
+        finite_cycle_mode=True,
+        target_cycle_count=1.5,
+        preview_tail_cycles=0.5,
+    )
+
+    small_metrics = small["finite_cycle_metrics"]
+    large_metrics = large["finite_cycle_metrics"]
+    assert small_metrics["evaluation_status"] == "ok"
+    assert large_metrics["evaluation_status"] == "ok"
+    assert float(small["command_profile"]["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert float(large["command_profile"]["shape_target_output_pp"].iloc[0]) == FIELD_ROUTE_NORMALIZED_TARGET_PP
+    assert abs(float(small_metrics["target_peak_mT"]) - float(large_metrics["target_peak_mT"])) <= 1e-6
+    assert abs(float(small_metrics["active_window_nrmse"]) - float(large_metrics["active_window_nrmse"])) <= 1e-6
 
 
 def test_field_route_finite_cycle_count_snaps_to_allowed_set() -> None:

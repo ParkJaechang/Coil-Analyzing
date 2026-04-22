@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .finite_cycle_metrics import attach_finite_cycle_metrics, evaluate_finite_cycle_metrics
 from .hardware import apply_command_hardware_model
 from .lcr import build_lcr_harmonic_prior, build_lcr_impedance_table
 from .lut import _theoretical_template
@@ -567,6 +568,14 @@ def synthesize_current_waveform_compensation(
             support_weight_table=field_support_weights,
             finite_cycle_mode=finite_cycle_mode,
         )
+    finite_cycle_metrics: dict[str, Any] = {}
+    if field_only_route and finite_cycle_mode:
+        finite_metrics = evaluate_finite_cycle_metrics(command_profile)
+        command_profile = attach_finite_cycle_metrics(
+            command_profile=command_profile,
+            metrics=finite_metrics,
+        )
+        finite_cycle_metrics = finite_metrics.to_dict()
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
     startup_diagnostics.setdefault("source_test_id", nearest_test_id)
@@ -734,6 +743,7 @@ def synthesize_current_waveform_compensation(
         "terminal_predicted_slope_sign_after": _first_numeric(command_profile.get("terminal_predicted_slope_sign_after")),
         "terminal_direction_match_after": bool(_first_numeric(command_profile.get("terminal_direction_match_after")) or False),
         "terminal_trim_window_fraction": _first_numeric(command_profile.get("terminal_trim_window_fraction")),
+        "finite_cycle_metrics": finite_cycle_metrics,
         "allowed_finite_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS) if field_only_route else [],
     }
 
