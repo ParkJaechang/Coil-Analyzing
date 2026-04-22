@@ -11,9 +11,23 @@ SRC_CANDIDATES = [
     PROJECT_ROOT.parent / "src",
 ]
 
-for src_path in SRC_CANDIDATES:
-    if src_path.exists() and str(src_path) not in sys.path:
-        sys.path.insert(0, str(src_path))
+
+def _prepend_sys_path(src_path: Path) -> None:
+    resolved = str(src_path.resolve())
+    filtered_paths: list[str] = []
+    for existing in sys.path:
+        try:
+            if Path(existing).resolve() == src_path.resolve():
+                continue
+        except OSError:
+            pass
+        filtered_paths.append(existing)
+    sys.path[:] = [resolved, *filtered_paths]
+
+
+for src_path in reversed(SRC_CANDIDATES):
+    if src_path.exists():
+        _prepend_sys_path(src_path)
 
 LAST_ERROR: Exception | None = None
 for module_name in ("field_analysis.app_ui", "field_analysis.app_ui_snapshot"):
