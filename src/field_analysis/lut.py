@@ -21,6 +21,9 @@ FIELD_ONLY_FIXED_TARGET_PP = 100.0
 LOW_FREQ_REGULARIZATION_HZ = 5.0
 TEMPLATE_POINTS_PER_CYCLE = 300
 ROUNDED_TRIANGLE_SMOOTHING_FRACTION = 0.08
+FIELD_ONLY_TARGET_SHAPE = "rounded_triangle"
+FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
+FIELD_ONLY_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
 
 
 def target_metric_label(metric: str) -> str:
@@ -93,7 +96,7 @@ def resolve_field_only_target_metric(
     return preferred_order[0] if preferred_order else None
 
 
-def build_field_target_shape_template(
+def build_fixed_field_target_template(
     freq_hz: float | None,
     points_per_cycle: int = TEMPLATE_POINTS_PER_CYCLE,
     smoothing_fraction: float = ROUNDED_TRIANGLE_SMOOTHING_FRACTION,
@@ -136,6 +139,29 @@ def build_field_target_shape_template(
             "voltage_normalized": normalized,
         }
     )
+
+
+def build_field_target_shape_template(
+    freq_hz: float | None,
+    points_per_cycle: int = TEMPLATE_POINTS_PER_CYCLE,
+    smoothing_fraction: float = ROUNDED_TRIANGLE_SMOOTHING_FRACTION,
+) -> pd.DataFrame:
+    return build_fixed_field_target_template(
+        freq_hz=freq_hz,
+        points_per_cycle=points_per_cycle,
+        smoothing_fraction=smoothing_fraction,
+    )
+
+
+def normalize_field_only_target_cycle_count(target_cycle_count: float | None) -> float | None:
+    if target_cycle_count is None or not np.isfinite(target_cycle_count):
+        return None
+    requested = float(target_cycle_count)
+    nearest = min(
+        FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS,
+        key=lambda value: (abs(float(value) - requested), float(value)),
+    )
+    return float(nearest)
 
 
 def build_lut_recommendation_display_context(
@@ -217,6 +243,11 @@ def recommend_voltage_waveform(
         return None
 
     requested_target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
+    normalized_target_cycle_count = (
+        normalize_field_only_target_cycle_count(target_cycle_count)
+        if finite_cycle_mode
+        else None
+    )
     requested_freq_hz = float(freq_hz)
     waveform_subset = per_test_summary[
         per_test_summary["waveform_type"].map(canonicalize_waveform_type) == waveform_type
@@ -321,12 +352,12 @@ def recommend_voltage_waveform(
         voltage_channel=voltage_channel,
         waveform_type=waveform_type,
     )
-    if finite_cycle_mode and target_cycle_count is not None:
+    if finite_cycle_mode and normalized_target_cycle_count is not None:
         command_waveform = _expand_template_waveform(
             template_waveform=template_waveform,
             freq_hz=requested_freq_hz,
             estimated_voltage_pp=estimated_voltage_pp,
-            target_cycle_count=max(float(target_cycle_count), 0.25),
+            target_cycle_count=float(normalized_target_cycle_count),
             preview_tail_cycles=max(float(preview_tail_cycles), 0.0),
         )
         preserve_start_voltage = True
@@ -354,13 +385,13 @@ def recommend_voltage_waveform(
     command_waveform["target_value"] = requested_target_value
     command_waveform["finite_cycle_mode"] = finite_cycle_mode
     command_waveform["target_cycle_count"] = (
-        max(float(target_cycle_count), 0.25)
-        if finite_cycle_mode and target_cycle_count is not None
+        float(normalized_target_cycle_count)
+        if finite_cycle_mode and normalized_target_cycle_count is not None
         else np.nan
     )
     command_waveform["preview_tail_cycles"] = (
         max(float(preview_tail_cycles), 0.0)
-        if finite_cycle_mode and target_cycle_count is not None
+        if finite_cycle_mode and normalized_target_cycle_count is not None
         else np.nan
     )
 
@@ -403,7 +434,14 @@ def recommend_voltage_waveform(
         "used_target_value": clamped_target,
         "in_range": in_range,
         "recommendation_mode": recommendation_mode,
-        "target_field_shape": "rounded_triangle",
+        "field_only_target_shape": FIELD_ONLY_TARGET_SHAPE,
+        "target_field_shape": FIELD_ONLY_TARGET_SHAPE,
+        "target_shape_locked": True,
+        "target_pp_locked": True,
+        "shape_selection_excludes": list(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES),
+        "support_waveform_type": waveform_type,
+        "support_waveform_role": "input_support_family",
+        "primary_output_family": "field",
         "requested_freq_hz": requested_freq_hz,
         "used_freq_hz": used_freq_hz,
         "frequency_mode": frequency_mode_used,
@@ -419,14 +457,15 @@ def recommend_voltage_waveform(
         "estimated_voltage_peak": estimated_voltage_pp / 2.0,
         "finite_cycle_mode": finite_cycle_mode,
         "field_only_fixed_target_pp": float(FIELD_ONLY_FIXED_TARGET_PP),
+        "allowed_target_cycle_counts": list(FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS),
         "target_cycle_count": (
-            max(float(target_cycle_count), 0.25)
-            if finite_cycle_mode and target_cycle_count is not None
+            float(normalized_target_cycle_count)
+            if finite_cycle_mode and normalized_target_cycle_count is not None
             else float("nan")
         ),
         "preview_tail_cycles": (
             max(float(preview_tail_cycles), 0.0)
-            if finite_cycle_mode and target_cycle_count is not None
+            if finite_cycle_mode and normalized_target_cycle_count is not None
             else float("nan")
         ),
         "max_daq_voltage_pp": float(max_daq_voltage_pp),
