@@ -5,7 +5,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .finite_cycle_metrics import attach_finite_cycle_metrics, evaluate_finite_cycle_metrics
+from .finite_cycle_metrics import (
+    FiniteCycleMetrics,
+    attach_finite_cycle_metrics,
+    build_finite_metric_improvement_summary,
+    evaluate_finite_cycle_metrics,
+)
 from .hardware import apply_command_hardware_model
 from .lcr import build_lcr_harmonic_prior, build_lcr_impedance_table
 from .lut import _theoretical_template
@@ -542,16 +547,6 @@ def synthesize_current_waveform_compensation(
         target_output_type=target_output_type,
         finite_cycle_mode=finite_cycle_mode,
     )
-    if field_only_route and finite_cycle_mode:
-        command_profile = _apply_terminal_stop_trim(
-            command_profile=command_profile,
-            freq_hz=requested_freq_hz,
-            max_daq_voltage_pp=float(max_daq_voltage_pp),
-            amp_gain_at_100_pct=float(amp_gain_at_100_pct),
-            support_amp_gain_pct=support_amp_gain_pct,
-            amp_gain_limit_pct=float(amp_gain_limit_pct),
-            amp_max_output_pk_v=float(amp_max_output_pk_v),
-        )
     if not finite_cycle_mode:
         command_profile = _apply_forward_harmonic_prediction(
             command_profile=command_profile,
@@ -569,13 +564,43 @@ def synthesize_current_waveform_compensation(
             finite_cycle_mode=finite_cycle_mode,
         )
     finite_cycle_metrics: dict[str, Any] = {}
+    finite_cycle_metrics_before: dict[str, Any] = {}
+    finite_cycle_metrics_after: dict[str, Any] = {}
+    finite_metric_improvement_summary: dict[str, Any] = {}
+    finite_terminal_correction_applied = False
+    finite_terminal_correction_reason = ""
+    finite_terminal_correction_gain = 1.0
     if field_only_route and finite_cycle_mode:
+        (
+            command_profile,
+            finite_metrics_before,
+            finite_metrics_after,
+            finite_metric_improvement_summary,
+        ) = _apply_finite_terminal_tail_correction(
+            command_profile=command_profile,
+            freq_hz=requested_freq_hz,
+            max_daq_voltage_pp=float(max_daq_voltage_pp),
+            amp_gain_at_100_pct=float(amp_gain_at_100_pct),
+            support_amp_gain_pct=support_amp_gain_pct,
+            amp_gain_limit_pct=float(amp_gain_limit_pct),
+            amp_max_output_pk_v=float(amp_max_output_pk_v),
+        )
+        command_profile = _attach_field_prediction_metrics(
+            command_profile=command_profile,
+            support_weight_table=field_support_weights,
+            finite_cycle_mode=finite_cycle_mode,
+        )
         finite_metrics = evaluate_finite_cycle_metrics(command_profile)
         command_profile = attach_finite_cycle_metrics(
             command_profile=command_profile,
             metrics=finite_metrics,
         )
         finite_cycle_metrics = finite_metrics.to_dict()
+        finite_cycle_metrics_before = finite_metrics_before or finite_cycle_metrics
+        finite_cycle_metrics_after = finite_metrics_after or finite_cycle_metrics
+        finite_terminal_correction_applied = bool(_first_boolish(command_profile.get("finite_terminal_correction_applied")))
+        finite_terminal_correction_reason = _first_text(command_profile.get("finite_terminal_correction_reason"))
+        finite_terminal_correction_gain = _first_numeric(command_profile.get("finite_terminal_correction_gain"))
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
     startup_diagnostics.setdefault("source_test_id", nearest_test_id)
@@ -744,6 +769,16 @@ def synthesize_current_waveform_compensation(
         "terminal_direction_match_after": bool(_first_numeric(command_profile.get("terminal_direction_match_after")) or False),
         "terminal_trim_window_fraction": _first_numeric(command_profile.get("terminal_trim_window_fraction")),
         "finite_cycle_metrics": finite_cycle_metrics,
+        "finite_cycle_metrics_before": finite_cycle_metrics_before,
+        "finite_cycle_metrics_after": finite_cycle_metrics_after,
+        "finite_metric_improvement_summary": finite_metric_improvement_summary,
+        "finite_terminal_correction_applied": finite_terminal_correction_applied,
+        "finite_terminal_correction_reason": finite_terminal_correction_reason,
+        "finite_terminal_correction_gain": finite_terminal_correction_gain,
+        "finite_tail_residual_ratio_before": _first_numeric(command_profile.get("finite_tail_residual_ratio_before")),
+        "finite_tail_residual_ratio_after": _first_numeric(command_profile.get("finite_tail_residual_ratio_after")),
+        "finite_active_nrmse_before": _first_numeric(command_profile.get("finite_active_nrmse_before")),
+        "finite_active_nrmse_after": _first_numeric(command_profile.get("finite_active_nrmse_after")),
         "allowed_finite_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS) if field_only_route else [],
     }
 
@@ -2713,6 +2748,26 @@ def _first_text(value: Any) -> str | None:
     return text or None
 
 
+def _first_boolish(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, pd.Series):
+        if value.empty:
+            return False
+        value = value.iloc[0]
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "nan", "none", "false", "0", "no"}:
+            return False
+        if normalized in {"true", "1", "yes"}:
+            return True
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return bool(value)
+    return bool(numeric)
+
+
 def _signal_peak_to_peak(frame: pd.DataFrame, column: str) -> float:
     if column not in frame.columns:
         return float("nan")
@@ -3352,6 +3407,16 @@ def _attach_field_prediction_metrics(
         command_profile["terminal_trim_bias_v"] = 0.0
     if "predicted_terminal_peak_error_mT" not in command_profile.columns:
         command_profile["predicted_terminal_peak_error_mT"] = float("nan")
+    if "terminal_target_slope_sign" not in command_profile.columns:
+        command_profile["terminal_target_slope_sign"] = float("nan")
+    if "terminal_predicted_slope_sign_before" not in command_profile.columns:
+        command_profile["terminal_predicted_slope_sign_before"] = float("nan")
+    if "terminal_predicted_slope_sign_after" not in command_profile.columns:
+        command_profile["terminal_predicted_slope_sign_after"] = float("nan")
+    if "terminal_direction_match_after" not in command_profile.columns:
+        command_profile["terminal_direction_match_after"] = False
+    if "terminal_trim_window_fraction" not in command_profile.columns:
+        command_profile["terminal_trim_window_fraction"] = float("nan")
     return _sync_modeled_alias_columns(command_profile)
 
 
@@ -3755,6 +3820,171 @@ def _terminal_slope_sign(values: np.ndarray) -> float:
     if not np.isfinite(slope) or abs(slope) <= 1e-6:
         return 0.0
     return float(np.sign(slope))
+
+
+def _apply_finite_terminal_tail_correction(
+    command_profile: pd.DataFrame,
+    *,
+    freq_hz: float,
+    max_daq_voltage_pp: float,
+    amp_gain_at_100_pct: float,
+    support_amp_gain_pct: float,
+    amp_gain_limit_pct: float,
+    amp_max_output_pk_v: float,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    before_metrics = evaluate_finite_cycle_metrics(command_profile)
+    before_dict = before_metrics.to_dict()
+    if before_metrics.evaluation_status != "ok":
+        unchanged = command_profile.copy()
+        unchanged = _attach_finite_terminal_correction_metadata(
+            command_profile=unchanged,
+            before_metrics=before_metrics,
+            after_metrics=before_metrics,
+            correction_applied=False,
+            correction_reason=before_metrics.unavailable_reason or "finite_metrics_unavailable",
+            correction_gain=1.0,
+            improvement_summary=build_finite_metric_improvement_summary(before_metrics, before_metrics),
+        )
+        return unchanged, before_dict, before_dict, build_finite_metric_improvement_summary(before_metrics, before_metrics)
+
+    candidate = _apply_terminal_stop_trim(
+        command_profile=command_profile,
+        freq_hz=freq_hz,
+        max_daq_voltage_pp=max_daq_voltage_pp,
+        amp_gain_at_100_pct=amp_gain_at_100_pct,
+        support_amp_gain_pct=support_amp_gain_pct,
+        amp_gain_limit_pct=amp_gain_limit_pct,
+        amp_max_output_pk_v=amp_max_output_pk_v,
+    )
+    candidate = _apply_tail_residual_taper(candidate, before_metrics)
+    after_metrics = evaluate_finite_cycle_metrics(candidate)
+    improvement_summary = build_finite_metric_improvement_summary(before_metrics, after_metrics)
+
+    accepted, correction_reason = _should_accept_finite_terminal_correction(
+        before_metrics=before_metrics,
+        after_metrics=after_metrics,
+        improvement_summary=improvement_summary,
+    )
+    if not accepted:
+        reverted = command_profile.copy()
+        reverted = _attach_finite_terminal_correction_metadata(
+            command_profile=reverted,
+            before_metrics=before_metrics,
+            after_metrics=before_metrics,
+            correction_applied=False,
+            correction_reason=correction_reason,
+            correction_gain=1.0,
+            improvement_summary=build_finite_metric_improvement_summary(before_metrics, before_metrics),
+        )
+        return reverted, before_dict, before_dict, build_finite_metric_improvement_summary(before_metrics, before_metrics)
+
+    correction_gain = _first_numeric(candidate.get("terminal_trim_gain")) or 1.0
+    candidate = _attach_finite_terminal_correction_metadata(
+        command_profile=candidate,
+        before_metrics=before_metrics,
+        after_metrics=after_metrics,
+        correction_applied=True,
+        correction_reason=correction_reason,
+        correction_gain=correction_gain,
+        improvement_summary=improvement_summary,
+    )
+    return candidate, before_dict, after_metrics.to_dict(), improvement_summary
+
+
+def _apply_tail_residual_taper(
+    command_profile: pd.DataFrame,
+    before_metrics: FiniteCycleMetrics,
+) -> pd.DataFrame:
+    if command_profile.empty or "is_active_target" not in command_profile.columns:
+        return command_profile
+    if not np.isfinite(before_metrics.tail_residual_ratio) or before_metrics.tail_residual_ratio <= 0.01:
+        return command_profile
+
+    corrected = command_profile.copy()
+    active_mask = corrected["is_active_target"].astype(bool).to_numpy(dtype=bool)
+    time_values = pd.to_numeric(corrected["time_s"], errors="coerce").to_numpy(dtype=float)
+    if not active_mask.any():
+        return corrected
+    active_end_s = float(np.nanmax(time_values[active_mask]))
+    tail_mask = np.isfinite(time_values) & (time_values > active_end_s + 1e-12)
+    tail_count = int(tail_mask.sum())
+    if tail_count == 0:
+        return corrected
+
+    taper_strength = float(np.clip(before_metrics.tail_residual_ratio / 0.12, 0.0, 1.0))
+    start_scale = float(np.clip(0.70 - 0.35 * taper_strength, 0.25, 0.70))
+    envelope = np.linspace(start_scale, 0.0, tail_count, dtype=float)
+    for column in ("recommended_voltage_v", "limited_voltage_v"):
+        if column in corrected.columns:
+            values = pd.to_numeric(corrected[column], errors="coerce").to_numpy(dtype=float).copy()
+            values[tail_mask] = values[tail_mask] * envelope
+            corrected[column] = values
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output", "predicted_field_mT"):
+        if column in corrected.columns:
+            values = pd.to_numeric(corrected[column], errors="coerce").to_numpy(dtype=float).copy()
+            values[tail_mask] = values[tail_mask] * envelope
+            corrected[column] = values
+    return corrected
+
+
+def _should_accept_finite_terminal_correction(
+    *,
+    before_metrics: FiniteCycleMetrics,
+    after_metrics: FiniteCycleMetrics,
+    improvement_summary: dict[str, Any],
+) -> tuple[bool, str]:
+    if after_metrics.evaluation_status != "ok":
+        return False, "after_metrics_unavailable"
+
+    nrmse_limit = float(before_metrics.active_window_nrmse + max(0.02, before_metrics.active_window_nrmse * 0.20))
+    if np.isfinite(after_metrics.active_window_nrmse) and np.isfinite(before_metrics.active_window_nrmse):
+        if after_metrics.active_window_nrmse > nrmse_limit:
+            return False, "guardrail_active_nrmse"
+
+    improved_peak = bool(improvement_summary.get("terminal_peak_improved"))
+    improved_tail = bool(improvement_summary.get("tail_residual_improved"))
+    improved_direction = bool(improvement_summary.get("terminal_direction_improved"))
+    improved_lag = bool(improvement_summary.get("lag_improved"))
+    overall_improved = bool(improvement_summary.get("overall_improved"))
+    if overall_improved and (improved_peak or improved_tail or improved_direction or improved_lag):
+        reasons: list[str] = []
+        if improved_peak:
+            reasons.append("terminal_peak")
+        if improved_direction:
+            reasons.append("terminal_direction")
+        if improved_tail:
+            reasons.append("tail_residual")
+        if improved_lag:
+            reasons.append("estimated_lag")
+        return True, "|".join(reasons) or "metrics_improved"
+    return False, "no_material_improvement"
+
+
+def _attach_finite_terminal_correction_metadata(
+    *,
+    command_profile: pd.DataFrame,
+    before_metrics: FiniteCycleMetrics,
+    after_metrics: FiniteCycleMetrics,
+    correction_applied: bool,
+    correction_reason: str,
+    correction_gain: float,
+    improvement_summary: dict[str, Any],
+) -> pd.DataFrame:
+    if command_profile.empty:
+        return command_profile
+    command_profile["finite_terminal_correction_applied"] = bool(correction_applied)
+    command_profile["finite_terminal_correction_reason"] = correction_reason
+    command_profile["finite_terminal_correction_gain"] = float(correction_gain)
+    command_profile["finite_tail_residual_ratio_before"] = float(before_metrics.tail_residual_ratio)
+    command_profile["finite_tail_residual_ratio_after"] = float(after_metrics.tail_residual_ratio)
+    command_profile["finite_active_nrmse_before"] = float(before_metrics.active_window_nrmse)
+    command_profile["finite_active_nrmse_after"] = float(after_metrics.active_window_nrmse)
+    command_profile["finite_terminal_peak_error_mT_before"] = float(before_metrics.terminal_peak_error_mT)
+    command_profile["finite_terminal_peak_error_mT_after"] = float(after_metrics.terminal_peak_error_mT)
+    command_profile["finite_terminal_direction_match_before"] = before_metrics.terminal_direction_match
+    command_profile["finite_terminal_direction_match_after"] = after_metrics.terminal_direction_match
+    command_profile["finite_metric_improvement_summary"] = str(improvement_summary)
+    return command_profile
 
 
 def _apply_terminal_stop_trim(
