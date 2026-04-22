@@ -211,6 +211,20 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     )
 
     profile = result["command_profile"]
+    for key in (
+        "finite_support_used",
+        "finite_route_mode",
+        "finite_route_reason",
+        "support_tests_used",
+        "support_count_used",
+        "selected_support_id",
+        "zero_padded_fraction",
+        "target_active_end_s",
+        "command_nonzero_end_s",
+        "command_extends_through_target_end",
+        "finite_support_fallback_reason",
+    ):
+        assert key in result
     assert result["mode"] == "finite_empirical_field_support"
     assert result["finite_support_used"] is True
     assert result["finite_route_mode"] == "finite_empirical_field_support"
@@ -218,6 +232,9 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     assert result["request_route"] == "exact"
     assert result["plot_source"] == "exact_prediction"
     assert result["support_count_used"] == 1
+    assert result["selected_support_id"] == "finite_exact"
+    assert result["support_tests_used"] == ["finite_exact"]
+    assert result["finite_support_fallback_reason"] is None
     assert float(np.nanmax(np.abs(pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float)))) > 1e-9
     assert float(np.nanmax(np.abs(pd.to_numeric(profile["predicted_field_mT"], errors="coerce").to_numpy(dtype=float)))) > 1e-9
     assert float(result["command_nonzero_end_s"]) >= float(result["target_active_end_s"]) - 0.02
@@ -244,6 +261,8 @@ def test_nearest_finite_support_preview_route_keeps_metadata() -> None:
     assert result["finite_route_reason"] == "nearest_finite_support_blend"
     assert result["request_route"] == "preview"
     assert result["support_count_used"] > 0
+    assert result["selected_support_id"] == "finite_near"
+    assert result["support_tests_used"] == ["finite_near"]
     assert result["zero_padded_fraction"] is not None
     assert float(result["shape_target_output_pp"]) == 100.0
 
@@ -256,6 +275,8 @@ def test_no_finite_support_falls_back_to_harmonic_route_with_reason() -> None:
     assert result["finite_route_reason"] == "finite_support_unavailable"
     assert result["finite_route_warning"] == "finite transient data not used"
     assert result["finite_support_fallback_reason"] == "no_finite_support_entries"
+    assert result["support_tests_used"] == []
+    assert result["support_count_used"] == 0
     assert str(result["mode"]).startswith("harmonic_inverse_field_only")
 
 
