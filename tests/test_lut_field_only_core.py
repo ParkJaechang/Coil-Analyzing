@@ -132,6 +132,7 @@ def test_field_only_lut_ignores_current_metric_and_uses_fixed_100pp() -> None:
     assert recommendation is not None
     assert recommendation["target_metric"] == "achieved_bz_mT_pp_mean"
     assert recommendation["requested_target_value"] == FIELD_ONLY_FIXED_TARGET_PP
+    assert recommendation["used_target_value"] == FIELD_ONLY_FIXED_TARGET_PP
     assert recommendation["field_model_route"].startswith("field_only_rounded_triangle_")
     assert recommendation["field_only_target_shape"] == "rounded_triangle"
     assert recommendation["field_only_fixed_target_pp"] == FIELD_ONLY_FIXED_TARGET_PP
