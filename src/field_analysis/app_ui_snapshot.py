@@ -995,6 +995,164 @@ def _format_optional_metric(value: object, unit: str = "", digits: int = 3) -> s
     return f"{float(numeric):.{digits}f}{suffix}"
 
 
+def _normalize_optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    if pd.isna(value):
+        return None
+    return str(value)
+
+
+def _first_frame_value(frame: pd.DataFrame, column: str) -> object | None:
+    if frame.empty or column not in frame.columns:
+        return None
+    return frame[column].iloc[0]
+
+
+def _coerce_boolish(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+    numeric = first_number(value)
+    if numeric is None or not np.isfinite(float(numeric)):
+        return None
+    return bool(float(numeric))
+
+
+def _format_metric_transition(before: object, after: object, unit: str = "", digits: int = 3) -> str:
+    return f"{_format_optional_metric(before, unit, digits)} -> {_format_optional_metric(after, unit, digits)}"
+
+
+def _format_bool_transition(before: bool | None, after: bool | None) -> str:
+    def _label(value: bool | None) -> str:
+        if value is None:
+            return "n/a"
+        return "True" if value else "False"
+
+    return f"{_label(before)} -> {_label(after)}"
+
+
+def _render_finite_cycle_correction_summary(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+) -> None:
+    applied = _coerce_boolish(compensation.get("finite_terminal_correction_applied"))
+    reason = _normalize_optional_text(
+        compensation.get("finite_terminal_correction_reason")
+        or _first_frame_value(command_profile, "finite_terminal_correction_reason")
+    )
+    correction_gain = first_number(compensation.get("finite_terminal_correction_gain"))
+    active_nrmse_before = first_number(compensation.get("finite_active_nrmse_before"))
+    active_nrmse_after = first_number(compensation.get("finite_active_nrmse_after"))
+    tail_ratio_before = first_number(compensation.get("finite_tail_residual_ratio_before"))
+    tail_ratio_after = first_number(compensation.get("finite_tail_residual_ratio_after"))
+    terminal_peak_error_before = first_number(_first_frame_value(command_profile, "finite_terminal_peak_error_mT_before"))
+    terminal_peak_error_after = first_number(_first_frame_value(command_profile, "finite_terminal_peak_error_mT_after"))
+    if terminal_peak_error_after is None:
+        terminal_peak_error_after = first_number(compensation.get("predicted_terminal_peak_error_mT"))
+    terminal_direction_match_before = _coerce_boolish(
+        _first_frame_value(command_profile, "finite_terminal_direction_match_before")
+    )
+    terminal_direction_match_after = _coerce_boolish(
+        _first_frame_value(command_profile, "finite_terminal_direction_match_after")
+    )
+    if terminal_direction_match_after is None:
+        terminal_direction_match_after = _coerce_boolish(compensation.get("terminal_direction_match_after"))
+    estimated_lag_seconds = first_number(compensation.get("estimated_output_lag_seconds"))
+    improvement_summary = _normalize_optional_text(
+        compensation.get("finite_metric_improvement_summary")
+        or _first_frame_value(command_profile, "finite_metric_improvement_summary")
+    )
+
+    summary_values = (
+        applied,
+        reason,
+        active_nrmse_before,
+        active_nrmse_after,
+        tail_ratio_before,
+        tail_ratio_after,
+        terminal_peak_error_before,
+        terminal_peak_error_after,
+        terminal_direction_match_before,
+        terminal_direction_match_after,
+        estimated_lag_seconds,
+        improvement_summary,
+    )
+    if all(value is None for value in summary_values):
+        st.caption("Finite-cycle correction metrics are not available for this result yet.")
+        return
+
+    st.markdown("#### Finite-Cycle Correction Summary")
+    st.caption("This summary surfaces finite-cycle terminal/tail correction results without changing the backend solver.")
+    if applied is True:
+        message = "finite terminal/tail correction applied"
+        if correction_gain is not None and np.isfinite(float(correction_gain)):
+            message = f"{message} (gain {float(correction_gain):.3f}x)"
+        st.success(message)
+    elif reason == "no_material_improvement":
+        st.info("candidate correction did not clear improvement guardrails; original command retained")
+    elif reason and any(token in reason for token in ("insufficient", "unavailable", "guardrail")):
+        st.warning(f"finite terminal/tail correction not applied: {reason}")
+    elif applied is False:
+        st.info("finite terminal/tail correction metadata is present, but the original command was retained")
+
+    summary_left, summary_right = st.columns(2)
+    with summary_left:
+        st.write(f"- Active NRMSE: `{_format_metric_transition(active_nrmse_before, active_nrmse_after, digits=4)}`")
+        st.write(
+            "- Terminal Peak Error: "
+            f"`{_format_metric_transition(terminal_peak_error_before, terminal_peak_error_after, unit='mT', digits=3)}`"
+        )
+        st.write(f"- Estimated Lag: `{_format_optional_metric(estimated_lag_seconds, 's', digits=6)}`")
+    with summary_right:
+        st.write(f"- Tail Residual Ratio: `{_format_metric_transition(tail_ratio_before, tail_ratio_after, digits=4)}`")
+        st.write(
+            "- Terminal Direction Match: "
+            f"`{_format_bool_transition(terminal_direction_match_before, terminal_direction_match_after)}`"
+        )
+        st.write(f"- Correction Reason: `{reason or 'n/a'}`")
+        if correction_gain is not None and np.isfinite(float(correction_gain)):
+            st.write(f"- Correction Gain: `{float(correction_gain):.3f}x`")
+
+    if active_nrmse_before is not None and active_nrmse_after is not None:
+        if float(active_nrmse_after) < float(active_nrmse_before):
+            st.success(
+                f"Active NRMSE improved: {float(active_nrmse_before):.4f} -> {float(active_nrmse_after):.4f}"
+            )
+        elif float(active_nrmse_after) > float(active_nrmse_before):
+            st.warning(
+                f"Active NRMSE worsened: {float(active_nrmse_before):.4f} -> {float(active_nrmse_after):.4f}"
+            )
+
+    if tail_ratio_before is not None and tail_ratio_after is not None:
+        if float(tail_ratio_after) < float(tail_ratio_before):
+            st.success(
+                f"Tail residual ratio improved: {float(tail_ratio_before):.4f} -> {float(tail_ratio_after):.4f}"
+            )
+        elif float(tail_ratio_after) > float(tail_ratio_before):
+            st.warning(
+                f"Tail residual ratio worsened: {float(tail_ratio_before):.4f} -> {float(tail_ratio_after):.4f}"
+            )
+
+    if terminal_direction_match_after is False:
+        st.warning("Terminal direction still mismatches the requested stop direction after correction.")
+
+    if improvement_summary:
+        st.caption(f"Improvement summary: {improvement_summary}")
+
+
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
     with st.expander("Equipment / Debug", expanded=False):
         st.write(
@@ -1339,6 +1497,7 @@ def _render_quick_lut_tab_v2(
                     "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬된 목표이고, "
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
                 )
+                _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
 
