@@ -36,6 +36,7 @@ def _build_analysis(
     freq_hz: float,
     current_pp: float,
     field_pp: float,
+    waveform_type: str = "sine",
 ) -> DatasetAnalysis:
     cycle_progress = np.linspace(0.0, 1.0, 128)
     radians = 2.0 * np.pi * cycle_progress
@@ -74,7 +75,7 @@ def _build_analysis(
         [
             {
                 "test_id": test_id,
-                "waveform_type": "sine",
+                "waveform_type": waveform_type,
                 "freq_hz": float(freq_hz),
                 "current_pp_target_a": float(current_pp),
                 "achieved_current_pp_a_mean": float(current_pp),
@@ -124,8 +125,30 @@ def _build_analysis(
 def _build_support_context() -> tuple[pd.DataFrame, dict[str, DatasetAnalysis]]:
     low = _build_analysis(test_id="steady_2hz", freq_hz=2.0, current_pp=6.0, field_pp=26.0)
     high = _build_analysis(test_id="steady_4hz", freq_hz=4.0, current_pp=18.0, field_pp=70.0)
-    summary = pd.concat([low.per_test_summary, high.per_test_summary], ignore_index=True)
-    return summary, {"steady_2hz": low, "steady_4hz": high}
+    low_triangle = _build_analysis(
+        test_id="steady_triangle_2hz",
+        freq_hz=2.0,
+        current_pp=6.0,
+        field_pp=26.0,
+        waveform_type="triangle",
+    )
+    high_triangle = _build_analysis(
+        test_id="steady_triangle_4hz",
+        freq_hz=4.0,
+        current_pp=18.0,
+        field_pp=70.0,
+        waveform_type="triangle",
+    )
+    summary = pd.concat(
+        [low.per_test_summary, high.per_test_summary, low_triangle.per_test_summary, high_triangle.per_test_summary],
+        ignore_index=True,
+    )
+    return summary, {
+        "steady_2hz": low,
+        "steady_4hz": high,
+        "steady_triangle_2hz": low_triangle,
+        "steady_triangle_4hz": high_triangle,
+    }
 
 
 def _build_finite_entry(
@@ -180,13 +203,15 @@ def _run_field_compensation(
     *,
     finite_support_entries: list[dict[str, object]] | None,
     target_cycle_count: float = 1.5,
+    waveform_type: str = "sine",
+    freq_hz: float = 3.0,
 ) -> dict[str, object]:
     summary, analyses = _build_support_context()
     result = synthesize_current_waveform_compensation(
         per_test_summary=summary,
         analyses_by_test_id=analyses,
-        waveform_type="sine",
-        freq_hz=3.0,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
         target_current_pp_a=45.0,
         target_output_type="field",
         target_output_pp=45.0,
@@ -229,6 +254,16 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
         "command_nonzero_end_s",
         "command_extends_through_target_end",
         "finite_support_fallback_reason",
+        "support_observed_end_s",
+        "support_observed_coverage_ratio",
+        "support_padding_gap_s",
+        "support_resampled_to_target_window",
+        "hybrid_fill_applied",
+        "hybrid_fill_start_s",
+        "hybrid_fill_end_s",
+        "finite_prediction_source",
+        "predicted_cover_reason",
+        "support_cover_reason",
     ):
         assert key in result
     assert result["mode"] == "finite_empirical_field_support"
@@ -248,7 +283,17 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     assert bool(result["phase_lead_applied_to_sampling_only"]) is True
     assert isinstance(result["finite_signal_consistency"], dict)
     assert bool(result["finite_signal_consistency"]["command_covers_target_end"]) is True
+    assert bool(result["finite_signal_consistency"]["predicted_covers_target_end"]) is True
+    assert bool(result["finite_signal_consistency"]["support_covers_target_end"]) is True
+    assert result["finite_signal_consistency"]["plot_payload_consistency_status"] == "ok"
     assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
+    assert "predicted_early_zero" not in str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert "support_early_zero" not in str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert result["finite_prediction_source"] == "empirical_resampled"
+    assert result["predicted_cover_reason"] == "active_progress_resampled"
+    assert result["support_cover_reason"] == "active_progress_resampled"
+    assert result["support_resampled_to_target_window"] is True
+    assert result["hybrid_fill_applied"] is False
     assert "finite_signal_consistency_status" in profile.columns
 
 
@@ -362,3 +407,41 @@ def test_empirical_route_extends_truncated_active_window_to_target_end() -> None
     assert "support_early_zero" not in status
     assert "support_padding_gap" in status
     assert bool(result["command_extends_through_target_end"]) is True
+    assert bool(result["finite_signal_consistency"]["predicted_covers_target_end"]) is True
+    assert bool(result["finite_signal_consistency"]["support_covers_target_end"]) is True
+    assert result["support_resampled_to_target_window"] is True
+    assert result["finite_prediction_source"] == "empirical_resampled"
+    assert result["predicted_cover_reason"] == "active_progress_resampled"
+    assert result["support_cover_reason"] == "active_progress_resampled"
+    assert 0.0 < float(result["support_observed_coverage_ratio"]) < 1.0
+    assert float(result["support_padding_gap_s"]) > 0.0
+
+
+def test_runtime_like_finite_cases_cover_active_window() -> None:
+    for waveform_type in ("sine", "triangle"):
+        for cycle_count in (1.0, 1.25, 1.5):
+            result = _run_field_compensation(
+                finite_support_entries=[
+                    _build_finite_entry(
+                        test_id=f"{waveform_type}_{cycle_count}",
+                        waveform_type=waveform_type,
+                        freq_hz=1.0,
+                        cycle_count=cycle_count,
+                        field_pp=100.0,
+                    )
+                ],
+                target_cycle_count=cycle_count,
+                waveform_type=waveform_type,
+                freq_hz=1.0,
+            )
+            status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+            assert result["finite_support_used"] is True
+            assert bool(result["finite_signal_consistency"]["command_covers_target_end"]) is True
+            assert bool(result["finite_signal_consistency"]["predicted_covers_target_end"]) is True
+            assert bool(result["finite_signal_consistency"]["support_covers_target_end"]) is True
+            assert "command_early_stop" not in status
+            assert "predicted_early_zero" not in status
+            assert "support_early_zero" not in status
+            assert result["support_family_sensitivity_level"] in {"low", "medium"}
+            assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
+            assert float(result["finite_signal_consistency"]["predicted_pp"]) > 1e-6
