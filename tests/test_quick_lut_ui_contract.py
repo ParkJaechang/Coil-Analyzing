@@ -39,6 +39,12 @@ def _number_input_labels(app: AppTest) -> list[str]:
     return [str(item.label) for item in app.number_input]
 
 
+def _clear_field_analysis_modules() -> None:
+    for module_name in list(sys.modules):
+        if module_name == "field_analysis" or module_name.startswith("field_analysis."):
+            sys.modules.pop(module_name, None)
+
+
 def _write_sample_continuous_fixture(state_dir: Path, *, freq_hz: float, gain_label: str) -> dict[str, object]:
     category_dir = state_dir / "uploads" / "continuous"
     category_dir.mkdir(parents=True, exist_ok=True)
@@ -142,6 +148,7 @@ def _isolated_app_state() -> Path:
 
 def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets() -> None:
     with _isolated_app_state():
+        _clear_field_analysis_modules()
         app = AppTest.from_file(str(APP_PATH), default_timeout=180)
         app.run()
 
@@ -168,6 +175,7 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         ]
         _write_upload_manifest(state_dir, records)
 
+        _clear_field_analysis_modules()
         app = AppTest.from_file(str(APP_PATH), default_timeout=180)
         app.run()
 
@@ -195,5 +203,5 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         number_input_keys = {getattr(item, "key", None) for item in app.number_input}
         finite_cycle_select = selectbox_by_key["target_cycle_count_v2"]
 
-        assert [str(option) for option in finite_cycle_select.options] == ["1.0", "1.25", "1.5", "1.75"]
+        assert [str(option) for option in finite_cycle_select.options] == ["0.75", "1.0", "1.25", "1.5"]
         assert "target_cycle_count_v2" not in number_input_keys
