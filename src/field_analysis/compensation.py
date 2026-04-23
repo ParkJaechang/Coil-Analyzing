@@ -692,6 +692,16 @@ def synthesize_current_waveform_compensation(
         selected_support_id=str(finite_empirical_model.get("selected_support_id")) if use_finite_empirical_route else None,
         selected_support_cycle_count=finite_empirical_model.get("support_cycle_count") if use_finite_empirical_route else None,
     )
+    if (
+        field_only_route
+        and finite_cycle_mode
+        and not use_finite_empirical_route
+        and finite_cycle_decomposition["finite_cycle_decomposition_mode"] == "fallback_no_safe_1_75_decomposition"
+    ):
+        command_profile = _suppress_unsafe_finite_prediction(
+            command_profile,
+            reason="no_safe_1_75_decomposition",
+        )
     target_active_end_s = (
         float(np.nanmax(pd.to_numeric(command_profile.loc[command_profile["is_active_target"] == True, "time_s"], errors="coerce").to_numpy(dtype=float)))
         if finite_cycle_mode and "is_active_target" in command_profile.columns and bool(pd.Series(command_profile["is_active_target"]).fillna(False).any())
@@ -736,6 +746,11 @@ def synthesize_current_waveform_compensation(
         finite_route_mode = "steady_state_harmonic_expanded"
         finite_route_reason = "finite_support_unavailable"
         finite_route_warning = "finite transient data not used"
+        if bool(_first_boolish(command_profile.get("unsafe_fallback_suppressed"))):
+            finite_support_fallback_reason = "no_safe_1_75_decomposition"
+            finite_route_mode = "finite_unavailable_no_safe_1_75_decomposition"
+            finite_route_reason = "no_safe_1_75_decomposition"
+            finite_route_warning = "unsafe fallback prediction suppressed"
     elif use_finite_empirical_route:
         finite_route_mode = str(finite_empirical_model.get("mode") or "finite_empirical_field_support")
         finite_route_reason = (
@@ -876,6 +891,11 @@ def synthesize_current_waveform_compensation(
             support_spike_filtered_count=finite_signal_consistency.get("support_spike_filtered_count"),
             support_source_spike_detected=finite_signal_consistency.get("support_source_spike_detected"),
             support_blend_boundary_count=finite_signal_consistency.get("support_blend_boundary_count"),
+            finite_prediction_available=finite_signal_consistency.get("finite_prediction_available"),
+            finite_prediction_unavailable_reason=finite_signal_consistency.get("finite_prediction_unavailable_reason"),
+            support_prediction_masked=finite_signal_consistency.get("support_prediction_masked"),
+            unsafe_fallback_suppressed=finite_signal_consistency.get("unsafe_fallback_suppressed"),
+            user_warning_key=finite_signal_consistency.get("user_warning_key"),
         )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
@@ -1074,6 +1094,11 @@ def synthesize_current_waveform_compensation(
         "max_jump_time_s": finite_signal_consistency.get("max_jump_time_s"),
         "support_continuity_status": finite_signal_consistency.get("support_continuity_status"),
         "support_splice_discontinuity_detected": finite_signal_consistency.get("support_splice_discontinuity_detected"),
+        "finite_prediction_available": finite_signal_consistency.get("finite_prediction_available"),
+        "finite_prediction_unavailable_reason": finite_signal_consistency.get("finite_prediction_unavailable_reason"),
+        "support_prediction_masked": finite_signal_consistency.get("support_prediction_masked"),
+        "unsafe_fallback_suppressed": finite_signal_consistency.get("unsafe_fallback_suppressed"),
+        "user_warning_key": finite_signal_consistency.get("user_warning_key"),
         **finite_cycle_decomposition,
         "command_extension_applied": bool(command_extension_applied),
         "command_extension_reason": command_extension_reason,
@@ -4774,6 +4799,11 @@ def build_finite_signal_consistency_summary(
         "support_spike_filtered_count": 0,
         "support_source_spike_detected": False,
         "support_blend_boundary_count": 0,
+        "finite_prediction_available": True,
+        "finite_prediction_unavailable_reason": None,
+        "support_prediction_masked": False,
+        "unsafe_fallback_suppressed": False,
+        "user_warning_key": None,
     }
     if command_profile.empty:
         required_keys["unavailable_reason"] = "empty_command_profile"
@@ -4862,6 +4892,10 @@ def build_finite_signal_consistency_summary(
         tolerance=tolerance,
         stats=(target_stats, predicted_stats, support_stats, command_stats),
     )
+    finite_prediction_available = not (
+        "finite_prediction_available" in command_profile.columns
+        and not _first_boolish(command_profile.get("finite_prediction_available"))
+    )
 
     statuses: list[str] = []
     plot_statuses: list[str] = []
@@ -4869,12 +4903,12 @@ def build_finite_signal_consistency_summary(
     # command-end metadata is retained as a value but not surfaced as a plot defect.
     if not command_covers:
         statuses.append("command_early_stop")
-    if not predicted_covers:
+    if finite_prediction_available and not predicted_covers:
         statuses.append("predicted_early_zero")
-    if finite_support_used and not support_covers:
+    if finite_prediction_available and finite_support_used and not support_covers:
         statuses.append("support_early_zero")
     support_input_pp = float(support_input_field_pp) if support_input_field_pp is not None and np.isfinite(support_input_field_pp) else float("nan")
-    if finite_support_used and np.isfinite(support_input_pp) and support_input_pp > field_threshold and (not np.isfinite(support_pp) or support_pp <= field_threshold):
+    if finite_prediction_available and finite_support_used and np.isfinite(support_input_pp) and support_input_pp > field_threshold and (not np.isfinite(support_pp) or support_pp <= field_threshold):
         statuses.append("support_zero_bug")
     partial_support_coverage = _first_boolish(command_profile.get("partial_support_coverage"))
     support_coverage_mode = _first_text(command_profile.get("support_coverage_mode"))
@@ -4891,12 +4925,27 @@ def build_finite_signal_consistency_summary(
     support_spike_filtered_count = int(_first_numeric(command_profile.get("support_spike_filtered_count")) or 0)
     support_source_spike_detected = bool(_first_boolish(command_profile.get("support_source_spike_detected")))
     support_blend_boundary_count = int(_first_numeric(command_profile.get("support_blend_boundary_count")) or 0)
+    finite_prediction_unavailable_reason = _first_text(command_profile.get("finite_prediction_unavailable_reason"))
+    support_prediction_masked = bool(_first_boolish(command_profile.get("support_prediction_masked")))
+    unsafe_fallback_suppressed = bool(_first_boolish(command_profile.get("unsafe_fallback_suppressed")))
+    user_warning_key = _first_text(command_profile.get("user_warning_key"))
     predicted_jump_ratio = float(predicted_jump["jump_ratio"])
     support_jump_ratio = float(support_jump["jump_ratio"])
-    predicted_jump_bad = bool(np.isfinite(predicted_jump_ratio) and predicted_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT)
-    support_jump_bad = bool(np.isfinite(support_jump_ratio) and support_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT)
+    predicted_jump_bad = bool(
+        finite_prediction_available
+        and np.isfinite(predicted_jump_ratio)
+        and predicted_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT
+    )
+    support_jump_bad = bool(
+        finite_prediction_available
+        and np.isfinite(support_jump_ratio)
+        and support_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT
+    )
     support_splice_discontinuity_detected = bool(support_jump_bad or predicted_jump_bad)
-    support_continuity_status = "ok"
+    support_continuity_status = "ok" if finite_prediction_available else "unavailable"
+    if not finite_prediction_available:
+        statuses.append("finite_prediction_unavailable")
+        plot_statuses.append("finite_prediction_unavailable")
     if support_splice_discontinuity_detected:
         support_continuity_status = "support_splice_discontinuity"
         statuses.append("support_splice_discontinuity")
@@ -4908,13 +4957,13 @@ def build_finite_signal_consistency_summary(
         statuses.append("support_padding_gap")
         if support_coverage_mode:
             plot_statuses.append(str(support_coverage_mode))
-    if not time_axis_consistent:
+    if not time_axis_consistent and finite_prediction_available:
         statuses.append("time_axis_mismatch")
         plot_statuses.append("time_axis_mismatch")
-    if support_column is None and finite_support_used:
+    if support_column is None and finite_support_used and finite_prediction_available:
         statuses.append("missing_support_signal")
         plot_statuses.append("missing_support_signal")
-    if predicted_column is None:
+    if predicted_column is None and finite_prediction_available:
         statuses.append("missing_predicted_signal")
         plot_statuses.append("missing_predicted_signal")
     if not plot_statuses:
@@ -4983,6 +5032,11 @@ def build_finite_signal_consistency_summary(
         "support_spike_filtered_count": support_spike_filtered_count,
         "support_source_spike_detected": support_source_spike_detected,
         "support_blend_boundary_count": support_blend_boundary_count,
+        "finite_prediction_available": finite_prediction_available,
+        "finite_prediction_unavailable_reason": finite_prediction_unavailable_reason,
+        "support_prediction_masked": support_prediction_masked,
+        "unsafe_fallback_suppressed": unsafe_fallback_suppressed,
+        "user_warning_key": user_warning_key,
     }
 
 
@@ -5129,6 +5183,34 @@ def _apply_finite_output_continuity_guard(command_profile: pd.DataFrame) -> pd.D
     guarded["support_spike_filtered_count"] = int(total_filtered)
     guarded["support_source_spike_detected"] = bool(_first_boolish(guarded.get("support_source_spike_detected")) or total_filtered > 0)
     return _sync_modeled_alias_columns(guarded)
+
+
+def _suppress_unsafe_finite_prediction(command_profile: pd.DataFrame, *, reason: str) -> pd.DataFrame:
+    if command_profile.empty:
+        return command_profile
+    suppressed = command_profile.copy()
+    for column in (
+        "expected_field_mT",
+        "predicted_field_mT",
+        "support_scaled_field_mT",
+        "expected_output",
+        "modeled_field_mT",
+        "modeled_output",
+    ):
+        if column in suppressed.columns:
+            suppressed[column] = np.nan
+    return suppressed.assign(
+        finite_prediction_available=False,
+        finite_prediction_unavailable_reason=reason,
+        support_prediction_masked=True,
+        unsafe_fallback_suppressed=True,
+        user_warning_key="no_safe_1_75_support",
+        command_validity_status="fallback_not_validated_for_1p75",
+        finite_prediction_source="unavailable",
+        predicted_cover_reason=reason,
+        support_cover_reason=reason,
+        support_continuity_status="unavailable",
+    )
 
 
 def _resolve_target_active_end(

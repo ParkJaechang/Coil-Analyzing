@@ -148,11 +148,47 @@ def test_one_point_seven_five_cycle_rejects_short_whole_substitutions() -> None:
         )
 
         assert result["finite_support_used"] is False
-        assert result["finite_route_mode"] == "steady_state_harmonic_expanded"
+        assert result["finite_route_mode"] == "finite_unavailable_no_safe_1_75_decomposition"
+        assert result["finite_route_reason"] == "no_safe_1_75_decomposition"
+        assert result["finite_support_fallback_reason"] == "no_safe_1_75_decomposition"
         assert result["finite_cycle_decomposition_mode"] == "fallback_no_safe_1_75_decomposition"
         assert result["cycle_semantics_warning"] == "1.75_requires_1_full_cycle_plus_0.75_terminal_tail_or_exact_support"
+        assert result["finite_prediction_available"] is False
+        assert result["support_prediction_masked"] is True
+        assert result["unsafe_fallback_suppressed"] is True
+        assert result["user_warning_key"] == "no_safe_1_75_support"
+        status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+        assert status == "finite_prediction_unavailable"
+        assert "predicted_impulse_jump" not in status
+        assert "support_impulse_jump" not in status
         assert result["whole_support_substitution_used"] is False
         assert result["whole_support_substitution_valid"] is True
+        profile = result["command_profile"]
+        assert pd.to_numeric(profile["predicted_field_mT"], errors="coerce").isna().all()
+        assert pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").isna().all()
+
+
+def test_one_point_seven_five_without_support_masks_unsafe_fallback_prediction() -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[],
+        target_cycle_count=1.75,
+        waveform_type="sine",
+        freq_hz=1.0,
+    )
+
+    assert result["finite_route_mode"] == "finite_unavailable_no_safe_1_75_decomposition"
+    assert result["finite_prediction_available"] is False
+    assert result["finite_prediction_unavailable_reason"] == "no_safe_1_75_decomposition"
+    assert result["support_prediction_masked"] is True
+    assert result["unsafe_fallback_suppressed"] is True
+    assert result["user_warning_key"] == "no_safe_1_75_support"
+    status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert status == "finite_prediction_unavailable"
+    assert "predicted_impulse_jump" not in status
+    assert "support_impulse_jump" not in status
+    profile = result["command_profile"]
+    assert pd.to_numeric(profile["predicted_field_mT"], errors="coerce").isna().all()
+    assert pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").isna().all()
 
 
 def test_exact_one_point_seven_five_support_records_cycle_semantics_without_spikes() -> None:
@@ -172,6 +208,7 @@ def test_exact_one_point_seven_five_support_records_cycle_semantics_without_spik
     )
 
     assert result["finite_support_used"] is True
+    assert result["finite_prediction_available"] is True
     assert result["finite_cycle_decomposition_mode"] == "whole_exact_1_75_support"
     assert float(result["target_terminal_fraction"]) == 0.75
     assert result["whole_support_substitution_used"] is False
