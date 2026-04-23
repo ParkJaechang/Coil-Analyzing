@@ -21,6 +21,7 @@ from .utils import canonicalize_waveform_type
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
 FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
+FINITE_SIGNAL_JUMP_RATIO_LIMIT = 0.20
 
 
 def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
@@ -626,6 +627,7 @@ def synthesize_current_waveform_compensation(
             amp_gain_limit_pct=float(amp_gain_limit_pct),
             amp_max_output_pk_v=float(amp_max_output_pk_v),
         )
+        command_profile = _apply_finite_output_continuity_guard(command_profile)
         command_profile = _attach_field_prediction_metrics(
             command_profile=command_profile,
             support_weight_table=field_support_weights,
@@ -664,6 +666,9 @@ def synthesize_current_waveform_compensation(
     support_family_override_reason = finite_empirical_model.get("support_family_override_reason") if use_finite_empirical_route else None
     support_blended_output_nonzero = finite_empirical_model.get("support_blended_output_nonzero") if use_finite_empirical_route else None
     support_blended_zero_guard_applied = finite_empirical_model.get("support_blended_zero_guard_applied") if use_finite_empirical_route else False
+    support_spike_filtered_count = int(finite_empirical_model.get("support_spike_filtered_count", 0) or 0) if use_finite_empirical_route else 0
+    support_source_spike_detected = bool(finite_empirical_model.get("support_source_spike_detected", False)) if use_finite_empirical_route else False
+    support_blend_boundary_count = int(finite_empirical_model.get("support_blend_boundary_count", 0) or 0) if use_finite_empirical_route else 0
     command_extension_applied = finite_empirical_model.get("command_extension_applied") if use_finite_empirical_route else False
     command_extension_reason = finite_empirical_model.get("command_extension_reason") if use_finite_empirical_route else None
     command_stop_policy = finite_empirical_model.get("command_stop_policy") if use_finite_empirical_route else None
@@ -681,6 +686,12 @@ def synthesize_current_waveform_compensation(
     finite_prediction_source = finite_empirical_model.get("finite_prediction_source") if use_finite_empirical_route else None
     predicted_cover_reason = finite_empirical_model.get("predicted_cover_reason") if use_finite_empirical_route else None
     support_cover_reason = finite_empirical_model.get("support_cover_reason") if use_finite_empirical_route else None
+    finite_cycle_decomposition = _finite_cycle_decomposition_metadata(
+        target_cycle_count,
+        finite_support_used=use_finite_empirical_route,
+        selected_support_id=str(finite_empirical_model.get("selected_support_id")) if use_finite_empirical_route else None,
+        selected_support_cycle_count=finite_empirical_model.get("support_cycle_count") if use_finite_empirical_route else None,
+    )
     target_active_end_s = (
         float(np.nanmax(pd.to_numeric(command_profile.loc[command_profile["is_active_target"] == True, "time_s"], errors="coerce").to_numpy(dtype=float)))
         if finite_cycle_mode and "is_active_target" in command_profile.columns and bool(pd.Series(command_profile["is_active_target"]).fillna(False).any())
@@ -781,6 +792,9 @@ def synthesize_current_waveform_compensation(
             "command_extends_through_target_end": finite_signal_consistency["command_covers_target_end"],
             "early_command_cutoff_warning": "command_early_stop" in str(finite_signal_consistency["finite_signal_consistency_status"]).split("|"),
         }}
+        support_spike_filtered_count = int(finite_signal_consistency.get("support_spike_filtered_count", support_spike_filtered_count) or 0)
+        support_source_spike_detected = bool(finite_signal_consistency.get("support_source_spike_detected", support_source_spike_detected))
+        support_blend_boundary_count = int(finite_signal_consistency.get("support_blend_boundary_count", support_blend_boundary_count) or 0)
     command_nonzero_end_s = finite_stop_policy["command_nonzero_end_s"]
     target_active_end_s = finite_stop_policy["target_active_end_s"]
     early_command_cutoff_warning = finite_stop_policy["early_command_cutoff_warning"]
@@ -807,6 +821,17 @@ def synthesize_current_waveform_compensation(
         command_profile["zero_padded_fraction"] = zero_padded_fraction
         command_profile["support_blended_output_nonzero"] = support_blended_output_nonzero
         command_profile["support_blended_zero_guard_applied"] = bool(support_blended_zero_guard_applied)
+        command_profile = command_profile.assign(
+            finite_cycle_decomposition_mode=finite_cycle_decomposition["finite_cycle_decomposition_mode"],
+            target_integer_cycle_count=finite_cycle_decomposition["target_integer_cycle_count"],
+            target_terminal_fraction=finite_cycle_decomposition["target_terminal_fraction"],
+            interior_support_id=finite_cycle_decomposition["interior_support_id"],
+            terminal_tail_support_id=finite_cycle_decomposition["terminal_tail_support_id"],
+            terminal_tail_fraction=finite_cycle_decomposition["terminal_tail_fraction"],
+            cycle_semantics_warning=finite_cycle_decomposition["cycle_semantics_warning"],
+            whole_support_substitution_used=finite_cycle_decomposition["whole_support_substitution_used"],
+            whole_support_substitution_valid=finite_cycle_decomposition["whole_support_substitution_valid"],
+        )
         command_profile["command_extension_applied"] = bool(command_extension_applied)
         command_profile["command_extension_reason"] = command_extension_reason
         command_profile["command_stop_policy"] = command_stop_policy
@@ -840,6 +865,18 @@ def synthesize_current_waveform_compensation(
         command_profile["finite_predicted_covers_target_end"] = finite_signal_consistency.get("predicted_covers_target_end")
         command_profile["finite_support_covers_target_end"] = finite_signal_consistency.get("support_covers_target_end")
         command_profile["finite_signal_consistency_status"] = finite_signal_consistency.get("finite_signal_consistency_status")
+        command_profile = command_profile.assign(
+            predicted_jump_ratio=finite_signal_consistency.get("predicted_jump_ratio"),
+            support_jump_ratio=finite_signal_consistency.get("support_jump_ratio"),
+            max_predicted_jump_mT=finite_signal_consistency.get("max_predicted_jump_mT"),
+            max_support_jump_mT=finite_signal_consistency.get("max_support_jump_mT"),
+            max_jump_time_s=finite_signal_consistency.get("max_jump_time_s"),
+            support_continuity_status=finite_signal_consistency.get("support_continuity_status"),
+            support_splice_discontinuity_detected=finite_signal_consistency.get("support_splice_discontinuity_detected"),
+            support_spike_filtered_count=finite_signal_consistency.get("support_spike_filtered_count"),
+            support_source_spike_detected=finite_signal_consistency.get("support_source_spike_detected"),
+            support_blend_boundary_count=finite_signal_consistency.get("support_blend_boundary_count"),
+        )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
     startup_diagnostics.setdefault("source_test_id", nearest_test_id)
@@ -1027,6 +1064,17 @@ def synthesize_current_waveform_compensation(
         "zero_padded_fraction": zero_padded_fraction,
         "support_blended_output_nonzero": support_blended_output_nonzero,
         "support_blended_zero_guard_applied": bool(support_blended_zero_guard_applied),
+        "support_spike_filtered_count": support_spike_filtered_count,
+        "support_source_spike_detected": bool(support_source_spike_detected),
+        "support_blend_boundary_count": support_blend_boundary_count,
+        "predicted_jump_ratio": finite_signal_consistency.get("predicted_jump_ratio"),
+        "support_jump_ratio": finite_signal_consistency.get("support_jump_ratio"),
+        "max_predicted_jump_mT": finite_signal_consistency.get("max_predicted_jump_mT"),
+        "max_support_jump_mT": finite_signal_consistency.get("max_support_jump_mT"),
+        "max_jump_time_s": finite_signal_consistency.get("max_jump_time_s"),
+        "support_continuity_status": finite_signal_consistency.get("support_continuity_status"),
+        "support_splice_discontinuity_detected": finite_signal_consistency.get("support_splice_discontinuity_detected"),
+        **finite_cycle_decomposition,
         "command_extension_applied": bool(command_extension_applied),
         "command_extension_reason": command_extension_reason,
         "command_stop_policy": command_stop_policy,
@@ -1246,6 +1294,93 @@ def _finite_support_cycle_semantics_penalty(*, support_cycle_count: float, targe
     return 0.0
 
 
+def _finite_cycle_decomposition_metadata(
+    target_cycle_count: float | None,
+    *,
+    finite_support_used: bool,
+    selected_support_id: str | None = None,
+    selected_support_cycle_count: float | None = None,
+) -> dict[str, Any]:
+    target_value = float(target_cycle_count) if target_cycle_count is not None and np.isfinite(target_cycle_count) else float("nan")
+    integer_count = int(np.floor(target_value + 1e-9)) if np.isfinite(target_value) else 0
+    terminal_fraction = float(target_value - float(integer_count)) if np.isfinite(target_value) else float("nan")
+    if np.isfinite(terminal_fraction) and abs(terminal_fraction) <= 1e-9:
+        terminal_fraction = 0.0
+    selected_cycle = (
+        float(selected_support_cycle_count)
+        if selected_support_cycle_count is not None and np.isfinite(selected_support_cycle_count)
+        else float("nan")
+    )
+    whole_substitution_used = bool(
+        finite_support_used
+        and np.isfinite(selected_cycle)
+        and np.isfinite(target_value)
+        and abs(selected_cycle - target_value) > 0.05
+    )
+    whole_substitution_valid = bool(not whole_substitution_used)
+    warning = None
+    mode = "not_applicable"
+    interior_support_id = None
+    terminal_tail_support_id = None
+    terminal_tail_fraction = terminal_fraction
+    if np.isfinite(target_value):
+        if target_value >= 1.75 - 1e-9:
+            if finite_support_used and np.isfinite(selected_cycle) and abs(selected_cycle - target_value) <= 0.05:
+                mode = "whole_exact_1_75_support"
+                whole_substitution_valid = True
+            elif finite_support_used and whole_substitution_used:
+                mode = "invalid_whole_support_substitution"
+                whole_substitution_valid = False
+                warning = "1.75_requires_exact_or_decomposed_support"
+            else:
+                mode = "fallback_no_safe_1_75_decomposition"
+                whole_substitution_valid = True
+                warning = "1.75_requires_1_full_cycle_plus_0.75_terminal_tail_or_exact_support"
+        elif terminal_fraction > 1e-9:
+            mode = "fractional_cycle_empirical_support" if finite_support_used else "fractional_cycle_fallback"
+        else:
+            mode = "integer_cycle_empirical_support" if finite_support_used else "integer_cycle_fallback"
+    return {
+        "finite_cycle_decomposition_mode": mode,
+        "target_integer_cycle_count": integer_count,
+        "target_terminal_fraction": terminal_fraction,
+        "interior_support_id": interior_support_id,
+        "terminal_tail_support_id": terminal_tail_support_id,
+        "terminal_tail_fraction": terminal_tail_fraction,
+        "cycle_semantics_warning": warning,
+        "whole_support_substitution_used": whole_substitution_used,
+        "whole_support_substitution_valid": whole_substitution_valid,
+    }
+
+
+def _despike_isolated_impulses(values: np.ndarray) -> tuple[np.ndarray, int]:
+    filtered = np.asarray(values, dtype=float).copy()
+    finite = filtered[np.isfinite(filtered)]
+    if finite.size < 5:
+        return filtered, 0
+    peak_to_peak = float(np.nanmax(finite) - np.nanmin(finite))
+    if not np.isfinite(peak_to_peak) or peak_to_peak <= 1e-9:
+        return filtered, 0
+    finite_diffs = np.abs(np.diff(finite))
+    median_step = float(np.nanmedian(finite_diffs)) if finite_diffs.size else 0.0
+    residual_threshold = max(peak_to_peak * FINITE_SIGNAL_JUMP_RATIO_LIMIT, median_step * 8.0, 1e-6)
+    neighbor_threshold = max(peak_to_peak * FINITE_SIGNAL_JUMP_RATIO_LIMIT, median_step * 4.0, 1e-6)
+    filtered_count = 0
+    for index in range(1, len(filtered) - 1):
+        previous_value = filtered[index - 1]
+        current_value = filtered[index]
+        next_value = filtered[index + 1]
+        if not (np.isfinite(previous_value) and np.isfinite(current_value) and np.isfinite(next_value)):
+            continue
+        local_midpoint = 0.5 * (previous_value + next_value)
+        residual = abs(current_value - local_midpoint)
+        neighbor_span = abs(next_value - previous_value)
+        if residual > residual_threshold and neighbor_span <= neighbor_threshold:
+            filtered[index] = local_midpoint
+            filtered_count += 1
+    return filtered, filtered_count
+
+
 def _interpolate_finite_signal(
     source_time: np.ndarray,
     source_values: np.ndarray,
@@ -1316,23 +1451,33 @@ def _resample_finite_support_record(
         [str(entry.get("resolved_field_channel") or ""), field_channel, "bz_mT", "bproj_mT", "bmag_mT"],
         field_channel,
     )
+    active_voltage_values, active_voltage_spikes = _despike_isolated_impulses(
+        pd.to_numeric(active_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
+    )
+    active_current_values, active_current_spikes = _despike_isolated_impulses(
+        pd.to_numeric(active_frame[current_column], errors="coerce").to_numpy(dtype=float)
+        if current_column in active_frame.columns
+        else np.zeros(len(active_frame), dtype=float)
+    )
+    active_field_values, active_field_spikes = _despike_isolated_impulses(
+        pd.to_numeric(active_frame[field_column], errors="coerce").to_numpy(dtype=float)
+        if field_column in active_frame.columns
+        else np.zeros(len(active_frame), dtype=float)
+    )
+    support_spike_filtered_count = int(active_voltage_spikes + active_current_spikes + active_field_spikes)
     voltage_active = _interpolate_finite_signal(
         active_time_rel,
-        pd.to_numeric(active_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float),
+        active_voltage_values,
         source_active_rel,
     )
     current_active = _interpolate_finite_signal(
         active_time_rel,
-        pd.to_numeric(active_frame[current_column], errors="coerce").to_numpy(dtype=float)
-        if current_column in active_frame.columns
-        else np.zeros(len(active_frame), dtype=float),
+        active_current_values,
         source_active_rel,
     )
     field_active = _interpolate_finite_signal(
         active_time_rel,
-        pd.to_numeric(active_frame[field_column], errors="coerce").to_numpy(dtype=float)
-        if field_column in active_frame.columns
-        else np.zeros(len(active_frame), dtype=float),
+        active_field_values,
         source_active_rel,
     )
 
@@ -1362,18 +1507,33 @@ def _resample_finite_support_record(
                 [str(entry.get("resolved_field_channel") or ""), field_channel, "bz_mT", "bproj_mT", "bmag_mT"],
                 field_channel,
             )
-            tail_current = _interpolate_finite_signal(
-                tail_time_rel,
+            tail_voltage_values, tail_voltage_spikes = _despike_isolated_impulses(
+                pd.to_numeric(tail_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
+            )
+            tail_current_values, tail_current_spikes = _despike_isolated_impulses(
                 pd.to_numeric(tail_frame[current_tail_column], errors="coerce").to_numpy(dtype=float)
                 if current_tail_column in tail_frame.columns
-                else np.zeros(len(tail_frame), dtype=float),
+                else np.zeros(len(tail_frame), dtype=float)
+            )
+            tail_field_values, tail_field_spikes = _despike_isolated_impulses(
+                pd.to_numeric(tail_frame[field_tail_column], errors="coerce").to_numpy(dtype=float)
+                if field_tail_column in tail_frame.columns
+                else np.zeros(len(tail_frame), dtype=float)
+            )
+            support_spike_filtered_count += int(tail_voltage_spikes + tail_current_spikes + tail_field_spikes)
+            tail_current = _interpolate_finite_signal(
+                tail_time_rel,
+                tail_current_values,
                 source_tail_rel,
             )
             tail_field = _interpolate_finite_signal(
                 tail_time_rel,
-                pd.to_numeric(tail_frame[field_tail_column], errors="coerce").to_numpy(dtype=float)
-                if field_tail_column in tail_frame.columns
-                else np.zeros(len(tail_frame), dtype=float),
+                tail_field_values,
+                source_tail_rel,
+            )
+            tail_voltage = _interpolate_finite_signal(
+                tail_time_rel,
+                tail_voltage_values,
                 source_tail_rel,
             )
 
@@ -1419,6 +1579,8 @@ def _resample_finite_support_record(
         "finite_prediction_source": "empirical_resampled",
         "predicted_cover_reason": "active_progress_resampled",
         "support_cover_reason": "active_progress_resampled",
+        "support_spike_filtered_count": int(support_spike_filtered_count),
+        "support_source_spike_detected": bool(support_spike_filtered_count > 0),
     }
 
 
@@ -1483,6 +1645,9 @@ def _build_finite_modeled_profile(
     modeled["finite_prediction_source"] = str(support_payload.get("finite_prediction_source", "empirical_observed"))
     modeled["predicted_cover_reason"] = str(support_payload.get("predicted_cover_reason", "empirical_observed"))
     modeled["support_cover_reason"] = str(support_payload.get("support_cover_reason", "empirical_observed"))
+    modeled["support_spike_filtered_count"] = int(support_payload.get("support_spike_filtered_count", 0) or 0)
+    modeled["support_source_spike_detected"] = bool(support_payload.get("support_source_spike_detected", False))
+    modeled["support_blend_boundary_count"] = int(support_payload.get("support_blend_boundary_count", 0) or 0)
     modeled["harmonic_weights_used"] = str(harmonic_weights_used)
     return _sync_modeled_alias_columns(modeled)
 
@@ -1536,6 +1701,8 @@ def synthesize_finite_empirical_compensation(
         if np.isfinite(entry.get("approx_cycle_span", np.nan))
         and abs(float(entry.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) <= float(cycle_match_tolerance)
     ]
+    if float(target_cycle_count) >= 1.75 - 1e-9 and not exact_cycle_matches:
+        return None
     cycle_bucket_mode = "exact_cycle_bucket" if exact_cycle_matches else "nearest_cycle_blend"
     candidate_entries = exact_cycle_matches or frequency_candidates
     level_match_tolerance = max(abs(float(target_output_pp)) * 0.05, 0.5)
@@ -1681,6 +1848,8 @@ def synthesize_finite_empirical_compensation(
     selected_support_observed_coverage_ratio = 1.0
     selected_support_padding_gap_s = 0.0
     support_resampled_to_target_window = False
+    support_spike_filtered_count = 0
+    support_source_spike_detected = False
     support_rows: list[dict[str, Any]] = []
     for weight, record in zip(normalized_weights, selected_records, strict=False):
         distance_score, entry, freq_distance, cycle_distance, output_distance = record
@@ -1713,6 +1882,10 @@ def synthesize_finite_empirical_compensation(
         selected_support_padding_gap_s += float(weight) * float(support_payload.get("support_padding_gap_s", 0.0))
         support_resampled_to_target_window = bool(
             support_resampled_to_target_window or support_payload.get("support_resampled_to_target_window", False)
+        )
+        support_spike_filtered_count += int(support_payload.get("support_spike_filtered_count", 0) or 0)
+        support_source_spike_detected = bool(
+            support_source_spike_detected or support_payload.get("support_source_spike_detected", False)
         )
         interpolated_voltage = np.asarray(support_payload["voltage_v"], dtype=float)
         interpolated_current = np.asarray(support_payload["current_a"], dtype=float)
@@ -1766,6 +1939,9 @@ def synthesize_finite_empirical_compensation(
                 "finite_prediction_source": "empirical_resampled",
                 "predicted_cover_reason": "active_progress_resampled",
                 "support_cover_reason": "active_progress_resampled",
+                "support_spike_filtered_count": int(support_spike_filtered_count),
+                "support_source_spike_detected": bool(support_source_spike_detected),
+                "support_blend_boundary_count": max(int(len(selected_records)) - 1, 0),
         },
         waveform_type=waveform_type,
         freq_hz=float(freq_hz),
@@ -1910,6 +2086,12 @@ def synthesize_finite_empirical_compensation(
     ]
     selected_support_id = str(support["test_id"])
     selected_support_family = selected_support_waveform or None
+    cycle_decomposition = _finite_cycle_decomposition_metadata(
+        target_cycle_count,
+        finite_support_used=True,
+        selected_support_id=selected_support_id,
+        selected_support_cycle_count=float(support.get("approx_cycle_span", np.nan)),
+    )
     support_selection_reason = "finite_exact_level_match" if request_route == "exact" else (
         "finite_weighted_support_blend" if support_count_used > 1 else "finite_nearest_support_preview"
     )
@@ -1989,6 +2171,10 @@ def synthesize_finite_empirical_compensation(
         if "support_scaled_field_mT" in modeled.columns and len(modeled) > 0
         else False,
         "support_blended_zero_guard_applied": support_blended_zero_guard_applied,
+        "support_spike_filtered_count": int(_first_numeric(modeled.get("support_spike_filtered_count")) or 0),
+        "support_source_spike_detected": bool(_first_boolish(modeled.get("support_source_spike_detected"))),
+        "support_blend_boundary_count": int(_first_numeric(modeled.get("support_blend_boundary_count")) or 0),
+        **cycle_decomposition,
         "command_nonzero_end_s": command_nonzero_end_s,
         "target_active_end_s": target_active_end_s,
         "early_command_cutoff_warning": early_command_cutoff_warning,
@@ -4578,6 +4764,16 @@ def build_finite_signal_consistency_summary(
         "finite_prediction_source": None,
         "predicted_cover_reason": None,
         "support_cover_reason": None,
+        "predicted_jump_ratio": float("nan"),
+        "support_jump_ratio": float("nan"),
+        "max_predicted_jump_mT": float("nan"),
+        "max_support_jump_mT": float("nan"),
+        "max_jump_time_s": float("nan"),
+        "support_continuity_status": "unavailable",
+        "support_splice_discontinuity_detected": False,
+        "support_spike_filtered_count": 0,
+        "support_source_spike_detected": False,
+        "support_blend_boundary_count": 0,
     }
     if command_profile.empty:
         required_keys["unavailable_reason"] = "empty_command_profile"
@@ -4645,6 +4841,8 @@ def build_finite_signal_consistency_summary(
     actual_command_nonzero_end_s = _finite_nonzero_end(time_values, command, threshold=command_threshold)
     predicted_nonzero_end_s = _finite_nonzero_end(time_values, predicted, threshold=field_threshold)
     support_nonzero_end_s = _finite_nonzero_end(time_values, support, threshold=field_threshold)
+    predicted_jump = _finite_adjacent_jump_summary(time_values, predicted)
+    support_jump = _finite_adjacent_jump_summary(time_values, support)
     input_command_nonzero_end_s = (
         float(command_nonzero_end_s)
         if command_nonzero_end_s is not None and np.isfinite(command_nonzero_end_s)
@@ -4690,6 +4888,22 @@ def build_finite_signal_consistency_summary(
     finite_prediction_source = _first_text(command_profile.get("finite_prediction_source"))
     predicted_cover_reason = _first_text(command_profile.get("predicted_cover_reason"))
     support_cover_reason = _first_text(command_profile.get("support_cover_reason"))
+    support_spike_filtered_count = int(_first_numeric(command_profile.get("support_spike_filtered_count")) or 0)
+    support_source_spike_detected = bool(_first_boolish(command_profile.get("support_source_spike_detected")))
+    support_blend_boundary_count = int(_first_numeric(command_profile.get("support_blend_boundary_count")) or 0)
+    predicted_jump_ratio = float(predicted_jump["jump_ratio"])
+    support_jump_ratio = float(support_jump["jump_ratio"])
+    predicted_jump_bad = bool(np.isfinite(predicted_jump_ratio) and predicted_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT)
+    support_jump_bad = bool(np.isfinite(support_jump_ratio) and support_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT)
+    support_splice_discontinuity_detected = bool(support_jump_bad or predicted_jump_bad)
+    support_continuity_status = "ok"
+    if support_splice_discontinuity_detected:
+        support_continuity_status = "support_splice_discontinuity"
+        statuses.append("support_splice_discontinuity")
+    if predicted_jump_bad:
+        statuses.append("predicted_impulse_jump")
+    if support_jump_bad:
+        statuses.append("support_impulse_jump")
     if finite_support_used and partial_support_coverage:
         statuses.append("support_padding_gap")
         if support_coverage_mode:
@@ -4751,6 +4965,24 @@ def build_finite_signal_consistency_summary(
         "finite_prediction_source": finite_prediction_source,
         "predicted_cover_reason": predicted_cover_reason,
         "support_cover_reason": support_cover_reason,
+        "predicted_jump_ratio": predicted_jump_ratio,
+        "support_jump_ratio": support_jump_ratio,
+        "max_predicted_jump_mT": float(predicted_jump["max_jump"]),
+        "max_support_jump_mT": float(support_jump["max_jump"]),
+        "max_jump_time_s": float(
+            predicted_jump["max_jump_time_s"]
+            if np.isfinite(float(predicted_jump["max_jump"]))
+            and (
+                not np.isfinite(float(support_jump["max_jump"]))
+                or float(predicted_jump["max_jump"]) >= float(support_jump["max_jump"])
+            )
+            else support_jump["max_jump_time_s"]
+        ),
+        "support_continuity_status": support_continuity_status,
+        "support_splice_discontinuity_detected": support_splice_discontinuity_detected,
+        "support_spike_filtered_count": support_spike_filtered_count,
+        "support_source_spike_detected": support_source_spike_detected,
+        "support_blend_boundary_count": support_blend_boundary_count,
     }
 
 
@@ -4856,6 +5088,47 @@ def _finite_signal_stats(time_values: np.ndarray, values: np.ndarray) -> dict[st
 def _finite_nonzero_end(time_values: np.ndarray, values: np.ndarray, *, threshold: float) -> float:
     valid = np.isfinite(time_values) & np.isfinite(values) & (np.abs(values) > float(threshold))
     return float(np.nanmax(time_values[valid])) if valid.any() else float("nan")
+
+
+def _finite_adjacent_jump_summary(time_values: np.ndarray, values: np.ndarray) -> dict[str, Any]:
+    time = np.asarray(time_values, dtype=float)
+    signal = np.asarray(values, dtype=float)
+    valid_values = signal[np.isfinite(signal)]
+    if valid_values.size < 2:
+        return {"jump_ratio": float("nan"), "max_jump": float("nan"), "max_jump_time_s": float("nan")}
+    peak_to_peak = float(np.nanmax(valid_values) - np.nanmin(valid_values))
+    if not np.isfinite(peak_to_peak) or peak_to_peak <= 1e-9:
+        return {"jump_ratio": 0.0, "max_jump": 0.0, "max_jump_time_s": float("nan")}
+    valid_pairs = np.isfinite(signal[:-1]) & np.isfinite(signal[1:]) & np.isfinite(time[:-1])
+    if not valid_pairs.any():
+        return {"jump_ratio": float("nan"), "max_jump": float("nan"), "max_jump_time_s": float("nan")}
+    jumps = np.abs(np.diff(signal))
+    pair_indices = np.flatnonzero(valid_pairs)
+    local_index = int(pair_indices[int(np.nanargmax(jumps[valid_pairs]))])
+    max_jump = float(jumps[local_index])
+    return {
+        "jump_ratio": float(max_jump / peak_to_peak),
+        "max_jump": max_jump,
+        "max_jump_time_s": float(time[local_index]),
+    }
+
+
+def _apply_finite_output_continuity_guard(command_profile: pd.DataFrame) -> pd.DataFrame:
+    if command_profile.empty or "time_s" not in command_profile.columns:
+        return command_profile
+    guarded = command_profile.copy()
+    total_filtered = int(_first_numeric(guarded.get("support_spike_filtered_count")) or 0)
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output", "predicted_field_mT"):
+        if column not in guarded.columns:
+            continue
+        values = pd.to_numeric(guarded[column], errors="coerce").to_numpy(dtype=float)
+        filtered_values, filtered_count = _despike_isolated_impulses(values)
+        if filtered_count > 0:
+            guarded[column] = filtered_values
+            total_filtered += int(filtered_count)
+    guarded["support_spike_filtered_count"] = int(total_filtered)
+    guarded["support_source_spike_detected"] = bool(_first_boolish(guarded.get("support_source_spike_detected")) or total_filtered > 0)
+    return _sync_modeled_alias_columns(guarded)
 
 
 def _resolve_target_active_end(
