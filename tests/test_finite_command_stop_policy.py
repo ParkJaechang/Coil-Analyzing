@@ -166,12 +166,16 @@ def _run_fallback_finite_compensation() -> dict[str, object]:
 
 def test_fallback_command_does_not_stop_before_target_end() -> None:
     result = _run_fallback_finite_compensation()
+    profile = result["command_profile"]
+    summary = result["finite_signal_consistency"]
 
     assert result["finite_support_used"] is False
     assert result["finite_route_mode"] == "steady_state_harmonic_expanded"
     assert float(result["estimated_output_lag_seconds"]) > 0.0
     assert float(result["command_nonzero_end_s"]) >= float(result["target_active_end_s"]) - 0.02
     assert bool(result["command_extends_through_target_end"]) is True
+    assert abs(float(profile["finite_command_nonzero_end_s"].iloc[0]) - float(summary["command_nonzero_end_s"])) <= 1e-12
+    assert bool(profile["finite_command_covers_target_end"].iloc[0]) is True
 
 
 def test_phase_lead_is_sampling_only_for_fallback_finite_route() -> None:
