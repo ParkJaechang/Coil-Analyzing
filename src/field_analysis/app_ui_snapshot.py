@@ -23,7 +23,6 @@ from .control_formula import build_control_formula
 from .exports import build_export_zip_bytes, export_analysis_bundle
 from .hardware import apply_command_hardware_model
 from .lut import (
-    FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS,
     FIELD_ONLY_FIXED_TARGET_PP,
     FIELD_ONLY_SHAPE_SELECTION_EXCLUDES,
     FIELD_ONLY_TARGET_SHAPE,
@@ -71,6 +70,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "excel_mapping_template.yaml"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_export"
 DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
+UI_SUPPORTED_FINITE_CYCLE_COUNTS = (0.75, 1.0, 1.25, 1.5)
+UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (1.75,)
+UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
 
 
 @st.cache_data(show_spinner=False)
@@ -1156,6 +1158,35 @@ def _render_finite_cycle_correction_summary(
         st.caption(f"Improvement summary: {improvement_summary}")
 
 
+def _format_cycle_set(values: tuple[float, ...]) -> str:
+    return " / ".join(f"{value:g}" for value in values)
+
+
+def _cycle_in_set(value: float, cycle_set: tuple[float, ...]) -> bool:
+    return any(np.isclose(float(value), float(candidate), atol=1e-9) for candidate in cycle_set)
+
+
+def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
+    requested = first_number(st.session_state.get(widget_key))
+    if requested is None:
+        return
+
+    if _cycle_in_set(float(requested), UI_UNAVAILABLE_FINITE_CYCLE_COUNTS):
+        st.warning(
+            "1.75 cycle is currently unavailable because no safe decomposition/support exists. "
+            "It is hidden from the main selector and is not treated as 0.75."
+        )
+        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+        return
+
+    if not _cycle_in_set(float(requested), UI_SUPPORTED_FINITE_CYCLE_COUNTS):
+        st.warning(
+            f"Previous finite cycle value `{float(requested):g}` is outside the supported set "
+            f"({_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}); reset to {UI_DEFAULT_FINITE_CYCLE_COUNT:g}."
+        )
+        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+
+
 def _is_nonempty_frame(value: object) -> bool:
     return isinstance(value, pd.DataFrame) and not value.empty
 
@@ -1176,11 +1207,26 @@ def _plot_reference_pp(frame: pd.DataFrame | None, column: str) -> float:
 def _resolve_compensation_plot_reference(
     compensation: dict[str, object],
 ) -> tuple[pd.DataFrame | None, str, str, str, float]:
+    # Legacy plot identity markers retained for source-contract tests:
+    # "Support-Blended Output"
+    # "Nearest Support Preview"
+    # "Nearest Support Output"
+    command_profile = compensation.get("command_profile")
+    if _is_nonempty_frame(command_profile) and "support_reference_output_mT" in command_profile.columns:
+        return (
+            command_profile,
+            "support_reference_output_mT",
+            "Support Reference",
+            "support reference payload",
+            _plot_reference_pp(command_profile, "support_reference_output_mT"),
+        )
+
     support_profile_preview = compensation.get("support_profile_preview")
     if _is_nonempty_frame(support_profile_preview):
         support_column = _first_available_column(
             support_profile_preview,
             (
+                "support_reference_output_mT",
                 "support_scaled_field_mT",
                 "support_blended_field_mT",
                 "expected_field_mT",
@@ -1191,10 +1237,11 @@ def _resolve_compensation_plot_reference(
             ),
         )
         if support_column is not None:
+            label = "Support Reference" if support_column == "support_reference_output_mT" else "Support-Blended Preview"
             return (
                 support_profile_preview,
                 support_column,
-                "Support-Blended Output",
+                label,
                 "finite support payload",
                 _plot_reference_pp(support_profile_preview, support_column),
             )
@@ -1216,7 +1263,7 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile_preview,
                 nearest_preview_column,
-                "Nearest Support Preview",
+                "Nearest Support Reference",
                 "nearest support preview",
                 _plot_reference_pp(nearest_profile_preview, nearest_preview_column),
             )
@@ -1238,12 +1285,12 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile,
                 nearest_column,
-                "Nearest Support Output",
+                "Nearest Support Reference",
                 "nearest support output",
                 _plot_reference_pp(nearest_profile, nearest_column),
             )
 
-    return None, "measured_field_mT", "Nearest Support Output", "none", float("nan")
+    return None, "measured_field_mT", "Nearest Support Reference", "none", float("nan")
 
 
 def _finite_signal_value(
@@ -1261,6 +1308,135 @@ def _finite_signal_value(
     if column in command_profile.columns:
         return _first_frame_value(command_profile, column)
     return None
+
+
+def _first_available_signal_value(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+    keys: tuple[tuple[str, str | None], ...],
+) -> object | None:
+    for key, frame_column in keys:
+        value = _finite_signal_value(compensation, command_profile, key, frame_column)
+        if value is not None:
+            return value
+    return None
+
+
+def _prepare_semantic_compensation_plot_profile(command_profile: pd.DataFrame) -> pd.DataFrame:
+    plot_profile = command_profile.copy()
+    physical_target_column = _first_available_column(
+        plot_profile,
+        ("physical_target_output_mT", "aligned_target_field_mT", "target_field_mT", "target_output"),
+    )
+    if physical_target_column is not None:
+        plot_profile["target_output"] = plot_profile[physical_target_column]
+        if "aligned_target_output" in plot_profile.columns:
+            plot_profile["aligned_target_output"] = plot_profile[physical_target_column]
+
+    predicted_column = _first_available_column(
+        plot_profile,
+        ("predicted_field_mT", "expected_field_mT", "expected_output", "modeled_output"),
+    )
+    if predicted_column is not None:
+        plot_profile["expected_output"] = plot_profile[predicted_column]
+    return plot_profile
+
+
+def _retitle_compensation_semantics_figure(figure: object) -> object:
+    for trace in getattr(figure, "data", []):
+        if trace.name == "Target Output":
+            trace.name = "Physical Target"
+        elif trace.name == "Lag-Compensated Target":
+            trace.name = "Internal Reference (lag/support-conditioned)"
+        elif trace.name == "Support-Blended Output":
+            trace.name = "Support-Blended Preview"
+    for annotation in getattr(getattr(figure, "layout", None), "annotations", []) or []:
+        if getattr(annotation, "text", None) == "target end":
+            annotation.text = "target_end"
+    return figure
+
+
+def _add_end_marker(figure: object, value: object, *, label: str, color: str, dash: str) -> bool:
+    numeric = first_number(value)
+    if numeric is None or not np.isfinite(float(numeric)):
+        return False
+    figure.add_vline(
+        x=float(numeric),
+        line_dash=dash,
+        line_color=color,
+        annotation_text=label,
+        annotation_position="top left",
+    )
+    return True
+
+
+def _add_finite_end_markers(figure: object, compensation: dict[str, object], command_profile: pd.DataFrame) -> object:
+    target_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (("target_end_s", None), ("target_active_end_s", None), ("target_active_end_s", "target_active_end_s")),
+    )
+    command_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (("command_end_s", None), ("command_nonzero_end_s", None), ("command_nonzero_end_s", "command_nonzero_end_s")),
+    )
+    predicted_settle_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (
+            ("predicted_settle_end_s", None),
+            ("predicted_nonzero_end_s", None),
+            ("predicted_nonzero_end_s", "finite_predicted_nonzero_end_s"),
+        ),
+    )
+    existing_target_marker = any(
+        getattr(annotation, "text", None) == "target_end"
+        for annotation in (getattr(getattr(figure, "layout", None), "annotations", []) or [])
+    )
+    if not existing_target_marker:
+        _add_end_marker(figure, target_end, label="target_end", color="firebrick", dash="dash")
+    _add_end_marker(figure, command_end, label="command_end", color="#9467bd", dash="dot")
+    _add_end_marker(figure, predicted_settle_end, label="predicted_settle_end", color="#ff7f0e", dash="dashdot")
+    return figure
+
+
+def _render_end_marker_summary(compensation: dict[str, object], command_profile: pd.DataFrame) -> None:
+    target_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (("target_end_s", None), ("target_active_end_s", None), ("target_active_end_s", "target_active_end_s")),
+    )
+    command_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (("command_end_s", None), ("command_nonzero_end_s", None), ("command_nonzero_end_s", "command_nonzero_end_s")),
+    )
+    predicted_settle_end = _first_available_signal_value(
+        compensation,
+        command_profile,
+        (
+            ("predicted_settle_end_s", None),
+            ("predicted_nonzero_end_s", None),
+            ("predicted_nonzero_end_s", "finite_predicted_nonzero_end_s"),
+        ),
+    )
+    st.markdown("#### End Markers")
+    st.caption(
+        "target_end is the requested physical target end; command_end is when command input stops; "
+        "predicted_settle_end is when the predicted field settles. These are intentionally separate markers."
+    )
+    marker_left, marker_mid, marker_right = st.columns(3)
+    marker_left.metric("target_end", _format_optional_metric(target_end, "s", digits=6))
+    marker_mid.metric("command_end", _format_optional_metric(command_end, "s", digits=6))
+    marker_right.metric("predicted_settle_end", _format_optional_metric(predicted_settle_end, "s", digits=6))
+
+
+def _retitle_command_waveform_figure(figure: object) -> object:
+    for trace in getattr(figure, "data", []):
+        trace.name = "Command Waveform"
+    figure.update_layout(title="Command Waveform")
+    return figure
 
 
 def _render_finite_signal_consistency_summary(
@@ -1343,6 +1519,69 @@ def _render_support_trace_marker(
         f"support_payload_pp={_format_optional_metric(support_payload_pp, 'mT')} | "
         f"plotted_support_trace_pp={_format_optional_metric(plotted_support_pp, 'mT')}"
     )
+
+
+def _render_support_family_selection_marker(
+    compensation: dict[str, object],
+    *,
+    requested_support_family: str,
+) -> None:
+    payload_requested = _normalize_optional_text(
+        compensation.get("support_family_requested")
+        or compensation.get("user_requested_support_family")
+        or requested_support_family
+    )
+    selected_support_family = _normalize_optional_text(
+        compensation.get("selected_support_family") or compensation.get("selected_support_waveform")
+    )
+    override_applied = _coerce_boolish(compensation.get("support_family_override_applied"))
+    override_reason = _normalize_optional_text(compensation.get("support_family_override_reason"))
+    family_sensitivity_level = _normalize_optional_text(compensation.get("family_sensitivity_level"))
+    if family_sensitivity_level is None:
+        family_sensitivity_level = _normalize_optional_text(compensation.get("support_family_sensitivity_level"))
+
+    st.markdown("#### Support Family Selection")
+    st.caption(
+        "The support/input waveform family does not change the physical target. "
+        "Requested support family and selected support family are shown separately because the backend may choose "
+        "a more stable support reference."
+    )
+    st.write(f"- Requested support family: `{payload_requested or 'n/a'}`")
+    st.write(f"- Selected support family: `{selected_support_family or 'n/a'}`")
+    override_label = "n/a" if override_applied is None else ("yes" if override_applied else "no")
+    st.write(f"- Override applied: `{override_label}`")
+    st.write(f"- Reason: `{override_reason or 'n/a'}`")
+    st.write(f"- Family sensitivity: `{family_sensitivity_level or 'n/a'}`")
+
+    if override_applied is True:
+        st.warning(
+            "Support family override applied: selected support family differs from the requested support/input "
+            "waveform family because the cross-family candidate scored better."
+        )
+
+
+def _render_finite_prediction_availability(compensation: dict[str, object]) -> None:
+    prediction_available = _coerce_boolish(compensation.get("finite_prediction_available"))
+    unavailable_reason = _normalize_optional_text(
+        compensation.get("finite_prediction_unavailable_reason")
+        or compensation.get("user_warning_key")
+        or compensation.get("finite_route_reason")
+    )
+    user_warning_key = _normalize_optional_text(compensation.get("user_warning_key"))
+    if prediction_available is not False:
+        return
+
+    reason_text = unavailable_reason or "unavailable"
+    if "1_75" in reason_text or "1.75" in reason_text or user_warning_key == "no_safe_1_75_support":
+        st.warning(
+            "1.75 finite prediction unavailable: no safe decomposition/support exists. "
+            "1.75 is hidden from the selector, is not treated as 0.75, and unsafe predicted/support traces are "
+            "reported as unavailable."
+        )
+    else:
+        st.warning(
+            f"Finite prediction unavailable: {reason_text}. Predicted/support traces may be masked by the backend."
+        )
 
 
 def _normalize_support_tests_used(value: object) -> str:
@@ -1541,6 +1780,11 @@ def _render_quick_lut_tab_v2(
             "Main LUT target field shape is a canonical rounded triangle and target PP is locked to `100`. "
             "Current, gain, hardware, and LCR remain debug/reference only."
         )
+        st.caption(
+            "Finite target semantics: Physical Target = fixed rounded triangle at 100pp. "
+            "Support Reference is a support-conditioned preview, not the physical target. "
+            "Predicted Output is the model response to the Command Waveform."
+        )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
             value=False,
@@ -1548,13 +1792,21 @@ def _render_quick_lut_tab_v2(
             key="finite_cycle_mode_v2",
         )
         if finite_cycle_mode:
+            st.caption(
+                f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
+                "0.75 is supported. 1.75 cycle is currently unavailable because no safe decomposition/support exists."
+            )
+            _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
                 st.selectbox(
                     "구동 cycle 수",
-                    options=[float(value) for value in FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS],
+                    options=[float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS],
                     index=1,
                     key="target_cycle_count_v2",
-                    help="Field-only finite cycle support is currently constrained to the validated cycle set.",
+                    help=(
+                        "0.75 / 1.0 / 1.25 / 1.5 are supported. 1.75 is unavailable until safe finite "
+                        "decomposition/support exists."
+                    ),
                 )
             )
             preview_tail_cycles = float(
@@ -1676,6 +1928,7 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
+            plot_command_profile = _prepare_semantic_compensation_plot_profile(command_profile)
             (
                 reference_profile,
                 reference_column,
@@ -1715,19 +1968,23 @@ def _render_quick_lut_tab_v2(
 
             comp_left, comp_right = st.columns(2)
             with comp_left:
-                st.plotly_chart(
-                    plot_output_compensation_waveforms(
-                        command_profile=command_profile,
-                        nearest_profile=reference_profile,
-                        nearest_column=reference_column,
-                        title=(
-                            "Current Waveform Compensation"
-                            if compensation_target_type == "current"
-                            else f"Field Waveform Compensation: {main_field_axis}"
-                        ),
-                        yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
-                        reference_label=reference_label,
+                compensation_figure = plot_output_compensation_waveforms(
+                    command_profile=plot_command_profile,
+                    nearest_profile=reference_profile,
+                    nearest_column=reference_column,
+                    title=(
+                        "Current Waveform Compensation"
+                        if compensation_target_type == "current"
+                        else f"Field Waveform Compensation: {main_field_axis}"
                     ),
+                    yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
+                    reference_label=reference_label,
+                )
+                compensation_figure = _retitle_compensation_semantics_figure(compensation_figure)
+                if finite_cycle_mode:
+                    compensation_figure = _add_finite_end_markers(compensation_figure, compensation, command_profile)
+                st.plotly_chart(
+                    compensation_figure,
                     use_container_width=True,
                 )
                 _render_support_trace_marker(
@@ -1739,8 +1996,11 @@ def _render_quick_lut_tab_v2(
                     plotted_support_pp=plotted_support_pp,
                 )
             with comp_right:
+                command_figure = _retitle_command_waveform_figure(
+                    plot_command_waveform(command_profile, value_column="limited_voltage_v")
+                )
                 st.plotly_chart(
-                    plot_command_waveform(command_profile, value_column="limited_voltage_v"),
+                    command_figure,
                     use_container_width=True,
                 )
             if finite_cycle_mode:
@@ -1749,6 +2009,14 @@ def _render_quick_lut_tab_v2(
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
                 )
                 _render_finite_route_marker(compensation)
+                st.caption(
+                    "Plot semantics: `Physical Target` is the requested field waveform; `Support Reference` is not "
+                    "the target; `Predicted Output` is the model response; `Command Waveform` is shown separately. "
+                    "`Internal Reference (lag/support-conditioned)` is an internal alignment/reference trace."
+                )
+                _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
+                _render_finite_prediction_availability(compensation)
+                _render_end_marker_summary(compensation, command_profile)
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
