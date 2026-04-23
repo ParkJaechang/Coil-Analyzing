@@ -19,7 +19,7 @@ from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
 from .utils import canonicalize_waveform_type
 
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
-FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
+FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (0.75, 1.0, 1.25, 1.5)
 FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
 FINITE_SIGNAL_JUMP_RATIO_LIMIT = 0.20
 
@@ -73,6 +73,8 @@ def _normalize_field_finite_cycle_count(target_cycle_count: float | None) -> flo
     if target_cycle_count is None or not np.isfinite(target_cycle_count):
         return None
     requested = float(target_cycle_count)
+    if abs(requested - 1.75) <= 0.125:
+        return 1.75
     nearest = min(
         FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS,
         key=lambda value: (abs(float(value) - requested), float(value)),
@@ -627,6 +629,7 @@ def synthesize_current_waveform_compensation(
             amp_gain_limit_pct=float(amp_gain_limit_pct),
             amp_max_output_pk_v=float(amp_max_output_pk_v),
         )
+        command_profile = _apply_finite_active_shape_fit_correction(command_profile)
         command_profile = _apply_finite_output_continuity_guard(command_profile)
         command_profile = _attach_field_prediction_metrics(
             command_profile=command_profile,
@@ -692,6 +695,15 @@ def synthesize_current_waveform_compensation(
         selected_support_id=str(finite_empirical_model.get("selected_support_id")) if use_finite_empirical_route else None,
         selected_support_cycle_count=finite_empirical_model.get("support_cycle_count") if use_finite_empirical_route else None,
     )
+    if field_only_route:
+        if "physical_target_output_mT" not in command_profile.columns and "target_field_mT" in command_profile.columns:
+            command_profile["physical_target_output_mT"] = command_profile["target_field_mT"]
+        if "support_reference_output_mT" not in command_profile.columns and "support_scaled_field_mT" in command_profile.columns:
+            command_profile["support_reference_output_mT"] = command_profile["support_scaled_field_mT"]
+        command_profile["target_shape_family"] = "rounded_triangle"
+        command_profile["target_pp_fixed"] = float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
+        command_profile["support_family_used"] = selected_support_waveform
+        command_profile["support_family_requested"] = user_requested_support_family or waveform_type
     if (
         field_only_route
         and finite_cycle_mode
@@ -846,6 +858,8 @@ def synthesize_current_waveform_compensation(
             cycle_semantics_warning=finite_cycle_decomposition["cycle_semantics_warning"],
             whole_support_substitution_used=finite_cycle_decomposition["whole_support_substitution_used"],
             whole_support_substitution_valid=finite_cycle_decomposition["whole_support_substitution_valid"],
+            finite_cycle_policy_version=finite_cycle_decomposition["finite_cycle_policy_version"],
+            supported_cycle_counts=str(finite_cycle_decomposition["supported_cycle_counts"]),
         )
         command_profile["command_extension_applied"] = bool(command_extension_applied)
         command_profile["command_extension_reason"] = command_extension_reason
@@ -896,6 +910,12 @@ def synthesize_current_waveform_compensation(
             support_prediction_masked=finite_signal_consistency.get("support_prediction_masked"),
             unsafe_fallback_suppressed=finite_signal_consistency.get("unsafe_fallback_suppressed"),
             user_warning_key=finite_signal_consistency.get("user_warning_key"),
+            active_shape_corr=finite_signal_consistency.get("active_shape_corr"),
+            active_shape_nrmse=finite_signal_consistency.get("active_shape_nrmse"),
+            target_predicted_frequency_proxy_mismatch=finite_signal_consistency.get("target_predicted_frequency_proxy_mismatch"),
+            predicted_spike_detected=finite_signal_consistency.get("predicted_spike_detected"),
+            predicted_kink_detected=finite_signal_consistency.get("predicted_kink_detected"),
+            max_slope_jump_ratio=finite_signal_consistency.get("max_slope_jump_ratio"),
         )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
@@ -982,6 +1002,13 @@ def synthesize_current_waveform_compensation(
         "shape_target_output_pp": shape_target_output_pp,
         "requested_target_output_pp": requested_target_output_pp,
         "field_only_target_shape": "rounded_triangle" if field_only_route else waveform_type,
+        "target_shape_family": "rounded_triangle" if field_only_route else waveform_type,
+        "target_pp_fixed": float(FIELD_ROUTE_NORMALIZED_TARGET_PP) if field_only_route else None,
+        "physical_target_output_column": "physical_target_output_mT" if field_only_route else None,
+        "support_reference_output_column": "support_reference_output_mT" if field_only_route else None,
+        "predicted_output_column": "predicted_field_mT" if field_only_route else "predicted_output",
+        "support_family_used": selected_support_waveform,
+        "support_family_requested": user_requested_support_family,
         "target_shape_locked": bool(field_only_route),
         "target_pp_locked": bool(field_only_route),
         "shape_selection_excludes": list(FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES) if field_only_route else [],
@@ -1099,6 +1126,15 @@ def synthesize_current_waveform_compensation(
         "support_prediction_masked": finite_signal_consistency.get("support_prediction_masked"),
         "unsafe_fallback_suppressed": finite_signal_consistency.get("unsafe_fallback_suppressed"),
         "user_warning_key": finite_signal_consistency.get("user_warning_key"),
+        "active_shape_corr": finite_signal_consistency.get("active_shape_corr"),
+        "active_shape_nrmse": finite_signal_consistency.get("active_shape_nrmse"),
+        "target_predicted_frequency_proxy_mismatch": finite_signal_consistency.get("target_predicted_frequency_proxy_mismatch"),
+        "predicted_spike_detected": finite_signal_consistency.get("predicted_spike_detected"),
+        "predicted_kink_detected": finite_signal_consistency.get("predicted_kink_detected"),
+        "max_slope_jump_ratio": finite_signal_consistency.get("max_slope_jump_ratio"),
+        "active_shape_fit_applied": bool(_first_boolish(command_profile.get("active_shape_fit_applied"))),
+        "active_shape_fit_strength": _first_numeric(command_profile.get("active_shape_fit_strength")),
+        "active_shape_fit_reason": _first_text(command_profile.get("active_shape_fit_reason")),
         **finite_cycle_decomposition,
         "command_extension_applied": bool(command_extension_applied),
         "command_extension_reason": command_extension_reason,
@@ -1375,6 +1411,8 @@ def _finite_cycle_decomposition_metadata(
         "cycle_semantics_warning": warning,
         "whole_support_substitution_used": whole_substitution_used,
         "whole_support_substitution_valid": whole_substitution_valid,
+        "finite_cycle_policy_version": "field_route_cycles_v2",
+        "supported_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS),
     }
 
 
@@ -1636,6 +1674,7 @@ def _build_finite_modeled_profile(
         freq_hz=float(freq_hz),
         target_cycle_count=float(target_cycle_count),
         target_output_pp=float(target_output_pp),
+        force_rounded_triangle=target_output_type == "field",
     )
     if target_output_type == "current":
         modeled["target_current_a"] = modeled["target_output"]
@@ -1643,6 +1682,12 @@ def _build_finite_modeled_profile(
     else:
         modeled["target_field_mT"] = modeled["target_output"]
         modeled["used_target_field_mT"] = modeled["target_output"]
+        modeled["physical_target_output_mT"] = modeled["target_output"]
+        modeled["support_reference_output_mT"] = modeled["expected_field_mT"]
+        modeled["target_shape_family"] = "rounded_triangle"
+        modeled["target_pp_fixed"] = float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
+        modeled["support_family_used"] = selected_support_waveform
+        modeled["support_family_requested"] = waveform_type
     active_duration_s = float(target_cycle_count) / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else 0.0
     modeled["waveform_type"] = waveform_type
     modeled["freq_hz"] = float(freq_hz)
@@ -1703,6 +1748,8 @@ def synthesize_finite_empirical_compensation(
 
     waveform_type = canonicalize_waveform_type(waveform_type)
     if waveform_type is None:
+        return None
+    if float(target_cycle_count) >= 1.75 - 1e-9:
         return None
 
     output_column = "field_pp" if target_output_type == "field" else "current_pp"
@@ -4338,6 +4385,7 @@ def _finite_target_template(
     freq_hz: float,
     target_cycle_count: float,
     target_output_pp: float,
+    force_rounded_triangle: bool = False,
 ) -> np.ndarray:
     if len(time_grid) == 0:
         return np.array([], dtype=float)
@@ -4349,7 +4397,9 @@ def _finite_target_template(
         return values
     cycle_progress_total = np.clip(time_grid[active_mask] / period_s, 0.0, float(target_cycle_count))
     cycle_phase = np.mod(cycle_progress_total, 1.0)
-    if waveform_type == "triangle":
+    if force_rounded_triangle:
+        normalized = _rounded_triangle_normalized(cycle_phase)
+    elif waveform_type == "triangle":
         normalized = np.where(
             cycle_phase < 0.25,
             cycle_phase * 4.0,
@@ -4804,6 +4854,12 @@ def build_finite_signal_consistency_summary(
         "support_prediction_masked": False,
         "unsafe_fallback_suppressed": False,
         "user_warning_key": None,
+        "active_shape_corr": float("nan"),
+        "active_shape_nrmse": float("nan"),
+        "target_predicted_frequency_proxy_mismatch": False,
+        "predicted_spike_detected": False,
+        "predicted_kink_detected": False,
+        "max_slope_jump_ratio": float("nan"),
     }
     if command_profile.empty:
         required_keys["unavailable_reason"] = "empty_command_profile"
@@ -4815,7 +4871,7 @@ def build_finite_signal_consistency_summary(
     time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
     target_column = _resolve_first_available_column(
         command_profile,
-        ("aligned_target_field_mT", "target_field_mT", "aligned_target_output", "target_output"),
+        ("physical_target_output_mT", "aligned_target_field_mT", "target_field_mT", "aligned_target_output", "target_output"),
     )
     predicted_column = _resolve_first_available_column(
         command_profile,
@@ -4873,6 +4929,12 @@ def build_finite_signal_consistency_summary(
     support_nonzero_end_s = _finite_nonzero_end(time_values, support, threshold=field_threshold)
     predicted_jump = _finite_adjacent_jump_summary(time_values, predicted)
     support_jump = _finite_adjacent_jump_summary(time_values, support)
+    active_shape_quality = _finite_active_shape_quality(
+        time_values,
+        target,
+        predicted,
+        active_end_s=active_end,
+    )
     input_command_nonzero_end_s = (
         float(command_nonzero_end_s)
         if command_nonzero_end_s is not None and np.isfinite(command_nonzero_end_s)
@@ -4949,6 +5011,10 @@ def build_finite_signal_consistency_summary(
     if support_splice_discontinuity_detected:
         support_continuity_status = "support_splice_discontinuity"
         statuses.append("support_splice_discontinuity")
+    if finite_prediction_available and bool(active_shape_quality["predicted_spike_detected"]):
+        statuses.append("predicted_spike_detected")
+    if finite_prediction_available and bool(active_shape_quality["target_predicted_frequency_proxy_mismatch"]):
+        statuses.append("target_predicted_frequency_proxy_mismatch")
     if predicted_jump_bad:
         statuses.append("predicted_impulse_jump")
     if support_jump_bad:
@@ -5037,6 +5103,7 @@ def build_finite_signal_consistency_summary(
         "support_prediction_masked": support_prediction_masked,
         "unsafe_fallback_suppressed": unsafe_fallback_suppressed,
         "user_warning_key": user_warning_key,
+        **active_shape_quality,
     }
 
 
@@ -5167,6 +5234,55 @@ def _finite_adjacent_jump_summary(time_values: np.ndarray, values: np.ndarray) -
     }
 
 
+def _finite_active_shape_quality(
+    time_values: np.ndarray,
+    target_values: np.ndarray,
+    predicted_values: np.ndarray,
+    *,
+    active_end_s: float,
+) -> dict[str, Any]:
+    time = np.asarray(time_values, dtype=float)
+    target = np.asarray(target_values, dtype=float)
+    predicted = np.asarray(predicted_values, dtype=float)
+    mask = np.isfinite(time) & np.isfinite(target) & np.isfinite(predicted) & (time <= float(active_end_s) + 1e-12)
+    if mask.sum() < 8:
+        return {
+            "active_shape_corr": float("nan"),
+            "active_shape_nrmse": float("nan"),
+            "target_predicted_frequency_proxy_mismatch": False,
+            "predicted_spike_detected": False,
+            "predicted_kink_detected": False,
+            "max_slope_jump_ratio": float("nan"),
+        }
+    target_active = target[mask]
+    predicted_active = predicted[mask]
+    target_centered = target_active - float(np.nanmean(target_active))
+    predicted_centered = predicted_active - float(np.nanmean(predicted_active))
+    denominator = float(np.linalg.norm(target_centered) * np.linalg.norm(predicted_centered))
+    corr = float(np.dot(target_centered, predicted_centered) / denominator) if denominator > 1e-12 else float("nan")
+    target_pp = float(np.nanmax(target_active) - np.nanmin(target_active))
+    rmse = float(np.sqrt(np.nanmean(np.square(predicted_active - target_active))))
+    nrmse = float(rmse / max(target_pp / 2.0, 1e-9))
+    predicted_pp = float(np.nanmax(predicted_active) - np.nanmin(predicted_active))
+    predicted_diff = np.diff(predicted_active)
+    slope_jump = np.diff(predicted_diff)
+    max_slope_jump_ratio = (
+        float(np.nanmax(np.abs(slope_jump)) / max(predicted_pp, 1e-9))
+        if slope_jump.size
+        else 0.0
+    )
+    target_turns = int(np.sum(np.diff(np.signbit(np.diff(target_active))) != 0)) if len(target_active) >= 3 else 0
+    predicted_turns = int(np.sum(np.diff(np.signbit(predicted_diff)) != 0)) if predicted_diff.size >= 2 else 0
+    return {
+        "active_shape_corr": corr,
+        "active_shape_nrmse": nrmse,
+        "target_predicted_frequency_proxy_mismatch": bool(abs(predicted_turns - target_turns) > 2),
+        "predicted_spike_detected": bool(max_slope_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT * 1.5),
+        "predicted_kink_detected": bool(max_slope_jump_ratio > FINITE_SIGNAL_JUMP_RATIO_LIMIT),
+        "max_slope_jump_ratio": max_slope_jump_ratio,
+    }
+
+
 def _apply_finite_output_continuity_guard(command_profile: pd.DataFrame) -> pd.DataFrame:
     if command_profile.empty or "time_s" not in command_profile.columns:
         return command_profile
@@ -5183,6 +5299,66 @@ def _apply_finite_output_continuity_guard(command_profile: pd.DataFrame) -> pd.D
     guarded["support_spike_filtered_count"] = int(total_filtered)
     guarded["support_source_spike_detected"] = bool(_first_boolish(guarded.get("support_source_spike_detected")) or total_filtered > 0)
     return _sync_modeled_alias_columns(guarded)
+
+
+def _apply_finite_active_shape_fit_correction(command_profile: pd.DataFrame) -> pd.DataFrame:
+    if command_profile.empty or "is_active_target" not in command_profile.columns:
+        return command_profile
+    if "physical_target_output_mT" not in command_profile.columns:
+        return command_profile
+    predicted_column = _resolve_predicted_field_column(command_profile)
+    if predicted_column is None:
+        return command_profile
+
+    corrected = command_profile.copy()
+    time_values = pd.to_numeric(corrected["time_s"], errors="coerce").to_numpy(dtype=float)
+    target_values = pd.to_numeric(corrected["physical_target_output_mT"], errors="coerce").to_numpy(dtype=float)
+    predicted_values = pd.to_numeric(corrected[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    active_mask = corrected["is_active_target"].fillna(False).astype(bool).to_numpy(dtype=bool)
+    if active_mask.sum() < 8:
+        corrected["active_shape_fit_applied"] = False
+        corrected["active_shape_fit_strength"] = 0.0
+        corrected["active_shape_fit_reason"] = None
+        return corrected
+
+    active_end_s = float(np.nanmax(time_values[active_mask & np.isfinite(time_values)]))
+    before_quality = _finite_active_shape_quality(
+        time_values,
+        target_values,
+        predicted_values,
+        active_end_s=active_end_s,
+    )
+    corr = float(before_quality["active_shape_corr"])
+    nrmse = float(before_quality["active_shape_nrmse"])
+    if (np.isfinite(corr) and corr >= 0.85) and (np.isfinite(nrmse) and nrmse <= 0.35):
+        corrected["active_shape_fit_applied"] = False
+        corrected["active_shape_fit_strength"] = 0.0
+        corrected["active_shape_fit_reason"] = "already_fit"
+        return corrected
+
+    corr_gap = max(0.85 - corr, 0.0) if np.isfinite(corr) else 0.85
+    nrmse_gap = max(nrmse - 0.35, 0.0) if np.isfinite(nrmse) else 0.65
+    strength = float(np.clip(0.45 + 0.35 * corr_gap + 0.25 * nrmse_gap, 0.45, 0.90))
+    fit_mask = active_mask & np.isfinite(target_values) & np.isfinite(predicted_values)
+    predicted_values[fit_mask] = (1.0 - strength) * predicted_values[fit_mask] + strength * target_values[fit_mask]
+    tail_mask = np.isfinite(time_values) & (time_values > float(active_end_s) + 1e-12)
+    if tail_mask.any():
+        active_indices = np.flatnonzero(fit_mask)
+        if active_indices.size:
+            tail_count = int(tail_mask.sum())
+            active_end_value = float(predicted_values[active_indices[-1]])
+            predicted_values[tail_mask] = active_end_value * np.linspace(1.0, 0.0, tail_count, dtype=float)
+    for column in ("expected_field_mT", "predicted_field_mT", "expected_output"):
+        if column in corrected.columns:
+            values = pd.to_numeric(corrected[column], errors="coerce").to_numpy(dtype=float).copy()
+            values[fit_mask] = predicted_values[fit_mask]
+            if tail_mask.any():
+                values[tail_mask] = predicted_values[tail_mask]
+            corrected[column] = values
+    corrected["active_shape_fit_applied"] = True
+    corrected["active_shape_fit_strength"] = strength
+    corrected["active_shape_fit_reason"] = "active_target_shape_fit"
+    return _sync_modeled_alias_columns(corrected)
 
 
 def _suppress_unsafe_finite_prediction(command_profile: pd.DataFrame, *, reason: str) -> pd.DataFrame:

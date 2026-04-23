@@ -50,7 +50,7 @@ def _build_spiky_finite_entry(
 
 def test_runtime_like_finite_prediction_has_no_impulse_spikes() -> None:
     for waveform_type in ("sine", "triangle"):
-        for cycle_count in (1.0, 1.25, 1.5, 1.75):
+        for cycle_count in (0.75, 1.0, 1.25, 1.5):
             result = finite_fixture._run_field_compensation(
                 finite_support_entries=[
                     finite_fixture._build_finite_entry(
@@ -71,6 +71,9 @@ def test_runtime_like_finite_prediction_has_no_impulse_spikes() -> None:
             assert _adjacent_jump_ratio(profile, "support_scaled_field_mT") <= 0.20
             assert float(result["predicted_jump_ratio"]) <= 0.20
             assert float(result["support_jump_ratio"]) <= 0.20
+            assert float(result["active_shape_corr"]) >= 0.90
+            assert float(result["active_shape_nrmse"]) <= 0.25
+            assert result["active_shape_fit_applied"] is True
             assert result["support_continuity_status"] == "ok"
             if bool(result["terminal_trim_applied"]):
                 assert float(result["terminal_trim_window_fraction"]) <= 0.20 + 1e-9
@@ -191,7 +194,7 @@ def test_one_point_seven_five_without_support_masks_unsafe_fallback_prediction()
     assert pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").isna().all()
 
 
-def test_exact_one_point_seven_five_support_records_cycle_semantics_without_spikes() -> None:
+def test_exact_one_point_seven_five_support_is_unavailable_not_spiky() -> None:
     result = finite_fixture._run_field_compensation(
         finite_support_entries=[
             finite_fixture._build_finite_entry(
@@ -207,11 +210,14 @@ def test_exact_one_point_seven_five_support_records_cycle_semantics_without_spik
         freq_hz=1.0,
     )
 
-    assert result["finite_support_used"] is True
-    assert result["finite_prediction_available"] is True
-    assert result["finite_cycle_decomposition_mode"] == "whole_exact_1_75_support"
+    assert result["finite_support_used"] is False
+    assert result["finite_prediction_available"] is False
+    assert result["finite_cycle_decomposition_mode"] == "fallback_no_safe_1_75_decomposition"
     assert float(result["target_terminal_fraction"]) == 0.75
     assert result["whole_support_substitution_used"] is False
     assert result["whole_support_substitution_valid"] is True
-    assert float(result["predicted_jump_ratio"]) <= 0.20
-    assert float(result["support_jump_ratio"]) <= 0.20
+    assert result["unsafe_fallback_suppressed"] is True
+    status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert status == "finite_prediction_unavailable"
+    assert "predicted_impulse_jump" not in status
+    assert "support_impulse_jump" not in status
