@@ -710,6 +710,26 @@ def synthesize_current_waveform_compensation(
         ),
         phase_lead_applied_to_sampling_only=bool(field_only_route and finite_cycle_mode),
     )
+    finite_signal_consistency: dict[str, Any] = {}
+    if field_only_route and finite_cycle_mode:
+        finite_signal_consistency = build_finite_signal_consistency_summary(
+            command_profile,
+            finite_support_used=finite_support_used,
+            support_input_field_pp=(
+                finite_empirical_model.get("support_output_pp")
+                if use_finite_empirical_route
+                else None
+            ),
+            target_active_end_s=finite_stop_policy["target_active_end_s"],
+            command_nonzero_end_s=finite_stop_policy["command_nonzero_end_s"],
+        )
+        finite_stop_policy = {**finite_stop_policy, **{
+            "target_active_end_s": finite_signal_consistency["target_active_end_s"],
+            "command_nonzero_end_s": finite_signal_consistency["command_nonzero_end_s"],
+            "command_early_stop_s": finite_signal_consistency["command_early_stop_s"],
+            "command_extends_through_target_end": finite_signal_consistency["command_covers_target_end"],
+            "early_command_cutoff_warning": "command_early_stop" in str(finite_signal_consistency["finite_signal_consistency_status"]).split("|"),
+        }}
     command_nonzero_end_s = finite_stop_policy["command_nonzero_end_s"]
     target_active_end_s = finite_stop_policy["target_active_end_s"]
     early_command_cutoff_warning = finite_stop_policy["early_command_cutoff_warning"]
@@ -738,6 +758,13 @@ def synthesize_current_waveform_compensation(
         command_profile["phase_lead_seconds_applied"] = finite_stop_policy["phase_lead_seconds_applied"]
         command_profile["phase_lead_applied_to_sampling_only"] = finite_stop_policy["phase_lead_applied_to_sampling_only"]
         command_profile["early_command_cutoff_warning"] = finite_stop_policy["early_command_cutoff_warning"]
+        command_profile["finite_command_nonzero_end_s"] = finite_signal_consistency.get("command_nonzero_end_s")
+        command_profile["finite_predicted_nonzero_end_s"] = finite_signal_consistency.get("predicted_nonzero_end_s")
+        command_profile["finite_support_nonzero_end_s"] = finite_signal_consistency.get("support_nonzero_end_s")
+        command_profile["finite_command_covers_target_end"] = finite_signal_consistency.get("command_covers_target_end")
+        command_profile["finite_predicted_covers_target_end"] = finite_signal_consistency.get("predicted_covers_target_end")
+        command_profile["finite_support_covers_target_end"] = finite_signal_consistency.get("support_covers_target_end")
+        command_profile["finite_signal_consistency_status"] = finite_signal_consistency.get("finite_signal_consistency_status")
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
     startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
     startup_diagnostics.setdefault("source_test_id", nearest_test_id)
@@ -927,6 +954,7 @@ def synthesize_current_waveform_compensation(
         "phase_lead_seconds_applied": finite_stop_policy["phase_lead_seconds_applied"],
         "phase_lead_applied_to_sampling_only": bool(finite_stop_policy["phase_lead_applied_to_sampling_only"]),
         "early_command_cutoff_warning": bool(early_command_cutoff_warning),
+        "finite_signal_consistency": finite_signal_consistency,
         "terminal_trim_applied": bool(_first_numeric(command_profile.get("terminal_trim_applied")) or False),
         "terminal_trim_gain": _first_numeric(command_profile.get("terminal_trim_gain")),
         "terminal_trim_bias_v": _first_numeric(command_profile.get("terminal_trim_bias_v")),
@@ -4064,6 +4092,375 @@ def _summarize_finite_command_stop_policy(
         "phase_lead_applied_to_sampling_only": bool(phase_lead_applied_to_sampling_only),
         "early_command_cutoff_warning": bool(np.isfinite(command_early_stop_s) and command_early_stop_s > tolerance),
     }
+
+
+def build_finite_signal_consistency_summary(
+    command_profile: pd.DataFrame,
+    *,
+    finite_support_used: bool = False,
+    support_input_field_pp: float | None = None,
+    target_active_end_s: float | None = None,
+    command_nonzero_end_s: float | None = None,
+) -> dict[str, Any]:
+    """Summarize finite-route plot payload timing and nonzero signal coverage."""
+
+    required_keys = {
+        "target_active_end_s": float("nan"),
+        "command_nonzero_end_s": float("nan"),
+        "predicted_nonzero_end_s": float("nan"),
+        "support_nonzero_end_s": float("nan"),
+        "command_early_stop_s": float("nan"),
+        "predicted_early_stop_s": float("nan"),
+        "support_early_stop_s": float("nan"),
+        "command_covers_target_end": False,
+        "predicted_covers_target_end": False,
+        "support_covers_target_end": False,
+        "target_pp": float("nan"),
+        "predicted_pp": float("nan"),
+        "support_scaled_pp": float("nan"),
+        "support_blended_pp": float("nan"),
+        "command_pp": float("nan"),
+        "target_sample_count": 0,
+        "predicted_sample_count": 0,
+        "support_sample_count": 0,
+        "command_sample_count": 0,
+        "target_time_min": float("nan"),
+        "target_time_max": float("nan"),
+        "predicted_time_min": float("nan"),
+        "predicted_time_max": float("nan"),
+        "support_time_min": float("nan"),
+        "support_time_max": float("nan"),
+        "command_time_min": float("nan"),
+        "command_time_max": float("nan"),
+        "time_axis_consistent": False,
+        "plot_payload_consistency_status": "unavailable",
+        "finite_signal_consistency_status": "unavailable",
+        "unavailable_reason": None,
+    }
+    if command_profile.empty:
+        required_keys["unavailable_reason"] = "empty_command_profile"
+        return required_keys
+    if "time_s" not in command_profile.columns:
+        required_keys["unavailable_reason"] = "missing_time_s"
+        return required_keys
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    target_column = _resolve_first_available_column(
+        command_profile,
+        ("aligned_target_field_mT", "target_field_mT", "aligned_target_output", "target_output"),
+    )
+    predicted_column = _resolve_first_available_column(
+        command_profile,
+        ("predicted_field_mT", "expected_field_mT", "expected_output"),
+    )
+    support_column = _resolve_first_available_column(
+        command_profile,
+        ("support_scaled_field_mT", "support_blended_field_mT", "support_scaled_current_a"),
+    )
+    command_column = _resolve_first_available_column(
+        command_profile,
+        ("recommended_voltage_v", "limited_voltage_v"),
+    )
+    if target_column is None or command_column is None:
+        required_keys["unavailable_reason"] = "missing_target_or_command_column"
+        return required_keys
+
+    target = pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+    predicted = (
+        pd.to_numeric(command_profile[predicted_column], errors="coerce").to_numpy(dtype=float)
+        if predicted_column is not None
+        else np.full(len(command_profile), np.nan)
+    )
+    support = (
+        pd.to_numeric(command_profile[support_column], errors="coerce").to_numpy(dtype=float)
+        if support_column is not None
+        else np.full(len(command_profile), np.nan)
+    )
+    command = pd.to_numeric(command_profile[command_column], errors="coerce").to_numpy(dtype=float)
+
+    active_end = _resolve_target_active_end(
+        command_profile=command_profile,
+        time_values=time_values,
+        fallback=target_active_end_s,
+    )
+    target_stats = _finite_signal_stats(time_values, target)
+    predicted_stats = _finite_signal_stats(time_values, predicted)
+    support_stats = _finite_signal_stats(time_values, support)
+    command_stats = _finite_signal_stats(time_values, command)
+
+    target_pp = target_stats["pp"]
+    predicted_pp = predicted_stats["pp"]
+    support_pp = support_stats["pp"]
+    command_pp = command_stats["pp"]
+    command_threshold = max(command_pp * 0.01, 1e-6) if np.isfinite(command_pp) else 1e-6
+    field_reference_pp = max(
+        value
+        for value in (target_pp, predicted_pp, support_pp, 1e-6)
+        if np.isfinite(value)
+    )
+    field_threshold = max(field_reference_pp * 0.01, 1e-6)
+
+    actual_command_nonzero_end_s = _finite_nonzero_end(time_values, command, threshold=command_threshold)
+    predicted_nonzero_end_s = _finite_nonzero_end(time_values, predicted, threshold=field_threshold)
+    support_nonzero_end_s = _finite_nonzero_end(time_values, support, threshold=field_threshold)
+    if command_nonzero_end_s is not None and np.isfinite(command_nonzero_end_s):
+        metadata_command_nonzero_end_s = float(command_nonzero_end_s)
+    else:
+        metadata_command_nonzero_end_s = actual_command_nonzero_end_s
+
+    tolerance = max(float(np.nanmedian(np.diff(time_values))) if len(time_values) > 1 else 0.0, 1e-6)
+    command_covers = _covers_target_end(metadata_command_nonzero_end_s, active_end, tolerance)
+    predicted_covers = _covers_target_end(predicted_nonzero_end_s, active_end, tolerance)
+    support_covers = _covers_target_end(support_nonzero_end_s, active_end, tolerance)
+    command_early_stop_s = _early_stop_seconds(metadata_command_nonzero_end_s, active_end)
+    predicted_early_stop_s = _early_stop_seconds(predicted_nonzero_end_s, active_end)
+    support_early_stop_s = _early_stop_seconds(support_nonzero_end_s, active_end)
+    time_axis_consistent = _finite_time_axes_consistent(
+        active_end_s=active_end,
+        tolerance=tolerance,
+        stats=(target_stats, predicted_stats, support_stats, command_stats),
+    )
+
+    statuses: list[str] = []
+    plot_statuses: list[str] = []
+    if np.isfinite(metadata_command_nonzero_end_s) and np.isfinite(actual_command_nonzero_end_s):
+        if abs(metadata_command_nonzero_end_s - actual_command_nonzero_end_s) > tolerance:
+            statuses.append("command_metadata_mismatch")
+    if not command_covers:
+        statuses.append("command_early_stop")
+    if not predicted_covers:
+        statuses.append("predicted_early_zero")
+    if finite_support_used and not support_covers:
+        statuses.append("support_early_zero")
+    support_input_pp = float(support_input_field_pp) if support_input_field_pp is not None and np.isfinite(support_input_field_pp) else float("nan")
+    if finite_support_used and np.isfinite(support_input_pp) and support_input_pp > field_threshold and (not np.isfinite(support_pp) or support_pp <= field_threshold):
+        statuses.append("support_zero_bug")
+    if not time_axis_consistent:
+        statuses.append("time_axis_mismatch")
+        plot_statuses.append("time_axis_mismatch")
+    if support_column is None and finite_support_used:
+        statuses.append("missing_support_signal")
+        plot_statuses.append("missing_support_signal")
+    if predicted_column is None:
+        statuses.append("missing_predicted_signal")
+        plot_statuses.append("missing_predicted_signal")
+    if not plot_statuses:
+        plot_statuses = ["ok"]
+    if not statuses:
+        statuses = ["ok"]
+
+    return {
+        "target_active_end_s": active_end,
+        "command_nonzero_end_s": metadata_command_nonzero_end_s,
+        "predicted_nonzero_end_s": predicted_nonzero_end_s,
+        "support_nonzero_end_s": support_nonzero_end_s,
+        "command_early_stop_s": command_early_stop_s,
+        "predicted_early_stop_s": predicted_early_stop_s,
+        "support_early_stop_s": support_early_stop_s,
+        "command_covers_target_end": command_covers,
+        "predicted_covers_target_end": predicted_covers,
+        "support_covers_target_end": support_covers,
+        "target_pp": target_pp,
+        "predicted_pp": predicted_pp,
+        "support_scaled_pp": support_pp,
+        "support_blended_pp": support_pp,
+        "command_pp": command_pp,
+        "target_sample_count": target_stats["sample_count"],
+        "predicted_sample_count": predicted_stats["sample_count"],
+        "support_sample_count": support_stats["sample_count"],
+        "command_sample_count": command_stats["sample_count"],
+        "target_time_min": target_stats["time_min"],
+        "target_time_max": target_stats["time_max"],
+        "predicted_time_min": predicted_stats["time_min"],
+        "predicted_time_max": predicted_stats["time_max"],
+        "support_time_min": support_stats["time_min"],
+        "support_time_max": support_stats["time_max"],
+        "command_time_min": command_stats["time_min"],
+        "command_time_max": command_stats["time_max"],
+        "time_axis_consistent": time_axis_consistent,
+        "plot_payload_consistency_status": "|".join(plot_statuses),
+        "finite_signal_consistency_status": "|".join(statuses),
+        "unavailable_reason": None,
+    }
+
+
+def build_support_family_sensitivity_summary(results_by_family: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    families = sorted(str(key) for key in results_by_family)
+    if len(families) < 2:
+        return {
+            "families_compared": families,
+            "command_shape_corr": float("nan"),
+            "predicted_shape_corr": float("nan"),
+            "terminal_peak_error_delta_mT": float("nan"),
+            "terminal_direction_match_changed": False,
+            "active_nrmse_delta": float("nan"),
+            "sensitivity_level": "unavailable",
+            "unavailable_reason": "need_at_least_two_families",
+        }
+    left_family, right_family = families[:2]
+    left = results_by_family[left_family]
+    right = results_by_family[right_family]
+    left_profile = left.get("command_profile", pd.DataFrame())
+    right_profile = right.get("command_profile", pd.DataFrame())
+    command_shape_corr = _shape_corr_from_profiles(left_profile, right_profile, ("recommended_voltage_v", "limited_voltage_v"))
+    predicted_shape_corr = _shape_corr_from_profiles(left_profile, right_profile, ("predicted_field_mT", "expected_field_mT", "expected_output"))
+    left_metrics = left.get("finite_cycle_metrics", {}) or {}
+    right_metrics = right.get("finite_cycle_metrics", {}) or {}
+    terminal_peak_error_delta = _abs_delta(
+        right_metrics.get("terminal_peak_error_mT", right.get("predicted_terminal_peak_error_mT", np.nan)),
+        left_metrics.get("terminal_peak_error_mT", left.get("predicted_terminal_peak_error_mT", np.nan)),
+    )
+    active_nrmse_delta = _abs_delta(
+        right_metrics.get("active_window_nrmse", right.get("finite_active_nrmse", np.nan)),
+        left_metrics.get("active_window_nrmse", left.get("finite_active_nrmse", np.nan)),
+    )
+    left_direction = left_metrics.get("terminal_direction_match", left.get("terminal_direction_match_after"))
+    right_direction = right_metrics.get("terminal_direction_match", right.get("terminal_direction_match_after"))
+    direction_changed = bool(left_direction is not None and right_direction is not None and bool(left_direction) != bool(right_direction))
+    sensitivity_level = "low"
+    if (
+        (np.isfinite(predicted_shape_corr) and predicted_shape_corr < 0.90)
+        or (np.isfinite(command_shape_corr) and command_shape_corr < 0.85)
+        or direction_changed
+        or (np.isfinite(terminal_peak_error_delta) and terminal_peak_error_delta > 10.0)
+        or (np.isfinite(active_nrmse_delta) and active_nrmse_delta > 0.25)
+    ):
+        sensitivity_level = "excessive"
+    elif (
+        (np.isfinite(predicted_shape_corr) and predicted_shape_corr < 0.97)
+        or (np.isfinite(command_shape_corr) and command_shape_corr < 0.95)
+        or (np.isfinite(terminal_peak_error_delta) and terminal_peak_error_delta > 3.0)
+        or (np.isfinite(active_nrmse_delta) and active_nrmse_delta > 0.05)
+    ):
+        sensitivity_level = "medium"
+    return {
+        "families_compared": [left_family, right_family],
+        "command_shape_corr": command_shape_corr,
+        "predicted_shape_corr": predicted_shape_corr,
+        "terminal_peak_error_delta_mT": terminal_peak_error_delta,
+        "terminal_direction_match_changed": direction_changed,
+        "active_nrmse_delta": active_nrmse_delta,
+        "sensitivity_level": sensitivity_level,
+        "unavailable_reason": None,
+    }
+
+
+def _resolve_first_available_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        if candidate in frame.columns:
+            return candidate
+    return None
+
+
+def _finite_signal_stats(time_values: np.ndarray, values: np.ndarray) -> dict[str, Any]:
+    valid = np.isfinite(time_values) & np.isfinite(values)
+    if not valid.any():
+        return {
+            "pp": float("nan"),
+            "sample_count": 0,
+            "time_min": float("nan"),
+            "time_max": float("nan"),
+        }
+    finite_values = values[valid]
+    return {
+        "pp": float(np.nanmax(finite_values) - np.nanmin(finite_values)),
+        "sample_count": int(valid.sum()),
+        "time_min": float(np.nanmin(time_values[valid])),
+        "time_max": float(np.nanmax(time_values[valid])),
+    }
+
+
+def _finite_nonzero_end(time_values: np.ndarray, values: np.ndarray, *, threshold: float) -> float:
+    valid = np.isfinite(time_values) & np.isfinite(values) & (np.abs(values) > float(threshold))
+    return float(np.nanmax(time_values[valid])) if valid.any() else float("nan")
+
+
+def _resolve_target_active_end(
+    *,
+    command_profile: pd.DataFrame,
+    time_values: np.ndarray,
+    fallback: float | None,
+) -> float:
+    if "is_active_target" in command_profile.columns:
+        active_mask = command_profile["is_active_target"].fillna(False).astype(bool).to_numpy(dtype=bool)
+        valid = active_mask & np.isfinite(time_values)
+        if valid.any():
+            return float(np.nanmax(time_values[valid]))
+    if fallback is not None and np.isfinite(fallback):
+        return float(fallback)
+    return float("nan")
+
+
+def _covers_target_end(nonzero_end_s: float, target_active_end_s: float, tolerance: float) -> bool:
+    return bool(
+        np.isfinite(nonzero_end_s)
+        and np.isfinite(target_active_end_s)
+        and nonzero_end_s >= target_active_end_s - float(tolerance)
+    )
+
+
+def _early_stop_seconds(nonzero_end_s: float, target_active_end_s: float) -> float:
+    if not np.isfinite(nonzero_end_s) or not np.isfinite(target_active_end_s):
+        return float("nan")
+    return float(max(target_active_end_s - nonzero_end_s, 0.0))
+
+
+def _finite_time_axes_consistent(
+    *,
+    active_end_s: float,
+    tolerance: float,
+    stats: tuple[dict[str, Any], ...],
+) -> bool:
+    usable_stats = [item for item in stats if int(item.get("sample_count", 0)) > 0]
+    if len(usable_stats) < 3 or not np.isfinite(active_end_s):
+        return False
+    min_values = [float(item["time_min"]) for item in usable_stats if np.isfinite(item.get("time_min", np.nan))]
+    max_values = [float(item["time_max"]) for item in usable_stats if np.isfinite(item.get("time_max", np.nan))]
+    if not min_values or not max_values:
+        return False
+    return bool(
+        max(min_values) - min(min_values) <= max(float(tolerance), 1e-6)
+        and min(max_values) >= active_end_s - max(float(tolerance), 1e-6)
+    )
+
+
+def _shape_corr_from_profiles(left: pd.DataFrame, right: pd.DataFrame, candidates: tuple[str, ...]) -> float:
+    left_column = _resolve_first_available_column(left, candidates)
+    right_column = _resolve_first_available_column(right, candidates)
+    if left_column is None or right_column is None:
+        return float("nan")
+    left_values = pd.to_numeric(left[left_column], errors="coerce").to_numpy(dtype=float)
+    right_values = pd.to_numeric(right[right_column], errors="coerce").to_numpy(dtype=float)
+    size = min(len(left_values), len(right_values))
+    if size < 3:
+        return float("nan")
+    return _safe_shape_corr(left_values[:size], right_values[:size])
+
+
+def _safe_shape_corr(left: np.ndarray, right: np.ndarray) -> float:
+    left_values = np.asarray(left, dtype=float)
+    right_values = np.asarray(right, dtype=float)
+    valid = np.isfinite(left_values) & np.isfinite(right_values)
+    if valid.sum() < 3:
+        return float("nan")
+    left_centered = left_values[valid] - float(np.nanmean(left_values[valid]))
+    right_centered = right_values[valid] - float(np.nanmean(right_values[valid]))
+    left_scale = float(np.sqrt(np.nanmean(np.square(left_centered))))
+    right_scale = float(np.sqrt(np.nanmean(np.square(right_centered))))
+    if left_scale <= 1e-12 or right_scale <= 1e-12:
+        return float("nan")
+    return float(np.nanmean(left_centered * right_centered) / (left_scale * right_scale))
+
+
+def _abs_delta(right: Any, left: Any) -> float:
+    try:
+        right_value = float(right)
+        left_value = float(left)
+    except (TypeError, ValueError):
+        return float("nan")
+    if not np.isfinite(right_value) or not np.isfinite(left_value):
+        return float("nan")
+    return float(abs(right_value - left_value))
 
 
 def _resolve_field_target_column(frame: pd.DataFrame) -> str | None:

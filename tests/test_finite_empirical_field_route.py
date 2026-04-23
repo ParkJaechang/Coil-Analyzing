@@ -240,6 +240,10 @@ def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     assert float(result["command_nonzero_end_s"]) >= float(result["target_active_end_s"]) - 0.02
     assert bool(result["command_extends_through_target_end"]) is True
     assert bool(result["phase_lead_applied_to_sampling_only"]) is True
+    assert isinstance(result["finite_signal_consistency"], dict)
+    assert bool(result["finite_signal_consistency"]["command_covers_target_end"]) is True
+    assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
+    assert "finite_signal_consistency_status" in profile.columns
 
 
 def test_nearest_finite_support_preview_route_keeps_metadata() -> None:
@@ -321,3 +325,4 @@ def test_support_blended_output_zero_bug_is_guarded() -> None:
 
     support_scaled = pd.to_numeric(result["command_profile"]["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float)
     assert float(np.nanmax(np.abs(support_scaled))) > 1e-9
+    assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
