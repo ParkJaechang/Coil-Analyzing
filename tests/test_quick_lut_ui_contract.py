@@ -195,5 +195,5 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         number_input_keys = {getattr(item, "key", None) for item in app.number_input}
         finite_cycle_select = selectbox_by_key["target_cycle_count_v2"]
 
-        assert [str(option) for option in finite_cycle_select.options] == ["1.0", "1.25", "1.5", "1.75"]
+        assert [str(option) for option in finite_cycle_select.options] == ["0.75", "1.0", "1.25", "1.5"]
         assert "target_cycle_count_v2" not in number_input_keys

@@ -71,6 +71,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "excel_mapping_template.yaml"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_export"
 DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
+UI_SUPPORTED_FINITE_CYCLE_COUNTS = (0.75, 1.0, 1.25, 1.5)
+UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (1.75,)
+UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
 
 
 @st.cache_data(show_spinner=False)
@@ -1156,6 +1159,35 @@ def _render_finite_cycle_correction_summary(
         st.caption(f"Improvement summary: {improvement_summary}")
 
 
+def _format_cycle_set(values: tuple[float, ...]) -> str:
+    return " / ".join(f"{value:g}" for value in values)
+
+
+def _cycle_in_set(value: float, cycle_set: tuple[float, ...]) -> bool:
+    return any(np.isclose(float(value), float(candidate), atol=1e-9) for candidate in cycle_set)
+
+
+def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
+    requested = first_number(st.session_state.get(widget_key))
+    if requested is None:
+        return
+
+    if _cycle_in_set(float(requested), UI_UNAVAILABLE_FINITE_CYCLE_COUNTS):
+        st.warning(
+            "1.75 cycle is currently unavailable: no safe finite support/decomposition is available. "
+            "It is disabled in the main selector and is not treated as 0.75."
+        )
+        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+        return
+
+    if not _cycle_in_set(float(requested), UI_SUPPORTED_FINITE_CYCLE_COUNTS):
+        st.warning(
+            f"Previous finite cycle value `{float(requested):g}` is outside the UI-supported set "
+            f"({_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}); reset to {UI_DEFAULT_FINITE_CYCLE_COUNT:g}."
+        )
+        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+
+
 def _is_nonempty_frame(value: object) -> bool:
     return isinstance(value, pd.DataFrame) and not value.empty
 
@@ -1343,6 +1375,69 @@ def _render_support_trace_marker(
         f"support_payload_pp={_format_optional_metric(support_payload_pp, 'mT')} | "
         f"plotted_support_trace_pp={_format_optional_metric(plotted_support_pp, 'mT')}"
     )
+
+
+def _render_support_family_selection_marker(
+    compensation: dict[str, object],
+    *,
+    requested_support_family: str,
+) -> None:
+    payload_requested = _normalize_optional_text(
+        compensation.get("support_family_requested")
+        or compensation.get("user_requested_support_family")
+        or requested_support_family
+    )
+    selected_support_family = _normalize_optional_text(
+        compensation.get("selected_support_family") or compensation.get("selected_support_waveform")
+    )
+    override_applied = _coerce_boolish(compensation.get("support_family_override_applied"))
+    override_reason = _normalize_optional_text(compensation.get("support_family_override_reason"))
+    family_sensitivity_level = _normalize_optional_text(compensation.get("family_sensitivity_level"))
+    if family_sensitivity_level is None:
+        family_sensitivity_level = _normalize_optional_text(compensation.get("support_family_sensitivity_level"))
+
+    st.markdown("#### Support Family Selection")
+    st.caption(
+        "Target field shape remains rounded triangle fixed and target field pp remains 100 fixed. "
+        "The support/input waveform family does not change the physical target; selected support family may differ "
+        "from the requested family if a more stable support is chosen."
+    )
+    st.write(f"- Requested support family: `{payload_requested or 'n/a'}`")
+    st.write(f"- Selected support family: `{selected_support_family or 'n/a'}`")
+    override_label = "n/a" if override_applied is None else ("yes" if override_applied else "no")
+    st.write(f"- Override applied: `{override_label}`")
+    st.write(f"- Reason: `{override_reason or 'n/a'}`")
+    st.write(f"- Family sensitivity level: `{family_sensitivity_level or 'n/a'}`")
+
+    if override_applied is True:
+        st.warning(
+            "Selected support family differs from the requested support/input waveform family because "
+            "the cross-family candidate was scored as more stable."
+        )
+
+
+def _render_finite_prediction_availability(compensation: dict[str, object]) -> None:
+    prediction_available = _coerce_boolish(compensation.get("finite_prediction_available"))
+    unavailable_reason = _normalize_optional_text(
+        compensation.get("finite_prediction_unavailable_reason")
+        or compensation.get("user_warning_key")
+        or compensation.get("finite_route_reason")
+    )
+    user_warning_key = _normalize_optional_text(compensation.get("user_warning_key"))
+    if prediction_available is not False:
+        return
+
+    reason_text = unavailable_reason or "unavailable"
+    if "1_75" in reason_text or "1.75" in reason_text or user_warning_key == "no_safe_1_75_support":
+        st.warning(
+            "1.75 finite prediction unavailable: no safe finite support/decomposition is available. "
+            "1.75 is disabled in the UI selector, is not treated as 0.75, and unsafe predicted/support traces are "
+            "reported as unavailable instead of normal finite predictions."
+        )
+    else:
+        st.warning(
+            f"Finite prediction unavailable: {reason_text}. Predicted/support traces may be masked by the backend."
+        )
 
 
 def _normalize_support_tests_used(value: object) -> str:
@@ -1541,6 +1636,11 @@ def _render_quick_lut_tab_v2(
             "Main LUT target field shape is a canonical rounded triangle and target PP is locked to `100`. "
             "Current, gain, hardware, and LCR remain debug/reference only."
         )
+        st.caption(
+            "Finite target policy: Target field shape = rounded triangle fixed; Target field pp = 100 fixed. "
+            "The support/input waveform family does not change the physical target, and selected support family "
+            "may differ from the requested family if a more stable support is chosen."
+        )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
             value=False,
@@ -1548,13 +1648,22 @@ def _render_quick_lut_tab_v2(
             key="finite_cycle_mode_v2",
         )
         if finite_cycle_mode:
+            st.caption(
+                f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
+                "1.75 is currently unavailable because there is no safe finite support/decomposition; "
+                "it is not treated as 0.75."
+            )
+            _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
                 st.selectbox(
                     "구동 cycle 수",
-                    options=[float(value) for value in FIELD_ONLY_ALLOWED_FINITE_CYCLE_COUNTS],
+                    options=[float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS],
                     index=1,
                     key="target_cycle_count_v2",
-                    help="Field-only finite cycle support is currently constrained to the validated cycle set.",
+                    help=(
+                        "Field-only finite cycle support is constrained to the visible UI-supported set. "
+                        "1.75 is disabled until safe finite support/decomposition is available."
+                    ),
                 )
             )
             preview_tail_cycles = float(
@@ -1749,6 +1858,8 @@ def _render_quick_lut_tab_v2(
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
                 )
                 _render_finite_route_marker(compensation)
+                _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
+                _render_finite_prediction_availability(compensation)
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
