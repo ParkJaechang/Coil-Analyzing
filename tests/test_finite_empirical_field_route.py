@@ -136,6 +136,7 @@ def _build_finite_entry(
     cycle_count: float,
     field_pp: float,
     voltage_pp: float = 6.0,
+    zero_after_fraction: float | None = None,
 ) -> dict[str, object]:
     active_duration_s = cycle_count / freq_hz
     total_duration_s = active_duration_s + 0.2
@@ -150,6 +151,11 @@ def _build_finite_entry(
     field = _scaled_waveform(base * taper, field_pp)
     current = _scaled_waveform(base * taper, 8.0)
     voltage = _scaled_waveform(base * taper, voltage_pp)
+    if zero_after_fraction is not None:
+        zero_mask = phase > float(zero_after_fraction)
+        field[zero_mask] = 0.0
+        current[zero_mask] = 0.0
+        voltage[zero_mask] = 0.0
     frame = pd.DataFrame(
         {
             "time_s": time_s,
@@ -308,6 +314,8 @@ def test_support_family_sensitivity_metadata_is_present_for_cross_family_preview
     assert result["support_waveform_role"] == "input_support_family"
     assert "support_family_sensitivity_flag" in result
     assert "support_family_sensitivity_reason" in result
+    assert result["support_family_selection_mode"] == "scored_preference_not_hard_filter"
+    assert result["support_family_sensitivity_level"] in {"low", "medium", "excessive"}
 
 
 def test_support_blended_output_zero_bug_is_guarded() -> None:
@@ -326,3 +334,31 @@ def test_support_blended_output_zero_bug_is_guarded() -> None:
     support_scaled = pd.to_numeric(result["command_profile"]["support_scaled_field_mT"], errors="coerce").to_numpy(dtype=float)
     assert float(np.nanmax(np.abs(support_scaled))) > 1e-9
     assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
+
+
+def test_empirical_route_extends_truncated_active_window_to_target_end() -> None:
+    result = _run_field_compensation(
+        finite_support_entries=[
+            _build_finite_entry(
+                test_id="finite_truncated",
+                waveform_type="sine",
+                freq_hz=3.0,
+                cycle_count=1.5,
+                field_pp=100.0,
+                zero_after_fraction=0.55,
+            )
+        ]
+    )
+
+    status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert result["command_extension_applied"] is True
+    assert result["predicted_extension_applied"] is True
+    assert result["support_extension_applied"] is True
+    assert result["command_stop_policy"] == "extend_active_hold_to_target_end"
+    assert result["support_coverage_mode"] == "active_hold_extended_from_last_observed"
+    assert result["partial_support_coverage"] is True
+    assert "command_early_stop" not in status
+    assert "predicted_early_zero" not in status
+    assert "support_early_zero" not in status
+    assert "support_padding_gap" in status
+    assert bool(result["command_extends_through_target_end"]) is True

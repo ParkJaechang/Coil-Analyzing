@@ -45,6 +45,21 @@ def test_command_nonzero_end_matches_actual_recommended_voltage() -> None:
     assert summary["finite_signal_consistency_status"] == "ok"
 
 
+def test_stale_command_metadata_does_not_override_final_array_end() -> None:
+    profile = _profile()
+    summary = build_finite_signal_consistency_summary(
+        profile,
+        finite_support_used=True,
+        support_input_field_pp=100.0,
+        command_nonzero_end_s=0.25,
+    )
+
+    assert float(summary["command_metadata_input_end_s"]) == 0.25
+    assert float(summary["command_nonzero_end_s"]) > 0.9
+    assert "command_metadata_mismatch" not in str(summary["finite_signal_consistency_status"])
+    assert summary["command_covers_target_end"] is True
+
+
 def test_command_early_stop_violation_is_detected() -> None:
     profile = _profile()
     profile.loc[profile["time_s"] > 0.55, "recommended_voltage_v"] = 0.0
