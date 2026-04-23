@@ -22,6 +22,8 @@ def _result(
     terminal_peak_error: float = 0.0,
     direction_match: bool = True,
     active_nrmse: float = 0.01,
+    selected_support_id: str | None = None,
+    support_family_override_applied: bool = False,
 ) -> dict[str, object]:
     time_s = np.linspace(0.0, 1.0, len(predicted))
     command_values = predicted / 10.0 if command is None else command
@@ -38,6 +40,8 @@ def _result(
             "terminal_direction_match": direction_match,
             "active_window_nrmse": active_nrmse,
         },
+        "selected_support_id": selected_support_id,
+        "support_family_override_applied": support_family_override_applied,
     }
 
 
@@ -105,3 +109,22 @@ def test_family_sensitivity_summary_is_deterministic() -> None:
     second = build_support_family_sensitivity_summary(payload)
 
     assert first == second
+
+
+def test_stable_cross_family_support_selection_caps_sensitivity() -> None:
+    base = np.sin(np.linspace(0.0, np.pi, 64))
+    inverted = -base
+    summary = build_support_family_sensitivity_summary(
+        {
+            "sine": _result(predicted=base, selected_support_id="sine_full"),
+            "triangle": _result(
+                predicted=inverted,
+                selected_support_id="sine_full",
+                support_family_override_applied=True,
+            ),
+        }
+    )
+
+    assert summary["stable_support_override"] is True
+    assert summary["sensitivity_level"] == "medium"
+    assert summary["sensitivity_mitigation_reason"] == "stable_support_selected_across_family_request"

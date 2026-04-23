@@ -45,6 +45,22 @@ def test_command_nonzero_end_matches_actual_recommended_voltage() -> None:
     assert summary["finite_signal_consistency_status"] == "ok"
 
 
+def test_stale_command_metadata_does_not_override_final_array_end() -> None:
+    profile = _profile()
+    summary = build_finite_signal_consistency_summary(
+        profile,
+        finite_support_used=True,
+        support_input_field_pp=100.0,
+        command_nonzero_end_s=0.25,
+    )
+
+    assert float(summary["command_metadata_input_end_s"]) == 0.25
+    assert float(summary["command_nonzero_end_s"]) > 0.9
+    assert "command_metadata_mismatch" not in str(summary["finite_signal_consistency_status"])
+    assert summary["plot_payload_consistency_status"] == "ok"
+    assert summary["command_covers_target_end"] is True
+
+
 def test_command_early_stop_violation_is_detected() -> None:
     profile = _profile()
     profile.loc[profile["time_s"] > 0.55, "recommended_voltage_v"] = 0.0
@@ -92,5 +108,26 @@ def test_healthy_finite_empirical_profile_returns_ok() -> None:
     assert summary["finite_signal_consistency_status"] == "ok"
     assert summary["plot_payload_consistency_status"] == "ok"
     assert summary["command_covers_target_end"] is True
+    assert summary["predicted_covers_target_end"] is True
+    assert summary["support_covers_target_end"] is True
+
+
+def test_resampled_support_metadata_is_reported_without_early_zero() -> None:
+    profile = _profile()
+    profile["support_resampled_to_target_window"] = True
+    profile["support_observed_end_s"] = 0.55
+    profile["support_observed_coverage_ratio"] = 0.55
+    profile["support_padding_gap_s"] = 0.45
+    profile["finite_prediction_source"] = "empirical_resampled"
+    profile["predicted_cover_reason"] = "active_progress_resampled"
+    profile["support_cover_reason"] = "active_progress_resampled"
+
+    summary = build_finite_signal_consistency_summary(profile, finite_support_used=True, support_input_field_pp=100.0)
+
+    assert summary["finite_signal_consistency_status"] == "ok"
+    assert summary["support_resampled_to_target_window"] is True
+    assert summary["finite_prediction_source"] == "empirical_resampled"
+    assert summary["predicted_cover_reason"] == "active_progress_resampled"
+    assert summary["support_cover_reason"] == "active_progress_resampled"
     assert summary["predicted_covers_target_end"] is True
     assert summary["support_covers_target_end"] is True
