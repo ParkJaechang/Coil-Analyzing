@@ -656,9 +656,12 @@ def synthesize_current_waveform_compensation(
     support_family_sensitivity_flag = finite_empirical_model.get("support_family_sensitivity_flag") if use_finite_empirical_route else False
     support_family_sensitivity_reason = finite_empirical_model.get("support_family_sensitivity_reason") if use_finite_empirical_route else None
     support_family_selection_mode = finite_empirical_model.get("support_family_selection_mode") if use_finite_empirical_route else None
+    user_requested_support_family = finite_empirical_model.get("user_requested_support_family") if use_finite_empirical_route else None
     candidate_support_families = finite_empirical_model.get("candidate_support_families", []) if use_finite_empirical_route else []
     support_family_warning = finite_empirical_model.get("support_family_warning") if use_finite_empirical_route else None
     support_family_sensitivity_level = finite_empirical_model.get("support_family_sensitivity_level") if use_finite_empirical_route else None
+    support_family_override_applied = finite_empirical_model.get("support_family_override_applied") if use_finite_empirical_route else False
+    support_family_override_reason = finite_empirical_model.get("support_family_override_reason") if use_finite_empirical_route else None
     support_blended_output_nonzero = finite_empirical_model.get("support_blended_output_nonzero") if use_finite_empirical_route else None
     support_blended_zero_guard_applied = finite_empirical_model.get("support_blended_zero_guard_applied") if use_finite_empirical_route else False
     command_extension_applied = finite_empirical_model.get("command_extension_applied") if use_finite_empirical_route else False
@@ -683,6 +686,33 @@ def synthesize_current_waveform_compensation(
         if finite_cycle_mode and "is_active_target" in command_profile.columns and bool(pd.Series(command_profile["is_active_target"]).fillna(False).any())
         else None
     )
+    if use_finite_empirical_route and target_active_end_s is not None and np.isfinite(target_active_end_s):
+        command_profile, final_extension_metadata = _extend_finite_active_window_signals(
+            command_profile,
+            active_end_s=float(target_active_end_s),
+            command_columns=("recommended_voltage_v", "limited_voltage_v"),
+            predicted_columns=("expected_field_mT", "expected_output", "predicted_field_mT"),
+            support_columns=("support_scaled_field_mT",),
+        )
+        command_extension_applied = bool(command_extension_applied or final_extension_metadata["command_extension_applied"])
+        command_extension_reason = command_extension_reason or final_extension_metadata["command_extension_reason"]
+        command_stop_policy = final_extension_metadata["command_stop_policy"] or command_stop_policy
+        predicted_extension_applied = bool(predicted_extension_applied or final_extension_metadata["predicted_extension_applied"])
+        support_extension_applied = bool(support_extension_applied or final_extension_metadata["support_extension_applied"])
+        support_coverage_mode = final_extension_metadata["support_coverage_mode"] or support_coverage_mode
+        partial_support_coverage = bool(partial_support_coverage or final_extension_metadata["partial_support_coverage"])
+        support_observed_end_s = final_extension_metadata["support_observed_end_s"]
+        support_observed_coverage_ratio = final_extension_metadata["support_observed_coverage_ratio"]
+        support_padding_gap_s = final_extension_metadata["support_padding_gap_s"]
+        support_resampled_to_target_window = bool(
+            support_resampled_to_target_window or final_extension_metadata["support_resampled_to_target_window"]
+        )
+        hybrid_fill_applied = bool(hybrid_fill_applied or final_extension_metadata["hybrid_fill_applied"])
+        hybrid_fill_start_s = final_extension_metadata["hybrid_fill_start_s"]
+        hybrid_fill_end_s = final_extension_metadata["hybrid_fill_end_s"]
+        finite_prediction_source = final_extension_metadata["finite_prediction_source"] or finite_prediction_source
+        predicted_cover_reason = final_extension_metadata["predicted_cover_reason"] or predicted_cover_reason
+        support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
     finite_route_mode = None
     finite_route_reason = None
     finite_route_warning = None
@@ -768,9 +798,12 @@ def synthesize_current_waveform_compensation(
         command_profile["support_freq_hz"] = support_freq_hz
         command_profile["selected_support_waveform"] = selected_support_waveform
         command_profile["support_family_selection_mode"] = support_family_selection_mode
+        command_profile["user_requested_support_family"] = user_requested_support_family
         command_profile["candidate_support_families"] = "|".join(str(item) for item in candidate_support_families)
         command_profile["support_family_warning"] = support_family_warning
         command_profile["support_family_sensitivity_level"] = support_family_sensitivity_level
+        command_profile["support_family_override_applied"] = bool(support_family_override_applied)
+        command_profile["support_family_override_reason"] = support_family_override_reason
         command_profile["zero_padded_fraction"] = zero_padded_fraction
         command_profile["support_blended_output_nonzero"] = support_blended_output_nonzero
         command_profile["support_blended_zero_guard_applied"] = bool(support_blended_zero_guard_applied)
@@ -985,9 +1018,12 @@ def synthesize_current_waveform_compensation(
         "support_family_sensitivity_flag": bool(support_family_sensitivity_flag),
         "support_family_sensitivity_reason": support_family_sensitivity_reason,
         "support_family_selection_mode": support_family_selection_mode,
+        "user_requested_support_family": user_requested_support_family,
         "candidate_support_families": candidate_support_families,
         "support_family_warning": support_family_warning,
         "support_family_sensitivity_level": support_family_sensitivity_level,
+        "support_family_override_applied": bool(support_family_override_applied),
+        "support_family_override_reason": support_family_override_reason,
         "zero_padded_fraction": zero_padded_fraction,
         "support_blended_output_nonzero": support_blended_output_nonzero,
         "support_blended_zero_guard_applied": bool(support_blended_zero_guard_applied),
@@ -1178,6 +1214,24 @@ def _finite_shape_mismatch_score(
     if total_weight <= 0:
         return 1.0
     return float(weighted_error / total_weight)
+
+
+def _finite_support_active_coverage_penalty(entry: dict[str, Any]) -> float:
+    frame = _prepare_finite_time_frame(entry.get("active_frame"))
+    if frame.empty:
+        frame = _prepare_finite_time_frame(entry.get("frame"))
+    if frame.empty:
+        return 4.0
+    freq_hz = float(entry.get("freq_hz", np.nan))
+    cycle_count = float(entry.get("approx_cycle_span", np.nan))
+    if not np.isfinite(freq_hz) or freq_hz <= 0 or not np.isfinite(cycle_count) or cycle_count <= 0:
+        return 0.0
+    expected_duration_s = float(cycle_count / freq_hz)
+    observed_duration_s = float(frame["time_s"].max() - frame["time_s"].min())
+    if observed_duration_s <= 0:
+        return 4.0
+    coverage_ratio = float(np.clip(observed_duration_s / expected_duration_s, 0.0, 1.0))
+    return float(np.square(max(1.0 - coverage_ratio, 0.0)) * 4.0)
 
 
 def _interpolate_finite_signal(
@@ -1510,7 +1564,8 @@ def synthesize_finite_empirical_compensation(
         freq_distance = abs(float(entry.get("freq_hz", np.nan)) - float(freq_hz)) if np.isfinite(entry.get("freq_hz", np.nan)) else 1e6
         cycle_distance = abs(float(entry.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) if np.isfinite(entry.get("approx_cycle_span", np.nan)) else 1e6
         output_distance = abs(support_output - float(target_output_pp))
-        waveform_distance = 0.0 if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type else 0.35
+        waveform_distance = 0.0 if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type else 0.05
+        coverage_penalty = _finite_support_active_coverage_penalty(entry)
         shape_mismatch = _finite_shape_mismatch_score(
             frame=entry.get("active_frame", entry.get("frame", pd.DataFrame())),
             output_signal_column=output_signal_column,
@@ -1527,7 +1582,7 @@ def synthesize_finite_empirical_compensation(
         )
         scored_entries.append(
             (
-                float(distance_score + waveform_distance + shape_mismatch),
+                float(distance_score + waveform_distance + coverage_penalty + shape_mismatch),
                 entry,
                 freq_distance,
                 cycle_distance,
@@ -1789,6 +1844,13 @@ def synthesize_finite_empirical_compensation(
     support_family_selection_mode = "scored_preference_not_hard_filter"
     support_family_warning = "cross_family_candidates_scored" if support_family_sensitivity_flag else None
     support_family_sensitivity_level = "medium" if support_family_sensitivity_flag else "low"
+    user_requested_support_family = waveform_type
+    support_family_override_applied = bool(selected_support_waveform and selected_support_waveform != waveform_type)
+    support_family_override_reason = (
+        "cross_family_candidate_scored_better"
+        if support_family_override_applied
+        else None
+    )
     command_voltage = pd.to_numeric(modeled["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
     nonzero_mask = np.isfinite(command_voltage) & (np.abs(command_voltage) > 1e-6)
     command_nonzero_end_s = float(np.nanmax(time_grid[nonzero_mask])) if nonzero_mask.any() else float("nan")
@@ -1819,7 +1881,7 @@ def synthesize_finite_empirical_compensation(
         if not axis_in_range
     ]
     selected_support_id = str(support["test_id"])
-    selected_support_family = f"{output_column}:{support_output_pp:g}" if np.isfinite(support_output_pp) else None
+    selected_support_family = selected_support_waveform or None
     support_selection_reason = "finite_exact_level_match" if request_route == "exact" else (
         "finite_weighted_support_blend" if support_count_used > 1 else "finite_nearest_support_preview"
     )
@@ -1860,9 +1922,12 @@ def synthesize_finite_empirical_compensation(
         "support_family_sensitivity_flag": support_family_sensitivity_flag,
         "support_family_sensitivity_reason": support_family_sensitivity_reason,
         "support_family_selection_mode": support_family_selection_mode,
+        "user_requested_support_family": user_requested_support_family,
         "candidate_support_families": candidate_waveform_types,
         "support_family_warning": support_family_warning,
         "support_family_sensitivity_level": support_family_sensitivity_level,
+        "support_family_override_applied": support_family_override_applied,
+        "support_family_override_reason": support_family_override_reason,
         "selected_support_id": selected_support_id,
         "selected_support_family": selected_support_family,
         "support_selection_reason": support_selection_reason,
@@ -4316,6 +4381,8 @@ def _extend_finite_active_window_signals(
         metadata["support_coverage_mode"] = "unavailable"
         metadata["partial_support_coverage"] = True
         return extended, metadata
+    metadata["support_coverage_mode"] = _first_text(extended.get("support_coverage_mode")) or "full_active_coverage"
+    metadata["partial_support_coverage"] = bool(_first_boolish(extended.get("partial_support_coverage")))
     metadata["support_observed_end_s"] = _first_numeric(extended.get("support_observed_end_s"))
     if not np.isfinite(float(metadata["support_observed_end_s"])):
         metadata["support_observed_end_s"] = float(active_end_s)
@@ -4675,6 +4742,13 @@ def build_support_family_sensitivity_summary(results_by_family: dict[str, dict[s
     left_family, right_family = families[:2]
     left = results_by_family[left_family]
     right = results_by_family[right_family]
+    left_selected_support = str(left.get("selected_support_id") or left.get("support_test_id") or "")
+    right_selected_support = str(right.get("selected_support_id") or right.get("support_test_id") or "")
+    stable_support_override = bool(
+        (left_selected_support and left_selected_support == right_selected_support)
+        or left.get("support_family_override_applied")
+        or right.get("support_family_override_applied")
+    )
     left_profile = left.get("command_profile", pd.DataFrame())
     right_profile = right.get("command_profile", pd.DataFrame())
     command_shape_corr = _shape_corr_from_profiles(left_profile, right_profile, ("recommended_voltage_v", "limited_voltage_v"))
@@ -4708,6 +4782,10 @@ def build_support_family_sensitivity_summary(results_by_family: dict[str, dict[s
         or (np.isfinite(active_nrmse_delta) and active_nrmse_delta > 0.05)
     ):
         sensitivity_level = "medium"
+    mitigation_reason = None
+    if stable_support_override and sensitivity_level == "excessive":
+        sensitivity_level = "medium"
+        mitigation_reason = "stable_support_selected_across_family_request"
     return {
         "families_compared": [left_family, right_family],
         "command_shape_corr": command_shape_corr,
@@ -4716,6 +4794,8 @@ def build_support_family_sensitivity_summary(results_by_family: dict[str, dict[s
         "terminal_direction_match_changed": direction_changed,
         "active_nrmse_delta": active_nrmse_delta,
         "sensitivity_level": sensitivity_level,
+        "stable_support_override": stable_support_override,
+        "sensitivity_mitigation_reason": mitigation_reason,
         "unavailable_reason": None,
     }
 

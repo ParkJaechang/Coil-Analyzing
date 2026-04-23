@@ -160,6 +160,7 @@ def _build_finite_entry(
     field_pp: float,
     voltage_pp: float = 6.0,
     zero_after_fraction: float | None = None,
+    truncate_after_fraction: float | None = None,
 ) -> dict[str, object]:
     active_duration_s = cycle_count / freq_hz
     total_duration_s = active_duration_s + 0.2
@@ -187,6 +188,8 @@ def _build_finite_entry(
             "bz_mT": field,
         }
     )
+    if truncate_after_fraction is not None:
+        frame = frame[phase <= float(truncate_after_fraction) + 1e-12].reset_index(drop=True)
     return {
         "test_id": test_id,
         "waveform_type": waveform_type,
@@ -445,3 +448,40 @@ def test_runtime_like_finite_cases_cover_active_window() -> None:
             assert result["support_family_sensitivity_level"] in {"low", "medium"}
             assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
             assert float(result["finite_signal_consistency"]["predicted_pp"]) > 1e-6
+
+
+def test_cross_family_support_can_override_insufficient_requested_family() -> None:
+    result = _run_field_compensation(
+        finite_support_entries=[
+            _build_finite_entry(
+                test_id="triangle_short",
+                waveform_type="triangle",
+                freq_hz=1.0,
+                cycle_count=1.0,
+                field_pp=100.0,
+                truncate_after_fraction=0.45,
+            ),
+            _build_finite_entry(
+                test_id="sine_full",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=1.0,
+                field_pp=100.0,
+            ),
+        ],
+        target_cycle_count=1.0,
+        waveform_type="triangle",
+        freq_hz=1.0,
+    )
+
+    status = str(result["finite_signal_consistency"]["finite_signal_consistency_status"])
+    assert result["selected_support_id"] == "sine_full"
+    assert result["selected_support_waveform"] == "sine"
+    assert result["selected_support_family"] == "sine"
+    assert result["user_requested_support_family"] == "triangle"
+    assert result["support_family_override_applied"] is True
+    assert result["support_family_override_reason"] == "cross_family_candidate_scored_better"
+    assert bool(result["finite_signal_consistency"]["predicted_covers_target_end"]) is True
+    assert bool(result["finite_signal_consistency"]["support_covers_target_end"]) is True
+    assert "predicted_early_zero" not in status
+    assert "support_early_zero" not in status
