@@ -1234,6 +1234,18 @@ def _finite_support_active_coverage_penalty(entry: dict[str, Any]) -> float:
     return float(np.square(max(1.0 - coverage_ratio, 0.0)) * 4.0)
 
 
+def _finite_support_cycle_semantics_penalty(*, support_cycle_count: float, target_cycle_count: float) -> float:
+    if not np.isfinite(support_cycle_count) or not np.isfinite(target_cycle_count):
+        return 0.0
+    if target_cycle_count >= 1.75 - 1e-9 and support_cycle_count <= 0.75 + 1e-9:
+        return 12.0
+    if target_cycle_count > 1.0 and support_cycle_count < 1.0:
+        return 6.0
+    if support_cycle_count < target_cycle_count and target_cycle_count - support_cycle_count > 0.5 + 1e-9:
+        return 4.0
+    return 0.0
+
+
 def _interpolate_finite_signal(
     source_time: np.ndarray,
     source_values: np.ndarray,
@@ -1566,6 +1578,10 @@ def synthesize_finite_empirical_compensation(
         output_distance = abs(support_output - float(target_output_pp))
         waveform_distance = 0.0 if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type else 0.05
         coverage_penalty = _finite_support_active_coverage_penalty(entry)
+        cycle_semantics_penalty = _finite_support_cycle_semantics_penalty(
+            support_cycle_count=float(entry.get("approx_cycle_span", np.nan)),
+            target_cycle_count=float(target_cycle_count),
+        )
         shape_mismatch = _finite_shape_mismatch_score(
             frame=entry.get("active_frame", entry.get("frame", pd.DataFrame())),
             output_signal_column=output_signal_column,
@@ -1582,7 +1598,7 @@ def synthesize_finite_empirical_compensation(
         )
         scored_entries.append(
             (
-                float(distance_score + waveform_distance + coverage_penalty + shape_mismatch),
+                float(distance_score + waveform_distance + coverage_penalty + cycle_semantics_penalty + shape_mismatch),
                 entry,
                 freq_distance,
                 cycle_distance,
@@ -1628,6 +1644,18 @@ def synthesize_finite_empirical_compensation(
         return None
 
     support_count_used = int(len(selected_records))
+    selected_support_cycle_values = [
+        float(record[1].get("approx_cycle_span", np.nan))
+        for record in selected_records
+        if np.isfinite(float(record[1].get("approx_cycle_span", np.nan)))
+    ]
+    if (
+        np.isfinite(float(target_cycle_count))
+        and float(target_cycle_count) >= 1.75 - 1e-9
+        and selected_support_cycle_values
+        and max(selected_support_cycle_values) <= 0.75 + 1e-9
+    ):
+        return None
     sample_count = max(
         max(
             len(_prepare_finite_time_frame(record[1].get("active_frame", record[1].get("frame"))))
@@ -5058,7 +5086,12 @@ def _apply_tail_residual_taper(
     for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output", "predicted_field_mT"):
         if column in corrected.columns:
             values = pd.to_numeric(corrected[column], errors="coerce").to_numpy(dtype=float).copy()
-            values[tail_mask] = values[tail_mask] * envelope
+            active_indices = np.flatnonzero(active_mask & np.isfinite(values))
+            if active_indices.size == 0:
+                continue
+            active_end_value = float(values[active_indices[-1]])
+            continuity_envelope = np.linspace(1.0, 0.0, tail_count, dtype=float)
+            values[tail_mask] = active_end_value * continuity_envelope
             corrected[column] = values
     return corrected
 
@@ -5147,10 +5180,10 @@ def _apply_terminal_stop_trim(
 
     active_times = time_values[active_mask]
     active_duration_s = float(active_times.max() - active_times.min()) if len(active_times) > 1 else 0.0
-    half_cycle_s = 0.5 / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else active_duration_s
+    finite_dt_s = float(np.nanmedian(np.diff(active_times))) if len(active_times) > 1 else 0.0
     terminal_window_s = min(
-        max(active_duration_s * 0.18, half_cycle_s, 0.0),
-        active_duration_s if active_duration_s > 0 else half_cycle_s,
+        max(active_duration_s * 0.16, finite_dt_s * 8.0, 0.0),
+        active_duration_s * 0.20 if active_duration_s > 0 else 0.0,
     )
     if not np.isfinite(terminal_window_s) or terminal_window_s <= 0:
         return _set_terminal_trim_metadata(command_profile, applied=False)
@@ -5196,6 +5229,7 @@ def _apply_terminal_stop_trim(
     terminal_bias_v = float(np.clip(0.45 * endpoint_error / max(field_per_volt, 1e-6) + slope_bias_v, -2.0, 2.0))
 
     ramp = np.linspace(0.0, 1.0, int(terminal_mask.sum()), dtype=float)
+    smooth_ramp = ramp * ramp * (3.0 - 2.0 * ramp)
     trimmed_recommended_terminal = np.nanmean(recommended_terminal) + terminal_gain * (recommended_terminal - np.nanmean(recommended_terminal)) + terminal_bias_v * ramp
     recommended_voltage[terminal_mask] = trimmed_recommended_terminal
     trimmed["recommended_voltage_v"] = recommended_voltage
@@ -5219,9 +5253,9 @@ def _apply_terminal_stop_trim(
 
     predicted_mean = float(np.nanmean(predicted_terminal))
     field_bias_mT = terminal_bias_v * field_per_volt
-    predicted_terminal_after = predicted_mean + terminal_gain * (predicted_terminal - predicted_mean) * limited_scale + field_bias_mT * ramp
-    trim_blend = float(np.clip(0.70 + 0.20 * abs(terminal_gain - 1.0) + 0.10 * abs(terminal_bias_v), 0.50, 0.95))
-    predicted_terminal_after = predicted_terminal_after + trim_blend * np.sqrt(ramp) * (target_terminal - predicted_terminal_after)
+    predicted_terminal_after = predicted_mean + terminal_gain * (predicted_terminal - predicted_mean) * limited_scale + field_bias_mT * smooth_ramp
+    trim_blend = float(np.clip(0.85 + 0.10 * abs(terminal_gain - 1.0) + 0.04 * abs(terminal_bias_v), 0.60, 0.98))
+    predicted_terminal_after = predicted_terminal_after + trim_blend * smooth_ramp * (target_terminal - predicted_terminal_after)
     predicted_values[terminal_mask] = predicted_terminal_after
     trimmed["expected_field_mT"] = predicted_values
     if "support_scaled_field_mT" in trimmed.columns:

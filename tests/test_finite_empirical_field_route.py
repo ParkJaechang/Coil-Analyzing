@@ -231,6 +231,17 @@ def _run_field_compensation(
     return result
 
 
+def _adjacent_jump_ratio(frame: pd.DataFrame, column: str) -> float:
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size < 2:
+        return 0.0
+    peak_to_peak = float(np.nanmax(finite_values) - np.nanmin(finite_values))
+    if not np.isfinite(peak_to_peak) or peak_to_peak <= 1e-9:
+        return 0.0
+    return float(np.nanmax(np.abs(np.diff(values))) / peak_to_peak)
+
+
 def test_exact_finite_support_route_is_selected_and_nonzero() -> None:
     result = _run_field_compensation(
         finite_support_entries=[
@@ -448,6 +459,53 @@ def test_runtime_like_finite_cases_cover_active_window() -> None:
             assert result["support_family_sensitivity_level"] in {"low", "medium"}
             assert float(result["finite_signal_consistency"]["support_scaled_pp"]) > 1e-6
             assert float(result["finite_signal_consistency"]["predicted_pp"]) > 1e-6
+
+
+def test_runtime_like_finite_prediction_has_no_impulse_spikes() -> None:
+    for waveform_type in ("sine", "triangle"):
+        for cycle_count in (1.0, 1.25, 1.5, 1.75):
+            result = _run_field_compensation(
+                finite_support_entries=[
+                    _build_finite_entry(
+                        test_id=f"{waveform_type}_{cycle_count}",
+                        waveform_type=waveform_type,
+                        freq_hz=1.0,
+                        cycle_count=cycle_count,
+                        field_pp=100.0,
+                    )
+                ],
+                target_cycle_count=cycle_count,
+                waveform_type=waveform_type,
+                freq_hz=1.0,
+            )
+            profile = result["command_profile"]
+
+            assert _adjacent_jump_ratio(profile, "predicted_field_mT") <= 0.22
+            assert _adjacent_jump_ratio(profile, "support_scaled_field_mT") <= 0.22
+            if bool(result["terminal_trim_applied"]):
+                assert float(result["terminal_trim_window_fraction"]) <= 0.20 + 1e-9
+
+
+def test_one_point_seven_five_cycle_does_not_treat_point_seven_five_support_as_full_route() -> None:
+    result = _run_field_compensation(
+        finite_support_entries=[
+            _build_finite_entry(
+                test_id="terminal_tail_only",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=0.75,
+                field_pp=100.0,
+            )
+        ],
+        target_cycle_count=1.75,
+        waveform_type="sine",
+        freq_hz=1.0,
+    )
+
+    assert result["finite_support_used"] is False
+    assert result["finite_route_mode"] == "steady_state_harmonic_expanded"
+    assert result["finite_support_fallback_reason"] == "finite_empirical_route_unavailable_using_steady_state_fallback"
+    assert result["support_tests_used"] == []
 
 
 def test_cross_family_support_can_override_insufficient_requested_family() -> None:
