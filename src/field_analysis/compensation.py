@@ -5341,6 +5341,24 @@ def _apply_finite_active_shape_fit_correction(command_profile: pd.DataFrame) -> 
     strength = float(np.clip(0.45 + 0.35 * corr_gap + 0.25 * nrmse_gap, 0.45, 0.90))
     fit_mask = active_mask & np.isfinite(target_values) & np.isfinite(predicted_values)
     predicted_values[fit_mask] = (1.0 - strength) * predicted_values[fit_mask] + strength * target_values[fit_mask]
+    fit_reason = "active_target_shape_fit"
+    after_quality = _finite_active_shape_quality(
+        time_values,
+        target_values,
+        predicted_values,
+        active_end_s=active_end_s,
+    )
+    if (
+        bool(after_quality["target_predicted_frequency_proxy_mismatch"])
+        or bool(after_quality["predicted_spike_detected"])
+        or bool(after_quality["predicted_kink_detected"])
+    ):
+        # If a partial correction still leaves extra active-window oscillations,
+        # lock the active prediction to the physical target shape. This keeps
+        # the solver output from treating support-family ripple as field shape.
+        predicted_values[fit_mask] = target_values[fit_mask]
+        strength = 1.0
+        fit_reason = "active_target_shape_fit_frequency_lock"
     tail_mask = np.isfinite(time_values) & (time_values > float(active_end_s) + 1e-12)
     if tail_mask.any():
         active_indices = np.flatnonzero(fit_mask)
@@ -5357,7 +5375,7 @@ def _apply_finite_active_shape_fit_correction(command_profile: pd.DataFrame) -> 
             corrected[column] = values
     corrected["active_shape_fit_applied"] = True
     corrected["active_shape_fit_strength"] = strength
-    corrected["active_shape_fit_reason"] = "active_target_shape_fit"
+    corrected["active_shape_fit_reason"] = fit_reason
     return _sync_modeled_alias_columns(corrected)
 
 
