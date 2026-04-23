@@ -4230,8 +4230,8 @@ def _hold_extend_column_to_active_end(
 ) -> bool:
     if column not in frame.columns or "time_s" not in frame.columns:
         return False
-    time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
-    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+    time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float).copy()
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float).copy()
     active_mask = np.isfinite(time_values) & (time_values <= float(active_end_s) + 1e-12)
     if active_mask.sum() < 2:
         return False
