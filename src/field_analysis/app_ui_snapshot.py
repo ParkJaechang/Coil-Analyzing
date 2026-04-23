@@ -1160,22 +1160,189 @@ def _is_nonempty_frame(value: object) -> bool:
     return isinstance(value, pd.DataFrame) and not value.empty
 
 
+def _first_available_column(frame: pd.DataFrame, columns: tuple[str, ...]) -> str | None:
+    for column in columns:
+        if column in frame.columns:
+            return column
+    return None
+
+
+def _plot_reference_pp(frame: pd.DataFrame | None, column: str) -> float:
+    if frame is None or not _is_nonempty_frame(frame) or column not in frame.columns:
+        return float("nan")
+    return _signal_peak_to_peak(frame, column)
+
+
 def _resolve_compensation_plot_reference(
     compensation: dict[str, object],
-) -> tuple[pd.DataFrame | None, str]:
+) -> tuple[pd.DataFrame | None, str, str, str, float]:
     support_profile_preview = compensation.get("support_profile_preview")
     if _is_nonempty_frame(support_profile_preview):
-        return support_profile_preview, "Support-Blended Output"
+        support_column = _first_available_column(
+            support_profile_preview,
+            (
+                "support_scaled_field_mT",
+                "support_blended_field_mT",
+                "expected_field_mT",
+                "measured_field_mT",
+                "expected_output",
+                "support_scaled_current_a",
+                "measured_current_a",
+            ),
+        )
+        if support_column is not None:
+            return (
+                support_profile_preview,
+                support_column,
+                "Support-Blended Output",
+                "finite support payload",
+                _plot_reference_pp(support_profile_preview, support_column),
+            )
 
     nearest_profile_preview = compensation.get("nearest_profile_preview")
     if _is_nonempty_frame(nearest_profile_preview):
-        return nearest_profile_preview, "Nearest Support Preview"
+        nearest_preview_column = _first_available_column(
+            nearest_profile_preview,
+            (
+                "measured_field_mT",
+                "expected_field_mT",
+                "support_scaled_field_mT",
+                "expected_output",
+                "measured_current_a",
+                "support_scaled_current_a",
+            ),
+        )
+        if nearest_preview_column is not None:
+            return (
+                nearest_profile_preview,
+                nearest_preview_column,
+                "Nearest Support Preview",
+                "nearest support preview",
+                _plot_reference_pp(nearest_profile_preview, nearest_preview_column),
+            )
 
     nearest_profile = compensation.get("nearest_profile")
     if _is_nonempty_frame(nearest_profile):
-        return nearest_profile, "Nearest Support Output"
+        nearest_column = _first_available_column(
+            nearest_profile,
+            (
+                "measured_field_mT",
+                "expected_field_mT",
+                "support_scaled_field_mT",
+                "expected_output",
+                "measured_current_a",
+                "support_scaled_current_a",
+            ),
+        )
+        if nearest_column is not None:
+            return (
+                nearest_profile,
+                nearest_column,
+                "Nearest Support Output",
+                "nearest support output",
+                _plot_reference_pp(nearest_profile, nearest_column),
+            )
 
-    return None, "Nearest Support Output"
+    return None, "measured_field_mT", "Nearest Support Output", "none", float("nan")
+
+
+def _finite_signal_value(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+    key: str,
+    frame_column: str | None = None,
+) -> object | None:
+    consistency = compensation.get("finite_signal_consistency")
+    if isinstance(consistency, dict) and key in consistency:
+        return consistency.get(key)
+    if key in compensation:
+        return compensation.get(key)
+    column = frame_column or key
+    if column in command_profile.columns:
+        return _first_frame_value(command_profile, column)
+    return None
+
+
+def _render_finite_signal_consistency_summary(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+) -> None:
+    status = _normalize_optional_text(
+        _finite_signal_value(
+            compensation,
+            command_profile,
+            "finite_signal_consistency_status",
+            "finite_signal_consistency_status",
+        )
+    ) or "unavailable"
+    status_tokens = {token.strip() for token in status.split("|") if token.strip()}
+
+    st.markdown("#### Finite Signal Consistency")
+    if "time_axis_mismatch" in status_tokens:
+        st.error(f"finite_signal_consistency_status={status}")
+    elif "command_metadata_mismatch" in status_tokens:
+        st.warning(f"finite_signal_consistency_status={status}")
+    elif status_tokens & {"command_early_stop", "predicted_early_zero", "support_early_zero"}:
+        st.warning(f"finite_signal_consistency_status={status}")
+    elif status == "ok" or status_tokens == {"ok"}:
+        st.success(f"finite_signal_consistency_status={status}")
+    else:
+        st.info(f"finite_signal_consistency_status={status}")
+
+    command_covers = _finite_signal_value(
+        compensation,
+        command_profile,
+        "command_covers_target_end",
+        "finite_command_covers_target_end",
+    )
+    predicted_covers = _finite_signal_value(
+        compensation,
+        command_profile,
+        "predicted_covers_target_end",
+        "finite_predicted_covers_target_end",
+    )
+    support_covers = _finite_signal_value(
+        compensation,
+        command_profile,
+        "support_covers_target_end",
+        "finite_support_covers_target_end",
+    )
+    command_early_stop_s = _finite_signal_value(compensation, command_profile, "command_early_stop_s")
+    predicted_early_stop_s = _finite_signal_value(compensation, command_profile, "predicted_early_stop_s")
+    support_early_stop_s = _finite_signal_value(compensation, command_profile, "support_early_stop_s")
+
+    st.caption(
+        "coverage flags: "
+        f"command_covers_target_end={command_covers} | "
+        f"predicted_covers_target_end={predicted_covers} | "
+        f"support_covers_target_end={support_covers}"
+    )
+    st.caption(
+        "early stop: "
+        f"command_early_stop_s={_format_optional_metric(command_early_stop_s, 's', digits=6)} | "
+        f"predicted_early_stop_s={_format_optional_metric(predicted_early_stop_s, 's', digits=6)} | "
+        f"support_early_stop_s={_format_optional_metric(support_early_stop_s, 's', digits=6)}"
+    )
+
+
+def _render_support_trace_marker(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+    *,
+    reference_label: str,
+    reference_column: str,
+    reference_source: str,
+    plotted_support_pp: float,
+) -> None:
+    support_payload_pp = _finite_signal_value(compensation, command_profile, "support_scaled_pp")
+    if first_number(support_payload_pp) is None:
+        support_payload_pp = _finite_signal_value(compensation, command_profile, "support_blended_pp")
+    st.caption(
+        "Support trace source: "
+        f"{reference_source} | label={reference_label} | column={reference_column} | "
+        f"support_payload_pp={_format_optional_metric(support_payload_pp, 'mT')} | "
+        f"plotted_support_trace_pp={_format_optional_metric(plotted_support_pp, 'mT')}"
+    )
 
 
 def _normalize_support_tests_used(value: object) -> str:
@@ -1509,7 +1676,13 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
-            reference_profile, reference_label = _resolve_compensation_plot_reference(compensation)
+            (
+                reference_profile,
+                reference_column,
+                reference_label,
+                reference_source,
+                plotted_support_pp,
+            ) = _resolve_compensation_plot_reference(compensation)
             recommended_voltage_pp = float(command_profile["recommended_voltage_pp"].iloc[0])
             limited_voltage_pp = float(command_profile["limited_voltage_pp"].iloc[0])
             required_gain_multiplier = float(command_profile["required_amp_gain_multiplier"].iloc[0])
@@ -1546,11 +1719,7 @@ def _render_quick_lut_tab_v2(
                     plot_output_compensation_waveforms(
                         command_profile=command_profile,
                         nearest_profile=reference_profile,
-                        nearest_column=(
-                            "measured_current_a"
-                            if compensation_target_type == "current"
-                            else "measured_field_mT"
-                        ),
+                        nearest_column=reference_column,
                         title=(
                             "Current Waveform Compensation"
                             if compensation_target_type == "current"
@@ -1560,6 +1729,14 @@ def _render_quick_lut_tab_v2(
                         reference_label=reference_label,
                     ),
                     use_container_width=True,
+                )
+                _render_support_trace_marker(
+                    compensation,
+                    command_profile,
+                    reference_label=reference_label,
+                    reference_column=reference_column,
+                    reference_source=reference_source,
+                    plotted_support_pp=plotted_support_pp,
                 )
             with comp_right:
                 st.plotly_chart(
@@ -1572,6 +1749,7 @@ def _render_quick_lut_tab_v2(
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
                 )
                 _render_finite_route_marker(compensation)
+                _render_finite_signal_consistency_summary(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
