@@ -59,7 +59,7 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
-from .ui_raw_waveforms import format_reference_test_label, render_raw_waveforms_tab
+from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
@@ -628,22 +628,24 @@ def _run_app_shell(
         if not analysis.parsed.normalized_frame.empty
     }
 
-    reference_options = ["없음"] + sorted(analysis_lookup.keys())
-    reference_label_lookup = {
-        test_id: format_reference_test_label(test_id, analysis_lookup)
-        for test_id in analysis_lookup
-    }
-    reference_test_id = st.selectbox(
-        "Comparison reference test (optional)",
+    reference_label_by_id, reference_id_by_label = build_raw_waveform_label_lookup(
+        sorted(analysis_lookup.keys()),
+        analysis_lookup,
+    )
+    reference_none_label = "없음"
+    reference_options = [reference_none_label] + [
+        reference_label_by_id[test_id]
+        for test_id in sorted(reference_label_by_id, key=lambda value: reference_label_by_id[value])
+    ]
+    reference_label = st.selectbox(
+        "비교 기준 테스트 (선택)",
         options=reference_options,
         index=0,
-        format_func=lambda value: value if value == reference_options[0] else reference_label_lookup.get(value, value),
     )
     st.caption(
-        "Optional baseline used by reference-normalized summary and shape comparison metrics. "
-        "Leave this empty for normal Raw Waveforms data inspection."
+        "선택한 파형과 겹쳐 비교할 기준 테스트입니다. 단일 데이터 검수 시에는 없음으로 두면 됩니다."
     )
-    reference_test_value = None if reference_test_id == "없음" else reference_test_id
+    reference_test_value = None if reference_label == reference_none_label else reference_id_by_label.get(reference_label)
 
     per_cycle_summary, per_test_summary, coverage = combine_analysis_frames(
         analyses=analyses,
