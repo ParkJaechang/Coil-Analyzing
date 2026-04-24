@@ -71,8 +71,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "excel_mapping_template.yaml"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_export"
 DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
-UI_SUPPORTED_FINITE_CYCLE_COUNTS = (0.75, 1.0, 1.25, 1.5)
-UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (1.75,)
+UI_SUPPORTED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
+UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (0.75,)
 UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
 
 
@@ -170,7 +170,7 @@ def _run_app_shell(
             type=["csv", "txt", "xlsx", "xlsm", "xls"],
             accept_multiple_files=True,
             key="transient_uploads",
-            help="1 cycle, 0.75 cycle, 1.25 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
+            help="1.0 / 1.25 / 1.5 / 1.75 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
         )
         validation_files = st.file_uploader(
             "2차 보정 검증 run 업로드",
@@ -1200,8 +1200,8 @@ def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
 
     if _cycle_in_set(float(requested), UI_UNAVAILABLE_FINITE_CYCLE_COUNTS):
         st.warning(
-            "1.75 cycle is currently unavailable because no safe decomposition/support exists. "
-            "It is hidden from the main selector and is not treated as 0.75."
+            "Previous finite cycle value `0.75` is legacy/unexpected for the primary selector; "
+            "reset to 1.0. 0.75 is not treated as 1.75."
         )
         st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
         return
@@ -1601,9 +1601,8 @@ def _render_finite_prediction_availability(compensation: dict[str, object]) -> N
     reason_text = unavailable_reason or "unavailable"
     if "1_75" in reason_text or "1.75" in reason_text or user_warning_key == "no_safe_1_75_support":
         st.warning(
-            "1.75 finite prediction unavailable: no safe decomposition/support exists. "
-            "1.75 is hidden from the selector, is not treated as 0.75, and unsafe predicted/support traces are "
-            "reported as unavailable."
+            "1.75 finite prediction unavailable: exact finite-cycle support data was not available or usable. "
+            "1.75 cycle is supported when exact finite-cycle support data exists; it is not treated as 0.75."
         )
     else:
         st.warning(
@@ -1821,7 +1820,8 @@ def _render_quick_lut_tab_v2(
         if finite_cycle_mode:
             st.caption(
                 f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
-                "0.75 is supported. 1.75 cycle is currently unavailable because no safe decomposition/support exists."
+                "1.75 cycle is supported when exact finite-cycle support data exists. "
+                "DAQ output fixed: ±5V · DCAMP Gain fixed: 100% · target field remains rounded-triangle / 100pp fixed."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
@@ -1831,8 +1831,8 @@ def _render_quick_lut_tab_v2(
                     index=1,
                     key="target_cycle_count_v2",
                     help=(
-                        "0.75 / 1.0 / 1.25 / 1.5 are supported. 1.75 is unavailable until safe finite "
-                        "decomposition/support exists."
+                        "1.0 / 1.25 / 1.5 / 1.75 are primary UI choices. "
+                        "1.75 cycle uses exact finite support when available; 0.75 is legacy and not treated as 1.75."
                     ),
                 )
             )
@@ -3141,7 +3141,7 @@ def _render_finite_run_section(
 ) -> None:
     st.markdown("#### finite-cycle 측정 확인")
     st.caption(
-        "이 화면은 0.75 / 1.0 / 1.25 / 1.5 cycle처럼 시작 후 멈추는 transient 데이터를 raw/corrected 기준으로 확인하는 용도입니다. "
+        "이 화면은 1.0 / 1.25 / 1.5 / 1.75 cycle처럼 시작 후 멈추는 transient 데이터를 raw/corrected 기준으로 확인하는 용도입니다. "
         "steady-state LUT와 별도로, 실제 정지 응답을 눈으로 검증하는 화면입니다."
     )
     st.info("여기서 보는 finite 데이터는 향후 transient 전용 모델 support용입니다. 현재 메인 보정 로직 자체는 steady-state 중심입니다.")
@@ -3288,7 +3288,7 @@ def _render_data_import_tab(
                     }
                 )
         st.markdown("#### finite-cycle 입력 대기열")
-        st.info("이 입력군은 1 cycle / 0.75 cycle / 1.25 cycle 전용 모델링 데이터용으로 분리되어 있습니다.")
+        st.info("이 입력군은 1.0 / 1.25 / 1.5 / 1.75 cycle 전용 모델링 데이터용으로 분리되어 있습니다.")
         st.dataframe(pd.DataFrame(transient_rows), use_container_width=True)
         if not transient_edited_metadata.empty:
             st.markdown("#### finite-cycle 메타데이터 편집 결과")

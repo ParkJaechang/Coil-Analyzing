@@ -128,7 +128,7 @@ def test_raw_waveforms_finite_cycle_runtime_view_contains_finite_controls_and_au
     raw_options = [str(option) for option in raw_selector.options]
 
     assert [str(option) for option in source_type_selector.options] == ["all", "continuous", "finite-cycle"]
-    assert raw_options == ["finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | triangle_1Hz_1.25cycle_10App.csv"]
+    assert raw_options == ["finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±5V | Gain 100% | triangle_1Hz_1.25cycle_10App.csv"]
     assert not OPAQUE_PREFIX.match(str(raw_selector.value))
     assert "1.25 cycle" in str(raw_selector.value)
 
