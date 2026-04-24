@@ -49,8 +49,8 @@ def test_frequency_proxy_mismatch_triggers_shape_lock() -> None:
     assert float(result["active_shape_nrmse"]) <= 0.05
 
 
-def test_zero_point_seven_five_and_sine_one_point_two_five_shape_fit() -> None:
-    for cycle_count in (0.75, 1.25):
+def test_sine_one_point_two_five_shape_fit() -> None:
+    for cycle_count in (1.25,):
         result = finite_fixture._run_field_compensation(
             finite_support_entries=[
                 finite_fixture._build_finite_entry(
@@ -74,7 +74,30 @@ def test_zero_point_seven_five_and_sine_one_point_two_five_shape_fit() -> None:
         assert float(result["predicted_jump_ratio"]) <= 0.20
 
 
-def test_one_point_seven_five_remains_unavailable() -> None:
+def test_zero_point_seven_five_is_unsupported() -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[
+            finite_fixture._build_finite_entry(
+                test_id="sine_0p75",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=0.75,
+                field_pp=100.0,
+            )
+        ],
+        target_cycle_count=0.75,
+        waveform_type="sine",
+        freq_hz=1.0,
+    )
+
+    assert result["finite_route_mode"] == "finite_unavailable_unsupported_cycle_count"
+    assert result["finite_prediction_available"] is False
+    profile = result["command_profile"]
+    assert pd.to_numeric(profile["predicted_field_mT"], errors="coerce").isna().all()
+    assert pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").isna().all()
+
+
+def test_one_point_seven_five_uses_exact_support() -> None:
     result = finite_fixture._run_field_compensation(
         finite_support_entries=[
             finite_fixture._build_finite_entry(
@@ -90,8 +113,8 @@ def test_one_point_seven_five_remains_unavailable() -> None:
         freq_hz=1.0,
     )
 
-    assert result["finite_route_mode"] == "finite_unavailable_no_safe_1_75_decomposition"
-    assert result["finite_prediction_available"] is False
-    profile = result["command_profile"]
-    assert pd.to_numeric(profile["predicted_field_mT"], errors="coerce").isna().all()
-    assert pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce").isna().all()
+    assert result["finite_route_mode"] == "finite_empirical_field_support"
+    assert result["finite_prediction_available"] is True
+    assert result["exact_cycle_support_used"] is True
+    assert result["selected_support_cycle_count"] == 1.75
+    assert result["target_predicted_frequency_proxy_mismatch"] is False

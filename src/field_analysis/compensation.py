@@ -19,7 +19,7 @@ from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
 from .utils import canonicalize_waveform_type
 
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
-FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (0.75, 1.0, 1.25, 1.5)
+FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
 FINITE_SIGNAL_JUMP_RATIO_LIMIT = 0.20
 
@@ -73,6 +73,8 @@ def _normalize_field_finite_cycle_count(target_cycle_count: float | None) -> flo
     if target_cycle_count is None or not np.isfinite(target_cycle_count):
         return None
     requested = float(target_cycle_count)
+    if abs(requested - 0.75) <= 0.125:
+        return 0.75
     if abs(requested - 1.75) <= 0.125:
         return 1.75
     nearest = min(
@@ -708,11 +710,18 @@ def synthesize_current_waveform_compensation(
         field_only_route
         and finite_cycle_mode
         and not use_finite_empirical_route
-        and finite_cycle_decomposition["finite_cycle_decomposition_mode"] == "fallback_no_safe_1_75_decomposition"
+        and finite_cycle_decomposition["finite_cycle_decomposition_mode"] in {
+            "fallback_no_exact_1_75_support",
+            "unsupported_fractional_cycle_request",
+        }
     ):
         command_profile = _suppress_unsafe_finite_prediction(
             command_profile,
-            reason="no_safe_1_75_decomposition",
+            reason=(
+                "unsupported_cycle_count"
+                if finite_cycle_decomposition["finite_cycle_decomposition_mode"] == "unsupported_fractional_cycle_request"
+                else "no_exact_1_75_support"
+            ),
         )
     target_active_end_s = (
         float(np.nanmax(pd.to_numeric(command_profile.loc[command_profile["is_active_target"] == True, "time_s"], errors="coerce").to_numpy(dtype=float)))
@@ -759,10 +768,17 @@ def synthesize_current_waveform_compensation(
         finite_route_reason = "finite_support_unavailable"
         finite_route_warning = "finite transient data not used"
         if bool(_first_boolish(command_profile.get("unsafe_fallback_suppressed"))):
-            finite_support_fallback_reason = "no_safe_1_75_decomposition"
-            finite_route_mode = "finite_unavailable_no_safe_1_75_decomposition"
-            finite_route_reason = "no_safe_1_75_decomposition"
-            finite_route_warning = "unsafe fallback prediction suppressed"
+            suppressed_reason = _first_text(command_profile.get("finite_prediction_unavailable_reason"))
+            if suppressed_reason == "unsupported_cycle_count":
+                finite_support_fallback_reason = "unsupported_cycle_count"
+                finite_route_mode = "finite_unavailable_unsupported_cycle_count"
+                finite_route_reason = "unsupported_cycle_count"
+                finite_route_warning = "unsupported finite cycle request suppressed"
+            else:
+                finite_support_fallback_reason = "no_exact_1_75_support"
+                finite_route_mode = "finite_unavailable_no_exact_1_75_support"
+                finite_route_reason = "no_exact_1_75_support"
+                finite_route_warning = "unsafe fallback prediction suppressed"
     elif use_finite_empirical_route:
         finite_route_mode = str(finite_empirical_model.get("mode") or "finite_empirical_field_support")
         finite_route_reason = (
@@ -835,9 +851,16 @@ def synthesize_current_waveform_compensation(
         command_profile["plot_source"] = plot_source
         command_profile["support_count_used"] = int(support_count_used)
         command_profile["support_tests_used"] = "|".join(str(item) for item in support_tests_used)
+        command_profile["requested_cycle_count"] = target_cycle_count
         command_profile["support_cycle_count"] = support_cycle_count
+        command_profile["selected_support_cycle_count"] = support_cycle_count
         command_profile["support_freq_hz"] = support_freq_hz
         command_profile["selected_support_waveform"] = selected_support_waveform
+        command_profile["exact_cycle_support_used"] = bool(
+            use_finite_empirical_route and support_cycle_count is not None and np.isfinite(float(support_cycle_count))
+            and target_cycle_count is not None and np.isfinite(float(target_cycle_count))
+            and abs(float(support_cycle_count) - float(target_cycle_count)) <= 0.05
+        )
         command_profile["support_family_selection_mode"] = support_family_selection_mode
         command_profile["user_requested_support_family"] = user_requested_support_family
         command_profile["candidate_support_families"] = "|".join(str(item) for item in candidate_support_families)
@@ -1095,7 +1118,16 @@ def synthesize_current_waveform_compensation(
         "plot_source": plot_source,
         "support_tests_used": support_tests_used,
         "support_count_used": support_count_used,
+        "requested_cycle_count": target_cycle_count,
         "support_cycle_count": support_cycle_count,
+        "selected_support_cycle_count": support_cycle_count,
+        "exact_cycle_support_used": bool(
+            support_cycle_count is not None
+            and np.isfinite(float(support_cycle_count))
+            and target_cycle_count is not None
+            and np.isfinite(float(target_cycle_count))
+            and abs(float(support_cycle_count) - float(target_cycle_count)) <= 0.05
+        ),
         "support_freq_hz": support_freq_hz,
         "selected_support_waveform": selected_support_waveform,
         "support_waveform_role": support_waveform_role,
@@ -1212,7 +1244,7 @@ def build_finite_support_entries(
             else float("nan")
         )
         estimated_cycle_span = duration_s * freq_hz if np.isfinite(duration_s) and np.isfinite(freq_hz) else float("nan")
-        requested_cycle_count = _first_numeric(parsed.metadata.get("cycle"))
+        requested_cycle_count = _first_numeric(parsed.metadata.get("cycle") or parsed.metadata.get("cycle_count"))
         approx_cycle_span = (
             float(requested_cycle_count)
             if requested_cycle_count is not None and np.isfinite(requested_cycle_count)
@@ -1223,13 +1255,13 @@ def build_finite_support_entries(
                 "test_id": test_id,
                 "source_file": parsed.source_file,
                 "sheet_name": parsed.sheet_name,
-                "waveform_type": canonicalize_waveform_type(parsed.metadata.get("waveform")),
+                "waveform_type": canonicalize_waveform_type(parsed.metadata.get("waveform") or parsed.metadata.get("waveform_type")),
                 "freq_hz": freq_hz,
                 "duration_s": duration_s,
                 "approx_cycle_span": approx_cycle_span,
                 "estimated_cycle_span": estimated_cycle_span,
                 "requested_cycle_count": requested_cycle_count,
-                "target_current_a": _first_numeric(parsed.metadata.get("Target Current(A)")),
+                "target_current_a": _first_numeric(parsed.metadata.get("Target Current(A)") or parsed.metadata.get("target_current_a")),
                 "notes": parsed.metadata.get("notes", ""),
                 "current_pp": _signal_peak_to_peak(corrected, current_channel),
                 "field_pp": _signal_peak_to_peak(corrected, field_channel),
@@ -1346,7 +1378,9 @@ def _finite_support_active_coverage_penalty(entry: dict[str, Any]) -> float:
 def _finite_support_cycle_semantics_penalty(*, support_cycle_count: float, target_cycle_count: float) -> float:
     if not np.isfinite(support_cycle_count) or not np.isfinite(target_cycle_count):
         return 0.0
-    if target_cycle_count >= 1.75 - 1e-9 and support_cycle_count <= 0.75 + 1e-9:
+    if target_cycle_count < 1.0 - 1e-9:
+        return 12.0
+    if target_cycle_count >= 1.75 - 1e-9 and abs(support_cycle_count - 1.75) > 0.05:
         return 12.0
     if target_cycle_count > 1.0 and support_cycle_count < 1.0:
         return 6.0
@@ -1385,18 +1419,22 @@ def _finite_cycle_decomposition_metadata(
     terminal_tail_support_id = None
     terminal_tail_fraction = terminal_fraction
     if np.isfinite(target_value):
-        if target_value >= 1.75 - 1e-9:
+        if target_value < 1.0 - 1e-9:
+            mode = "unsupported_fractional_cycle_request"
+            whole_substitution_valid = False
+            warning = "supported_finite_cycles_are_1p0_1p25_1p5_1p75"
+        elif target_value >= 1.75 - 1e-9:
             if finite_support_used and np.isfinite(selected_cycle) and abs(selected_cycle - target_value) <= 0.05:
                 mode = "whole_exact_1_75_support"
                 whole_substitution_valid = True
             elif finite_support_used and whole_substitution_used:
                 mode = "invalid_whole_support_substitution"
                 whole_substitution_valid = False
-                warning = "1.75_requires_exact_or_decomposed_support"
+                warning = "1.75_requires_exact_support"
             else:
-                mode = "fallback_no_safe_1_75_decomposition"
+                mode = "fallback_no_exact_1_75_support"
                 whole_substitution_valid = True
-                warning = "1.75_requires_1_full_cycle_plus_0.75_terminal_tail_or_exact_support"
+                warning = "1.75_requires_exact_support"
         elif terminal_fraction > 1e-9:
             mode = "fractional_cycle_empirical_support" if finite_support_used else "fractional_cycle_fallback"
         else:
@@ -1411,7 +1449,7 @@ def _finite_cycle_decomposition_metadata(
         "cycle_semantics_warning": warning,
         "whole_support_substitution_used": whole_substitution_used,
         "whole_support_substitution_valid": whole_substitution_valid,
-        "finite_cycle_policy_version": "field_route_cycles_v2",
+        "finite_cycle_policy_version": "field_route_cycles_v3",
         "supported_cycle_counts": list(FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS),
     }
 
@@ -1749,7 +1787,7 @@ def synthesize_finite_empirical_compensation(
     waveform_type = canonicalize_waveform_type(waveform_type)
     if waveform_type is None:
         return None
-    if float(target_cycle_count) >= 1.75 - 1e-9:
+    if float(target_cycle_count) < 1.0 - 1e-9:
         return None
 
     output_column = "field_pp" if target_output_type == "field" else "current_pp"
@@ -2191,8 +2229,11 @@ def synthesize_finite_empirical_compensation(
         "support_count_used": support_count_used,
         "support_test_id": str(support["test_id"]),
         "support_tests_used": support_tests_used,
+        "requested_cycle_count": float(target_cycle_count),
         "support_freq_hz": float(support.get("freq_hz", np.nan)),
         "support_cycle_count": float(support.get("approx_cycle_span", np.nan)),
+        "selected_support_cycle_count": float(support.get("approx_cycle_span", np.nan)),
+        "exact_cycle_support_used": bool(abs(float(support.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) <= float(cycle_match_tolerance)),
         "support_output_pp": support_output_pp,
         "scale_ratio": scale_ratio,
         "distance_score": nearest_distance_score,
@@ -5393,13 +5434,20 @@ def _suppress_unsafe_finite_prediction(command_profile: pd.DataFrame, *, reason:
     ):
         if column in suppressed.columns:
             suppressed[column] = np.nan
+    user_warning_key = "no_safe_1_75_support"
+    command_validity_status = "fallback_not_validated_for_1p75"
+    if reason == "no_exact_1_75_support":
+        user_warning_key = "no_exact_1_75_support"
+    elif reason == "unsupported_cycle_count":
+        user_warning_key = "unsupported_finite_cycle_count"
+        command_validity_status = "unsupported_cycle_count"
     return suppressed.assign(
         finite_prediction_available=False,
         finite_prediction_unavailable_reason=reason,
         support_prediction_masked=True,
         unsafe_fallback_suppressed=True,
-        user_warning_key="no_safe_1_75_support",
-        command_validity_status="fallback_not_validated_for_1p75",
+        user_warning_key=user_warning_key,
+        command_validity_status=command_validity_status,
         finite_prediction_source="unavailable",
         predicted_cover_reason=reason,
         support_cover_reason=reason,

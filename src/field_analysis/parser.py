@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from io import BytesIO, StringIO
 from pathlib import Path
+import re
 from typing import Any
 
 import numpy as np
@@ -27,6 +28,71 @@ from .utils import (
 
 
 SUPPORTED_FILE_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm", ".xls"}
+CONTINUOUS_FILENAME_PATTERN = re.compile(
+    r"^continuous_(?P<waveform>sine|triangle)_(?P<freq>\d+(?:[._p]\d+)?)hz$",
+    flags=re.IGNORECASE,
+)
+FINITE_FILENAME_PATTERN = re.compile(
+    r"^finite_(?P<waveform>sine|triangle)_(?P<freq>\d+(?:[._p]\d+)?)hz_(?P<cycle>\d+(?:[._p]\d+)?)cycle$",
+    flags=re.IGNORECASE,
+)
+
+
+def _parse_filename_decimal(token: str | None) -> float | None:
+    if not token:
+        return None
+    try:
+        return float(str(token).lower().replace("p", ".").replace("_", "."))
+    except ValueError:
+        return None
+
+
+def infer_dataset_filename_metadata(file_name: str) -> dict[str, Any]:
+    """Infer dataset metadata from the new sync-friendly filename patterns."""
+
+    stem = Path(file_name).stem
+    finite_match = FINITE_FILENAME_PATTERN.match(stem)
+    if finite_match is not None:
+        waveform_type = str(finite_match.group("waveform")).lower()
+        freq_hz = _parse_filename_decimal(finite_match.group("freq"))
+        cycle_count = _parse_filename_decimal(finite_match.group("cycle"))
+        return {
+            "source_type": "finite_cycle",
+            "waveform": waveform_type,
+            "waveform_type": waveform_type,
+            "freq_hz": freq_hz,
+            "cycle": cycle_count,
+            "cycle_count": cycle_count,
+            "daq_amplitude_v": 5.0,
+            "daq_pp_v": 10.0,
+            "dcamp_gain_percent": 100.0,
+            "gain": 100.0,
+            "target_current_a": None,
+            "Target Current(A)": None,
+            "filename_metadata_inferred": True,
+        }
+
+    continuous_match = CONTINUOUS_FILENAME_PATTERN.match(stem)
+    if continuous_match is not None:
+        waveform_type = str(continuous_match.group("waveform")).lower()
+        freq_hz = _parse_filename_decimal(continuous_match.group("freq"))
+        return {
+            "source_type": "continuous",
+            "waveform": waveform_type,
+            "waveform_type": waveform_type,
+            "freq_hz": freq_hz,
+            "cycle": None,
+            "cycle_count": None,
+            "daq_amplitude_v": 5.0,
+            "daq_pp_v": 10.0,
+            "dcamp_gain_percent": 100.0,
+            "gain": 100.0,
+            "target_current_a": None,
+            "Target Current(A)": None,
+            "filename_metadata_inferred": True,
+        }
+
+    return {"filename_metadata_inferred": False}
 
 
 def decode_text_bytes(data: bytes) -> str:
@@ -93,6 +159,8 @@ def parse_measurement_file(
             mapping.update(mapping_overrides[sheet_preview.sheet_name])
 
         metadata = dict(sheet_preview.metadata)
+        for key, value in infer_dataset_filename_metadata(file_name).items():
+            metadata.setdefault(key, value)
         if metadata_overrides and sheet_preview.sheet_name in metadata_overrides:
             for key, value in metadata_overrides[sheet_preview.sheet_name].items():
                 if value not in ("", None):
@@ -512,8 +580,18 @@ def _normalize_frame(
         metadata,
         schema.metadata_aliases.get("amp_gain_setting", ()),
     )
+    if amp_gain_setting is None:
+        amp_gain_setting = coerce_float(metadata.get("dcamp_gain_percent"))
     if amp_gain_setting is not None and normalized["amp_gain_setting"].isna().all():
         normalized["amp_gain_setting"] = amp_gain_setting
+
+    source_type = str(metadata.get("source_type") or "").strip() or (
+        "finite_cycle" if cycle_hint is not None and cycle_hint > 0 else "continuous"
+    )
+    daq_amplitude_v = coerce_float(metadata.get("daq_amplitude_v"))
+    daq_pp_v = coerce_float(metadata.get("daq_pp_v"))
+    dcamp_gain_percent = coerce_float(metadata.get("dcamp_gain_percent"))
+    filename_metadata_inferred = bool(metadata.get("filename_metadata_inferred"))
 
     notes_value = _extract_metadata_value(metadata, schema.metadata_aliases.get("notes", ()))
     test_id = make_test_id(
@@ -530,6 +608,12 @@ def _normalize_frame(
     normalized["current_pp_target_a"] = current_pp_target
     normalized["current_pk_target_a"] = current_pk_target
     normalized["cycle_total_expected"] = cycle_total_expected
+    normalized["source_type"] = source_type
+    normalized["cycle_count"] = cycle_hint if cycle_hint is not None and cycle_hint > 0 else np.nan
+    normalized["daq_amplitude_v"] = daq_amplitude_v
+    normalized["daq_pp_v"] = daq_pp_v
+    normalized["dcamp_gain_percent"] = dcamp_gain_percent
+    normalized["filename_metadata_inferred"] = filename_metadata_inferred
     if amp_gain_setting is not None:
         normalized["amp_gain_setting"] = normalized["amp_gain_setting"].fillna(amp_gain_setting)
     normalized["notes"] = notes_value or ""
@@ -546,7 +630,7 @@ def _normalize_frame(
     warnings.extend(_series_quality_warnings(normalized))
     normalized["parse_warnings"] = flatten_messages(warnings)
     logs.append(
-        f"{source_file}/{sheet_name}: waveform={waveform_type}, freq={freq_hz}, target_mode={current_mode_inferred}"
+        f"{source_file}/{sheet_name}: waveform={waveform_type}, freq={freq_hz}, source_type={source_type}, target_mode={current_mode_inferred}"
     )
     if signed_current_info["reconstructed_columns"]:
         reconstructed = ", ".join(str(value) for value in signed_current_info["reconstructed_columns"])
