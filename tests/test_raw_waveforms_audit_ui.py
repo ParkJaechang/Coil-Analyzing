@@ -65,7 +65,8 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     snapshot_source = (REPO_ROOT / "src" / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
     raw_ui_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms.py").read_text(encoding="utf-8")
 
-    assert "render_raw_waveforms_tab(test_ids=test_ids, analysis_lookup=analysis_lookup)" in snapshot_source
+    assert "render_raw_waveforms_tab(" in snapshot_source
+    assert "transient_measurements=transient_measurements" in snapshot_source
     assert "raw_test_simple" not in snapshot_source
     assert "테스트 선택 (metadata label)" in raw_ui_source
     assert "Search metadata label / source file" in raw_ui_source
