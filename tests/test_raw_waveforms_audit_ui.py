@@ -12,6 +12,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.ui_raw_waveforms import (
+    build_raw_waveform_label_lookup,
     build_raw_waveform_test_records,
     display_source_file_name,
     format_reference_test_label,
@@ -51,9 +52,12 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
     records = build_raw_waveform_test_records(list(lookup), lookup)
 
     assert len(records) == 1
-    assert records[0].label == "Triangle | 1 Hz | 1.25 cycle | 10 App | continuous/tri_1hz_1.25cycle_10pp.csv"
+    assert records[0].label == "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | continuous/tri_1hz_1.25cycle_10pp.csv"
     assert "0123456789abcdef" not in records[0].label
     assert format_reference_test_label("0123456789abcdef_internal_id", lookup) == records[0].label
+    label_by_id, id_by_label = build_raw_waveform_label_lookup(list(lookup), lookup)
+    assert label_by_id["0123456789abcdef_internal_id"] == records[0].label
+    assert id_by_label[records[0].label] == "0123456789abcdef_internal_id"
     assert display_source_file_name("0123456789abcdef_sine_2hz_20app.csv") == "sine_2hz_20app.csv"
 
 
@@ -63,7 +67,7 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
 
     assert "render_raw_waveforms_tab(test_ids=test_ids, analysis_lookup=analysis_lookup)" in snapshot_source
     assert "raw_test_simple" not in snapshot_source
-    assert "Test selection (metadata label)" in raw_ui_source
+    assert "테스트 선택 (metadata label)" in raw_ui_source
     assert "Search metadata label / source file" in raw_ui_source
     assert "Waveform family" in raw_ui_source
     assert "Frequency (Hz)" in raw_ui_source
@@ -74,5 +78,5 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     assert "Internal ID" in raw_ui_source
     assert "Corrected/preprocessed" in raw_ui_source
     assert "Raw normalized parse" in raw_ui_source
-    assert "Comparison reference test (optional)" in snapshot_source
-    assert "reference-normalized summary and shape comparison metrics" in snapshot_source
+    assert "비교 기준 테스트 (선택)" in snapshot_source
+    assert "선택한 파형과 겹쳐 비교할 기준 테스트입니다" in snapshot_source

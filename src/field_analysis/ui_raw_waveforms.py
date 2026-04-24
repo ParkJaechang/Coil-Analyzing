@@ -52,10 +52,21 @@ def build_raw_waveform_test_records(test_ids: list[str], analysis_lookup: dict) 
     return sorted(records, key=_raw_waveform_record_sort_key)
 
 
+def build_raw_waveform_label_lookup(
+    test_ids: list[str],
+    analysis_lookup: dict,
+) -> tuple[dict[str, str], dict[str, str]]:
+    records = build_raw_waveform_test_records(test_ids, analysis_lookup)
+    label_by_id = _unique_labels_by_id(records)
+    id_by_label = {label: test_id for test_id, label in label_by_id.items()}
+    return label_by_id, id_by_label
+
+
 def format_reference_test_label(test_id: str, analysis_lookup: dict) -> str:
     if test_id not in analysis_lookup:
         return test_id
-    return _build_raw_waveform_test_record(test_id, analysis_lookup[test_id]).label
+    label_by_id, _ = build_raw_waveform_label_lookup([test_id], analysis_lookup)
+    return label_by_id.get(test_id, test_id)
 
 
 def render_raw_waveforms_tab(test_ids: list[str], analysis_lookup: dict) -> None:
@@ -75,13 +86,14 @@ def render_raw_waveforms_tab(test_ids: list[str], analysis_lookup: dict) -> None
         st.warning("No tests match the current Raw Waveforms filters.")
         return
 
-    label_by_id = {record.test_id: record.label for record in filtered_records}
-    selected_test_id = st.selectbox(
-        "Test selection (metadata label)",
-        options=[record.test_id for record in filtered_records],
-        format_func=lambda value: label_by_id.get(value, value),
+    label_by_id = _unique_labels_by_id(filtered_records)
+    id_by_label = {label: test_id for test_id, label in label_by_id.items()}
+    selected_label = st.selectbox(
+        "테스트 선택 (metadata label)",
+        options=[label_by_id[record.test_id] for record in filtered_records],
         key="raw_test_audit",
     )
+    selected_test_id = id_by_label[selected_label]
     selected_record = next(record for record in filtered_records if record.test_id == selected_test_id)
     selected_analysis = analysis_lookup[selected_test_id]
 
@@ -293,16 +305,34 @@ def _render_raw_waveform_plot(
 
 def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     parts = [
+        _display_value(record.source_type),
         _display_value(record.waveform_type).title(),
         _format_number_with_unit(record.freq_hz, "Hz"),
     ]
-    if record.source_type == "finite-cycle" and np.isfinite(record.cycle_count):
+    if record.source_type == "finite-cycle" and np.isfinite(record.cycle_count) and record.cycle_count > 0:
         parts.append(_format_number_with_unit(record.cycle_count, "cycle"))
     if np.isfinite(record.target_current_a):
         parts.append(_format_number_with_unit(record.target_current_a, "App"))
     if record.source_file_label:
         parts.append(record.source_file_label)
     return " | ".join(part for part in parts if part and part != "unknown")
+
+
+def _unique_labels_by_id(records: list[RawWaveformTestRecord]) -> dict[str, str]:
+    counts: dict[str, int] = {}
+    for record in records:
+        counts[record.label] = counts.get(record.label, 0) + 1
+
+    seen: dict[str, int] = {}
+    label_by_id: dict[str, str] = {}
+    for record in records:
+        label = record.label
+        if counts[label] > 1:
+            sheet_suffix = f" | sheet {record.sheet_name}" if record.sheet_name else ""
+            seen[label] = seen.get(label, 0) + 1
+            label = f"{label}{sheet_suffix} | item {seen[record.label]}"
+        label_by_id[record.test_id] = label
+    return label_by_id
 
 
 def _raw_waveform_record_sort_key(record: RawWaveformTestRecord) -> tuple:
@@ -386,10 +416,14 @@ def _infer_source_type(
     freq_hz: float,
 ) -> str:
     text = f"{source_file} {sheet_name}".lower()
-    if any(token in text for token in ("finite", "transient", "cycle", "stop")):
+    if np.isfinite(cycle_count) and 0.0 < cycle_count <= 3.0:
         return "finite-cycle"
-    if np.isfinite(cycle_count) and cycle_count <= 3.0:
+    if np.isfinite(cycle_count) and cycle_count == 0.0:
+        return "continuous"
+    if any(token in text for token in ("finite", "transient", "stop")):
         return "finite-cycle"
+    if any(token in text for token in ("continuous", "steady", "steadystate", "steady-state")):
+        return "continuous"
     approx_cycles = duration_s * freq_hz if np.isfinite(duration_s) and np.isfinite(freq_hz) else float("nan")
     if np.isfinite(approx_cycles) and approx_cycles <= 3.0:
         return "finite-cycle"
