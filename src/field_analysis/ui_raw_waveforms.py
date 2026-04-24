@@ -9,6 +9,11 @@ import pandas as pd
 import streamlit as st
 
 from .plotting import plot_waveforms
+from .ui_raw_waveforms_labels import (
+    FIXED_DAQ_OUTPUT_LABEL,
+    FIXED_GAIN_LABEL,
+    infer_new_dataset_filename_metadata,
+)
 from .ui_raw_waveforms_quality import (
     add_finite_visual_markers,
     build_finite_marker_times,
@@ -193,26 +198,36 @@ def _build_raw_waveform_test_record_from_frames(
 
     source_file = str(getattr(parsed, "source_file", "") or _first_nonempty(normalized, "source_file") or "")
     source_file_label = display_source_file_name(source_file)
+    filename_metadata = infer_new_dataset_filename_metadata(source_file_label or source_file)
     sheet_name = str(getattr(parsed, "sheet_name", "") or _first_nonempty(normalized, "sheet_name") or "")
     waveform_type = str(
         _first_nonempty(normalized, "waveform_type")
         or _metadata_value(metadata, "waveform", "waveform_type")
+        or filename_metadata.get("waveform_type")
         or "unknown"
     )
     freq_hz = _first_numeric(normalized, "freq_hz")
     if not np.isfinite(freq_hz):
         freq_hz = _first_metadata_number(metadata, "frequency(Hz)", "freq_hz", "frequency")
+    if not np.isfinite(freq_hz) and filename_metadata.get("freq_hz") is not None:
+        freq_hz = float(filename_metadata["freq_hz"])
     target_current_a = _first_numeric(normalized, "current_pp_target_a")
     if not np.isfinite(target_current_a):
         target_current_a = _first_metadata_number(metadata, "Target Current(A)", "target_current_a", "current")
     cycle_count = _first_numeric(normalized, "cycle_total_expected")
     if not np.isfinite(cycle_count):
         cycle_count = _first_metadata_number(metadata, "cycle", "cycle_count", "cycle_hint")
+    if filename_metadata.get("cycle_count") is not None:
+        cycle_count = float(filename_metadata["cycle_count"])
 
     duration_s = _duration_seconds(corrected if not corrected.empty else normalized)
     sample_count = int(len(corrected if not corrected.empty else normalized))
     sampling_rate_hz = _sampling_rate_hz(corrected if not corrected.empty else normalized)
-    source_type = forced_source_type or _infer_source_type(source_file, sheet_name, cycle_count, duration_s, freq_hz)
+    source_type = (
+        forced_source_type
+        or str(filename_metadata.get("source_type") or "")
+        or _infer_source_type(source_file, sheet_name, cycle_count, duration_s, freq_hz)
+    )
 
     record = RawWaveformTestRecord(
         test_id=str(test_id),
@@ -398,8 +413,9 @@ def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     ]
     if record.source_type == "finite-cycle" and np.isfinite(record.cycle_count) and record.cycle_count > 0:
         parts.append(_format_number_with_unit(record.cycle_count, "cycle"))
-    if np.isfinite(record.target_current_a):
+    if np.isfinite(record.target_current_a) and record.target_current_a > 0:
         parts.append(_format_number_with_unit(record.target_current_a, "App"))
+    parts.extend([FIXED_DAQ_OUTPUT_LABEL, FIXED_GAIN_LABEL])
     if record.source_file_label:
         parts.append(record.source_file_label)
     return " | ".join(part for part in parts if part and part != "unknown")

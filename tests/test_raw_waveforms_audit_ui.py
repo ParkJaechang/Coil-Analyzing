@@ -52,7 +52,7 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
     records = build_raw_waveform_test_records(list(lookup), lookup)
 
     assert len(records) == 1
-    assert records[0].label == "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | continuous/tri_1hz_1.25cycle_10pp.csv"
+    assert records[0].label == "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±5V | Gain 100% | continuous/tri_1hz_1.25cycle_10pp.csv"
     assert "0123456789abcdef" not in records[0].label
     assert format_reference_test_label("0123456789abcdef_internal_id", lookup) == records[0].label
     label_by_id, id_by_label = build_raw_waveform_label_lookup(list(lookup), lookup)

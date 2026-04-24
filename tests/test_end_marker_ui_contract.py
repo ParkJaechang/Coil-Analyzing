@@ -36,7 +36,6 @@ def test_fractional_cycle_policy_wording_exists() -> None:
     source = _source()
 
     assert "Supported finite cycles:" in source
-    assert "0.75 is supported." in source
-    assert "1.75 cycle is currently unavailable because no safe decomposition/support exists." in source
-    assert "1.75 cycle is currently unavailable because no safe decomposition/support exists." in source
-    assert "not treated as 0.75" in source
+    assert "1.75 cycle is supported when exact finite-cycle support data exists." in source
+    assert "Previous finite cycle value `0.75` is legacy/unexpected" in source
+    assert "0.75 is not treated as 1.75" in source
