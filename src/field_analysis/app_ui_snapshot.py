@@ -59,6 +59,7 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
+from .ui_raw_waveforms import format_reference_test_label, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
@@ -628,7 +629,20 @@ def _run_app_shell(
     }
 
     reference_options = ["없음"] + sorted(analysis_lookup.keys())
-    reference_test_id = st.selectbox("Reference test", options=reference_options, index=0)
+    reference_label_lookup = {
+        test_id: format_reference_test_label(test_id, analysis_lookup)
+        for test_id in analysis_lookup
+    }
+    reference_test_id = st.selectbox(
+        "Comparison reference test (optional)",
+        options=reference_options,
+        index=0,
+        format_func=lambda value: value if value == reference_options[0] else reference_label_lookup.get(value, value),
+    )
+    st.caption(
+        "Optional baseline used by reference-normalized summary and shape comparison metrics. "
+        "Leave this empty for normal Raw Waveforms data inspection."
+    )
     reference_test_value = None if reference_test_id == "없음" else reference_test_id
 
     per_cycle_summary, per_test_summary, coverage = combine_analysis_frames(
@@ -2404,39 +2418,7 @@ def _render_raw_waveforms_tab(
     test_ids: list[str],
     analysis_lookup: dict,
 ) -> None:
-    selected_test_id = st.selectbox("테스트 선택", options=test_ids, key="raw_test_simple")
-    selected_analysis = analysis_lookup[selected_test_id]
-    dataset_mode = st.radio("데이터셋", options=["corrected", "raw"], horizontal=True, key="raw_dataset_simple")
-    display_frame = (
-        selected_analysis.preprocess.corrected_frame
-        if dataset_mode == "corrected"
-        else selected_analysis.parsed.normalized_frame
-    )
-    default_channels = [
-        "daq_input_v",
-        "coil1_current_a",
-        "coil2_current_a",
-        "temperature_c",
-        "bx_mT",
-        "by_mT",
-        "bz_mT",
-        "bmag_mT",
-    ]
-    selected_channels = st.multiselect(
-        "표시 채널",
-        options=[
-            column
-            for column in display_frame.columns
-            if column not in {"source_file", "sheet_name", "test_id", "notes", "parse_warnings"}
-        ],
-        default=[channel for channel in default_channels if channel in display_frame.columns],
-        key="raw_channels_simple",
-    )
-    st.plotly_chart(
-        plot_waveforms(display_frame, selected_channels, title=f"{selected_test_id} / {dataset_mode}"),
-        use_container_width=True,
-    )
-    st.dataframe(display_frame.head(200), use_container_width=True)
+    render_raw_waveforms_tab(test_ids=test_ids, analysis_lookup=analysis_lookup)
 
 
 def _render_cycle_overlay_section(
