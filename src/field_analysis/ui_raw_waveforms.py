@@ -9,6 +9,13 @@ import pandas as pd
 import streamlit as st
 
 from .plotting import plot_waveforms
+from .ui_raw_waveforms_quality import (
+    add_finite_visual_markers,
+    build_finite_marker_times,
+    preferred_marker_channel,
+    render_anomaly_helper,
+    render_finite_marker_summary,
+)
 from .utils import first_number
 
 
@@ -32,6 +39,13 @@ class RawWaveformTestRecord:
     sample_count: int
     duration_s: float
     sampling_rate_hz: float
+
+
+@dataclass(frozen=True)
+class RawWaveformDataItem:
+    record: RawWaveformTestRecord
+    raw_frame: pd.DataFrame
+    corrected_frame: pd.DataFrame
 
 
 def display_source_file_name(file_name: object) -> str:
@@ -69,8 +83,55 @@ def format_reference_test_label(test_id: str, analysis_lookup: dict) -> str:
     return label_by_id.get(test_id, test_id)
 
 
-def render_raw_waveforms_tab(test_ids: list[str], analysis_lookup: dict) -> None:
-    records = build_raw_waveform_test_records(test_ids, analysis_lookup)
+def _build_raw_waveform_data_items(
+    test_ids: list[str],
+    analysis_lookup: dict,
+    transient_measurements: list | None,
+    transient_preprocess_results: list | None,
+) -> list[RawWaveformDataItem]:
+    items: list[RawWaveformDataItem] = []
+    for record in build_raw_waveform_test_records(test_ids, analysis_lookup):
+        analysis = analysis_lookup[record.test_id]
+        items.append(
+            RawWaveformDataItem(
+                record=record,
+                raw_frame=analysis.parsed.normalized_frame,
+                corrected_frame=analysis.preprocess.corrected_frame,
+            )
+        )
+
+    transient_measurements = transient_measurements or []
+    transient_preprocess_results = transient_preprocess_results or []
+    for parsed, preprocess in zip(transient_measurements, transient_preprocess_results):
+        record = _build_raw_waveform_test_record_from_frames(
+            parsed=parsed,
+            raw_frame=parsed.normalized_frame,
+            corrected_frame=preprocess.corrected_frame,
+            forced_source_type="finite-cycle",
+        )
+        items.append(
+            RawWaveformDataItem(
+                record=record,
+                raw_frame=parsed.normalized_frame,
+                corrected_frame=preprocess.corrected_frame,
+            )
+        )
+    return sorted(items, key=lambda item: _raw_waveform_record_sort_key(item.record))
+
+
+def render_raw_waveforms_tab(
+    test_ids: list[str],
+    analysis_lookup: dict,
+    transient_measurements: list | None = None,
+    transient_preprocess_results: list | None = None,
+) -> None:
+    data_items = _build_raw_waveform_data_items(
+        test_ids=test_ids,
+        analysis_lookup=analysis_lookup,
+        transient_measurements=transient_measurements,
+        transient_preprocess_results=transient_preprocess_results,
+    )
+    records = [item.record for item in data_items]
     if not records:
         st.warning("No parsed tests are available for raw waveform inspection.")
         return
@@ -95,7 +156,7 @@ def render_raw_waveforms_tab(test_ids: list[str], analysis_lookup: dict) -> None
     )
     selected_test_id = id_by_label[selected_label]
     selected_record = next(record for record in filtered_records if record.test_id == selected_test_id)
-    selected_analysis = analysis_lookup[selected_test_id]
+    selected_item = next(item for item in data_items if item.record.test_id == selected_test_id)
 
     dataset_mode = st.radio(
         "Waveform data view",
@@ -104,21 +165,31 @@ def render_raw_waveforms_tab(test_ids: list[str], analysis_lookup: dict) -> None
         horizontal=True,
         key="raw_dataset_audit",
     )
-    display_frame = (
-        selected_analysis.preprocess.corrected_frame
-        if dataset_mode == "corrected"
-        else selected_analysis.parsed.normalized_frame
-    )
+    display_frame = selected_item.corrected_frame if dataset_mode == "corrected" else selected_item.raw_frame
 
     _render_selected_test_summary(selected_record, dataset_mode, display_frame)
     _render_raw_waveform_plot(selected_record, dataset_mode, display_frame)
 
 
 def _build_raw_waveform_test_record(test_id: str, analysis: Any) -> RawWaveformTestRecord:
-    parsed = analysis.parsed
-    normalized = parsed.normalized_frame
-    corrected = analysis.preprocess.corrected_frame
+    return _build_raw_waveform_test_record_from_frames(
+        parsed=analysis.parsed,
+        raw_frame=analysis.parsed.normalized_frame,
+        corrected_frame=analysis.preprocess.corrected_frame,
+        forced_source_type=None,
+    )
+
+
+def _build_raw_waveform_test_record_from_frames(
+    parsed: Any,
+    raw_frame: pd.DataFrame,
+    corrected_frame: pd.DataFrame,
+    forced_source_type: str | None,
+) -> RawWaveformTestRecord:
+    normalized = raw_frame
+    corrected = corrected_frame
     metadata = getattr(parsed, "metadata", {}) or {}
+    test_id = str(_first_nonempty(normalized, "test_id") or f"{getattr(parsed, 'source_file', '')}::{getattr(parsed, 'sheet_name', '')}")
 
     source_file = str(getattr(parsed, "source_file", "") or _first_nonempty(normalized, "source_file") or "")
     source_file_label = display_source_file_name(source_file)
@@ -141,7 +212,7 @@ def _build_raw_waveform_test_record(test_id: str, analysis: Any) -> RawWaveformT
     duration_s = _duration_seconds(corrected if not corrected.empty else normalized)
     sample_count = int(len(corrected if not corrected.empty else normalized))
     sampling_rate_hz = _sampling_rate_hz(corrected if not corrected.empty else normalized)
-    source_type = _infer_source_type(source_file, sheet_name, cycle_count, duration_s, freq_hz)
+    source_type = forced_source_type or _infer_source_type(source_file, sheet_name, cycle_count, duration_s, freq_hz)
 
     record = RawWaveformTestRecord(
         test_id=str(test_id),
@@ -170,31 +241,34 @@ def _render_raw_waveform_filters(records: list[RawWaveformTestRecord]) -> list[R
             placeholder="waveform, frequency, current/App, source file, sheet, internal ID",
         ).strip()
         filter_columns = st.columns(5)
-        waveform_filter = filter_columns[0].multiselect(
+        if st.session_state.get("raw_filter_source_type") not in {"all", "continuous", "finite-cycle"}:
+            st.session_state["raw_filter_source_type"] = "all"
+        source_type_filter = filter_columns[0].selectbox(
+            "Source type",
+            options=["all", "continuous", "finite-cycle"],
+            key="raw_filter_source_type",
+        )
+        waveform_filter = filter_columns[1].multiselect(
             "Waveform family",
             options=sorted({record.waveform_type for record in records if record.waveform_type}),
             key="raw_filter_waveform",
         )
-        frequency_filter = filter_columns[1].multiselect(
+        frequency_filter = filter_columns[2].multiselect(
             "Frequency (Hz)",
             options=_unique_number_labels(record.freq_hz for record in records),
             key="raw_filter_frequency",
         )
-        cycle_filter = filter_columns[2].multiselect(
+        cycle_filter = filter_columns[3].multiselect(
             "Cycle count",
             options=_unique_number_labels(record.cycle_count for record in records),
             key="raw_filter_cycle",
         )
-        current_filter = filter_columns[3].multiselect(
+        current_filter = filter_columns[4].multiselect(
             "Current/App",
             options=_unique_number_labels(record.target_current_a for record in records),
             key="raw_filter_current",
         )
-        source_type_filter = filter_columns[4].multiselect(
-            "Source type",
-            options=sorted({record.source_type for record in records if record.source_type}),
-            key="raw_filter_source_type",
-        )
+        st.caption("Source type filter supports all, continuous, and finite-cycle inspection modes.")
 
     filtered = records
     if search_text:
@@ -224,8 +298,8 @@ def _render_raw_waveform_filters(records: list[RawWaveformTestRecord]) -> list[R
     if current_filter:
         allowed = {_number_label(record.target_current_a) for record in records if _number_label(record.target_current_a) in current_filter}
         filtered = [record for record in filtered if _number_label(record.target_current_a) in allowed]
-    if source_type_filter:
-        filtered = [record for record in filtered if record.source_type in source_type_filter]
+    if source_type_filter != "all":
+        filtered = [record for record in filtered if record.source_type == source_type_filter]
 
     st.caption(f"Showing {len(filtered)} / {len(records)} tests. Sorted by waveform, frequency, cycle, current, source file.")
     return filtered
@@ -245,11 +319,13 @@ def _render_selected_test_summary(
     metric_columns[2].metric("Frequency", _format_number_with_unit(record.freq_hz, "Hz"))
     metric_columns[3].metric("Current/App", _format_number_with_unit(record.target_current_a, "App"))
 
-    detail_columns = st.columns(4)
+    detail_columns = st.columns(5)
     detail_columns[0].metric("Cycle count", _format_number_with_unit(record.cycle_count, "cycle"))
     detail_columns[1].metric("Source type", record.source_type)
     detail_columns[2].metric("Rows", str(len(display_frame)))
     detail_columns[3].metric("Sampling rate", _format_number_with_unit(record.sampling_rate_hz, "Hz"))
+    detail_columns[4].metric("Duration", _format_number_with_unit(record.duration_s, "s"))
+    st.caption(f"Raw/corrected status: {dataset_mode}")
 
     st.info(
         "Viewing corrected/preprocessed waveform data."
@@ -296,9 +372,20 @@ def _render_raw_waveform_plot(
     if not selected_channels:
         st.warning("Select at least one numeric signal to plot.")
         return
-    st.plotly_chart(
-        plot_waveforms(display_frame, selected_channels, title=f"{record.label} / {dataset_mode}"),
-        use_container_width=True,
+    marker_channel = preferred_marker_channel(display_frame, selected_channels)
+    marker_times = build_finite_marker_times(display_frame, marker_channel)
+    figure = plot_waveforms(display_frame, selected_channels, title=f"{record.label} / {dataset_mode}")
+    if record.source_type == "finite-cycle":
+        add_finite_visual_markers(figure, marker_times)
+        render_finite_marker_summary(marker_times)
+    st.plotly_chart(figure, use_container_width=True)
+    render_anomaly_helper(
+        display_frame,
+        selected_channels,
+        source_type=record.source_type,
+        duration_s=record.duration_s,
+        freq_hz=record.freq_hz,
+        cycle_count=record.cycle_count,
     )
     st.dataframe(display_frame.head(200), use_container_width=True)
 

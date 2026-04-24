@@ -598,6 +598,13 @@ def _run_app_shell(
                 current_channel=current_channel,
                 main_field_axis=main_field_axis,
             )
+        elif active_section == "Raw Waveforms":
+            _render_raw_waveforms_tab(
+                test_ids=[],
+                analysis_lookup={},
+                transient_measurements=transient_measurements,
+                transient_preprocess_results=transient_preprocess_results,
+            )
         else:
             _render_data_import_tab(
                 previews=[],
@@ -707,6 +714,8 @@ def _run_app_shell(
             _render_raw_waveforms_tab(
                 test_ids=test_ids,
                 analysis_lookup=analysis_lookup,
+                transient_measurements=transient_measurements,
+                transient_preprocess_results=transient_preprocess_results,
             )
         elif active_section == "Data Import":
             _render_data_import_tab(
@@ -775,6 +784,8 @@ def _run_app_shell(
         _render_raw_waveforms_tab(
             test_ids=test_ids,
             analysis_lookup=analysis_lookup,
+            transient_measurements=transient_measurements,
+            transient_preprocess_results=transient_preprocess_results,
         )
     elif active_section == "Cycle Overlay":
         _render_cycle_overlay_section(test_ids=test_ids, analysis_lookup=analysis_lookup)
@@ -2419,8 +2430,15 @@ def _render_quick_lut_tab_v2(
 def _render_raw_waveforms_tab(
     test_ids: list[str],
     analysis_lookup: dict,
+    transient_measurements: list | None = None,
+    transient_preprocess_results: list | None = None,
 ) -> None:
-    render_raw_waveforms_tab(test_ids=test_ids, analysis_lookup=analysis_lookup)
+    render_raw_waveforms_tab(
+        test_ids=test_ids,
+        analysis_lookup=analysis_lookup,
+        transient_measurements=transient_measurements,
+        transient_preprocess_results=transient_preprocess_results,
+    )
 
 
 def _render_cycle_overlay_section(
