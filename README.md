@@ -98,6 +98,7 @@ Generated and machine-local state should not be committed:
 
 ## Detailed Guides
 
+- [Korean Guide / 한국어 안내](README.ko.md)
 - [Git and Codex Workflow](docs/GIT_AND_CODEX_WORKFLOW.md)
 - [Recovery and Development Direction](docs/RECOVERY_AND_DIRECTION.md)
 - [Codex Handoff](docs/CODEX_HANDOFF.md)
