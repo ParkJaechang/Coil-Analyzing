@@ -19,6 +19,7 @@ from .ui_raw_waveforms_quality import (
     build_finite_marker_times,
     preferred_marker_channel,
     render_anomaly_helper,
+    render_channel_timebase_summary,
     render_finite_marker_summary,
 )
 from .utils import first_number
@@ -44,6 +45,11 @@ class RawWaveformTestRecord:
     sample_count: int
     duration_s: float
     sampling_rate_hz: float
+    detected_format: str
+    parser_version: str
+    timebase_source: str
+    time_unit: str
+    quality_flags: str
 
 
 @dataclass(frozen=True)
@@ -223,11 +229,18 @@ def _build_raw_waveform_test_record_from_frames(
     duration_s = _duration_seconds(corrected if not corrected.empty else normalized)
     sample_count = int(len(corrected if not corrected.empty else normalized))
     sampling_rate_hz = _sampling_rate_hz(corrected if not corrected.empty else normalized)
+    detected_format = str(_first_nonempty(normalized, "detected_format") or "unknown")
+    parser_version = str(_first_nonempty(normalized, "parser_version") or "unknown")
+    timebase_source = str(_first_nonempty(normalized, "timebase_source") or "unknown")
+    time_unit = str(_first_nonempty(normalized, "time_unit") or "unknown")
+    quality_flags = str(_first_nonempty(normalized, "parse_quality_flags") or "")
     source_type = (
         forced_source_type
         or str(filename_metadata.get("source_type") or "")
+        or str(_first_nonempty(normalized, "source_type") or "")
         or _infer_source_type(source_file, sheet_name, cycle_count, duration_s, freq_hz)
     )
+    source_type = source_type.replace("_", "-")
 
     record = RawWaveformTestRecord(
         test_id=str(test_id),
@@ -243,6 +256,11 @@ def _build_raw_waveform_test_record_from_frames(
         sample_count=sample_count,
         duration_s=duration_s,
         sampling_rate_hz=sampling_rate_hz,
+        detected_format=detected_format,
+        parser_version=parser_version,
+        timebase_source=timebase_source,
+        time_unit=time_unit,
+        quality_flags=quality_flags,
     )
     return RawWaveformTestRecord(**{**record.__dict__, "label": _format_raw_waveform_label(record)})
 
@@ -340,7 +358,12 @@ def _render_selected_test_summary(
     detail_columns[2].metric("Rows", str(len(display_frame)))
     detail_columns[3].metric("Sampling rate", _format_number_with_unit(record.sampling_rate_hz, "Hz"))
     detail_columns[4].metric("Duration", _format_number_with_unit(record.duration_s, "s"))
-    st.caption(f"Raw/corrected status: {dataset_mode}")
+    st.caption(
+        f"Raw/corrected status: {dataset_mode} | format={record.detected_format} | "
+        f"timebase={record.timebase_source} ({record.time_unit})"
+    )
+    if record.quality_flags:
+        st.warning(f"Parser quality flags: {record.quality_flags}")
 
     st.info(
         "Viewing corrected/preprocessed waveform data."
@@ -352,6 +375,12 @@ def _render_selected_test_summary(
         st.write(f"- sheet_name: `{record.sheet_name}`")
         st.write(f"- internal_id: `{record.test_id}`")
         st.write(f"- duration_s: `{_number_label(record.duration_s)}`")
+        st.write(f"- parser_version: `{record.parser_version}`")
+        st.write(f"- detected_format: `{record.detected_format}`")
+        st.write(f"- timebase_source: `{record.timebase_source}`")
+        st.write(f"- time_unit: `{record.time_unit}`")
+        st.write(f"- sample_rate_hz: `{_number_label(record.sampling_rate_hz)}`")
+        st.write(f"- quality_flags: `{record.quality_flags or 'none'}`")
 
 
 def _render_raw_waveform_plot(
@@ -394,6 +423,7 @@ def _render_raw_waveform_plot(
         add_finite_visual_markers(figure, marker_times)
         render_finite_marker_summary(marker_times)
     st.plotly_chart(figure, use_container_width=True)
+    render_channel_timebase_summary(display_frame, selected_channels)
     render_anomaly_helper(
         display_frame,
         selected_channels,
@@ -403,7 +433,6 @@ def _render_raw_waveform_plot(
         cycle_count=record.cycle_count,
     )
     st.dataframe(display_frame.head(200), use_container_width=True)
-
 
 def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     parts = [

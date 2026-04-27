@@ -30,6 +30,12 @@ def _analysis_fixture() -> SimpleNamespace:
             "current_pp_target_a": [10.0] * 3,
             "cycle_total_expected": [1.25] * 3,
             "time_s": [0.0, 0.5, 1.0],
+            "timebase_source": ["explicit_time_column"] * 3,
+            "time_unit": ["seconds"] * 3,
+            "detected_format": ["legacy_csv"] * 3,
+            "parser_version": ["parser_timebase_v2"] * 3,
+            "sample_rate_hz": [2.0] * 3,
+            "parse_quality_flags": [""] * 3,
             "daq_input_v": [0.0, 1.0, 0.0],
             "bz_mT": [0.0, 50.0, 0.0],
         }
@@ -64,6 +70,7 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
 def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     snapshot_source = (REPO_ROOT / "src" / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
     raw_ui_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms.py").read_text(encoding="utf-8")
+    quality_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms_quality.py").read_text(encoding="utf-8")
 
     assert "render_raw_waveforms_tab(" in snapshot_source
     assert "transient_measurements=transient_measurements" in snapshot_source
@@ -76,6 +83,10 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     assert "Current/App" in raw_ui_source
     assert "Source type" in raw_ui_source
     assert "Selected Data Summary" in raw_ui_source
+    assert "render_channel_timebase_summary" in raw_ui_source
+    assert "Channel timebase summary" in quality_source
+    assert "Parser quality flags" in raw_ui_source
+    assert "timebase_source" in raw_ui_source
     assert "Internal ID" in raw_ui_source
     assert "Corrected/preprocessed" in raw_ui_source
     assert "Raw normalized parse" in raw_ui_source
