@@ -755,6 +755,22 @@ def synthesize_current_waveform_compensation(
         finite_prediction_source = final_extension_metadata["finite_prediction_source"] or finite_prediction_source
         predicted_cover_reason = final_extension_metadata["predicted_cover_reason"] or predicted_cover_reason
         support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
+    startup_diagnostics = dict(
+        finite_empirical_model.get("startup_diagnostics", {})
+        if use_finite_empirical_route
+        else nearest_support.get("startup_diagnostics", {})
+    )
+    startup_diagnostics.setdefault("source_test_id", nearest_test_id)
+    startup_transient_metadata: dict[str, Any] = {"startup_transient_applied": False}
+    if field_only_route:
+        command_profile, startup_transient_metadata = _apply_startup_transient_prediction(
+            command_profile=command_profile,
+            startup_diagnostics=startup_diagnostics,
+            target_output_type=output_context["output_type"],
+            freq_hz=requested_freq_hz,
+            transition_cycles=startup_transition_cycles,
+            correction_strength=startup_correction_strength,
+        )
     finite_route_mode = None
     finite_route_reason = None
     finite_route_warning = None
@@ -941,8 +957,6 @@ def synthesize_current_waveform_compensation(
             max_slope_jump_ratio=finite_signal_consistency.get("max_slope_jump_ratio"),
         )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
-    startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
-    startup_diagnostics.setdefault("source_test_id", nearest_test_id)
     startup_preview_profile = pd.DataFrame()
     startup_correction_applied = False
     startup_correction_factor = float("nan")
@@ -1093,6 +1107,12 @@ def synthesize_current_waveform_compensation(
         "startup_transition_cycles": float(startup_transition_cycles),
         "startup_correction_strength": float(startup_correction_strength),
         "startup_preview_cycle_count": int(startup_preview_cycle_count),
+        "startup_transient_applied": bool(startup_transient_metadata.get("startup_transient_applied", False)),
+        "startup_initial_field_offset_mT": startup_transient_metadata.get("startup_initial_field_offset_mT"),
+        "startup_steady_field_offset_mT": startup_transient_metadata.get("startup_steady_field_offset_mT"),
+        "startup_field_offset_delta_mT": startup_transient_metadata.get("startup_field_offset_delta_mT"),
+        "startup_transient_transition_cycles": startup_transient_metadata.get("startup_transient_transition_cycles"),
+        "startup_transient_reason": startup_transient_metadata.get("startup_transient_reason"),
         "startup_preview_profile": startup_preview_profile,
         "validation_base_profile": validation_base_profile,
         "compensation_sequence": compensation_sequence,
@@ -2196,6 +2216,12 @@ def synthesize_finite_empirical_compensation(
     ]
     selected_support_id = str(support["test_id"])
     selected_support_family = selected_support_waveform or None
+    startup_diagnostics = _build_finite_support_startup_diagnostics(
+        support,
+        field_channel=field_channel,
+        current_channel=current_channel,
+    )
+    startup_diagnostics.setdefault("source_test_id", selected_support_id)
     cycle_decomposition = _finite_cycle_decomposition_metadata(
         target_cycle_count,
         finite_support_used=True,
@@ -2287,6 +2313,7 @@ def synthesize_finite_empirical_compensation(
         "support_spike_filtered_count": int(_first_numeric(modeled.get("support_spike_filtered_count")) or 0),
         "support_source_spike_detected": bool(_first_boolish(modeled.get("support_source_spike_detected"))),
         "support_blend_boundary_count": int(_first_numeric(modeled.get("support_blend_boundary_count")) or 0),
+        "startup_diagnostics": startup_diagnostics,
         **cycle_decomposition,
         "command_nonzero_end_s": command_nonzero_end_s,
         "target_active_end_s": target_active_end_s,
@@ -3680,6 +3707,15 @@ def _build_startup_diagnostics(
     first_current = float(first_row[current_column]) if current_column in first_row.index else float("nan")
     first_field = float(first_row[field_column]) if field_column in first_row.index else float("nan")
     first_voltage = float(first_row[voltage_column]) if voltage_column in first_row.index else float("nan")
+    annotated_frame = getattr(getattr(analysis, "cycle_detection", None), "annotated_frame", pd.DataFrame())
+    field_mean_stats = _cycle_signal_mean_startup_stats(
+        annotated_frame=annotated_frame,
+        signal_column=field_channel,
+    )
+    current_mean_stats = _cycle_signal_mean_startup_stats(
+        annotated_frame=annotated_frame,
+        signal_column="i_sum_signed",
+    )
 
     def _ratio(numerator: float, denominator: float) -> float:
         if not np.isfinite(numerator) or not np.isfinite(denominator) or abs(denominator) < 1e-12:
@@ -3689,6 +3725,12 @@ def _build_startup_diagnostics(
     current_ratio = _ratio(first_current, steady_current_mean)
     field_ratio = _ratio(first_field, steady_field_mean)
     voltage_ratio = _ratio(first_voltage, steady_voltage_mean)
+    unexplained_field_offset_delta = _field_offset_residual_from_current(
+        field_offset_delta=field_mean_stats["offset_delta"],
+        current_offset_delta=current_mean_stats["offset_delta"],
+        field_pp=steady_field_mean,
+        current_pp=steady_current_mean,
+    )
 
     behavior = "insufficient_cycles"
     ratio_candidates = [value for value in (current_ratio, field_ratio) if np.isfinite(value)]
@@ -3714,8 +3756,75 @@ def _build_startup_diagnostics(
         "first_cycle_voltage_pp_v": first_voltage,
         "steady_voltage_pp_v_mean": steady_voltage_mean,
         "first_cycle_voltage_ratio_vs_steady": voltage_ratio,
+        "first_cycle_field_mean_mT": field_mean_stats["first_cycle_mean"],
+        "steady_field_mean_mT": field_mean_stats["steady_mean"],
+        "first_cycle_field_offset_delta_mT": field_mean_stats["offset_delta"],
+        "first_cycle_field_unexplained_offset_delta_mT": unexplained_field_offset_delta,
+        "first_cycle_current_mean_a": current_mean_stats["first_cycle_mean"],
+        "steady_current_mean_a": current_mean_stats["steady_mean"],
+        "first_cycle_current_offset_delta_a": current_mean_stats["offset_delta"],
         "behavior_flag": behavior,
     }
+
+
+def _cycle_signal_mean_startup_stats(
+    *,
+    annotated_frame: pd.DataFrame,
+    signal_column: str,
+) -> dict[str, float]:
+    empty = {
+        "first_cycle_mean": float("nan"),
+        "steady_mean": float("nan"),
+        "offset_delta": float("nan"),
+    }
+    if annotated_frame is None or annotated_frame.empty:
+        return empty
+    if "cycle_index" not in annotated_frame.columns or signal_column not in annotated_frame.columns:
+        return empty
+    working = annotated_frame[["cycle_index", signal_column]].copy()
+    working["cycle_index"] = pd.to_numeric(working["cycle_index"], errors="coerce")
+    working[signal_column] = pd.to_numeric(working[signal_column], errors="coerce")
+    working = working.dropna(subset=["cycle_index", signal_column])
+    if working.empty:
+        return empty
+    grouped = working.groupby("cycle_index", sort=True)[signal_column].mean()
+    if grouped.empty:
+        return empty
+    first_mean = float(grouped.iloc[0])
+    steady = grouped.iloc[1:]
+    if len(steady) > 3:
+        steady = steady.tail(3)
+    steady_mean = float(steady.mean()) if not steady.empty else float("nan")
+    offset_delta = (
+        float(first_mean - steady_mean)
+        if np.isfinite(first_mean) and np.isfinite(steady_mean)
+        else float("nan")
+    )
+    return {
+        "first_cycle_mean": first_mean,
+        "steady_mean": steady_mean,
+        "offset_delta": offset_delta,
+    }
+
+
+def _field_offset_residual_from_current(
+    *,
+    field_offset_delta: float,
+    current_offset_delta: float,
+    field_pp: float,
+    current_pp: float,
+) -> float:
+    if not np.isfinite(field_offset_delta):
+        return float("nan")
+    if (
+        not np.isfinite(current_offset_delta)
+        or not np.isfinite(field_pp)
+        or not np.isfinite(current_pp)
+        or abs(current_pp) <= 1e-12
+    ):
+        return float(field_offset_delta)
+    expected_field_delta = float(current_offset_delta) * abs(float(field_pp) / float(current_pp))
+    return float(field_offset_delta - expected_field_delta)
 
 
 def _build_compensation_sequence_table(
@@ -4417,6 +4526,167 @@ def _build_startup_corrected_preview(
         "startup_correction_applied": True,
         "startup_correction_factor": startup_correction_factor,
         "startup_observed_output_ratio": float(observed_ratio),
+    }
+
+
+def _build_finite_support_startup_diagnostics(
+    support_entry: dict[str, Any],
+    *,
+    field_channel: str,
+    current_channel: str,
+) -> dict[str, Any]:
+    frame = _prepare_finite_time_frame(support_entry.get("frame"))
+    if frame.empty or "time_s" not in frame.columns:
+        return {}
+    freq_hz = _first_numeric(support_entry.get("freq_hz"))
+    cycle_count = _first_numeric(support_entry.get("approx_cycle_span"))
+    if not np.isfinite(freq_hz) or freq_hz <= 0:
+        return {}
+    period_s = 1.0 / float(freq_hz)
+    active_end_s = float(cycle_count) * period_s if np.isfinite(cycle_count) else float(frame["time_s"].max())
+    time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    active = np.isfinite(time_values) & (time_values <= active_end_s + 1e-12)
+    first_cycle = active & (time_values <= period_s + 1e-12)
+    steady = active & (time_values > period_s + 1e-12)
+    if steady.sum() < 3:
+        steady = active & (time_values > active_end_s * 0.5)
+    diagnostics: dict[str, Any] = {
+        "cycle_count": float(cycle_count) if np.isfinite(cycle_count) else None,
+        "behavior_flag": "unknown",
+    }
+    field_offset_delta = float("nan")
+    current_offset_delta = float("nan")
+    field_pp_for_residual = float("nan")
+    current_pp_for_residual = float("nan")
+    for signal_column, prefix in ((field_channel, "field"), (current_channel, "current")):
+        if signal_column not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[signal_column], errors="coerce").to_numpy(dtype=float)
+        first_values = values[first_cycle & np.isfinite(values)]
+        steady_values = values[steady & np.isfinite(values)]
+        if first_values.size < 3 or steady_values.size < 3:
+            continue
+        first_mean = float(np.nanmean(first_values))
+        steady_mean = float(np.nanmean(steady_values))
+        first_pp = float(np.nanmax(first_values) - np.nanmin(first_values))
+        steady_pp = float(np.nanmax(steady_values) - np.nanmin(steady_values))
+        ratio = first_pp / steady_pp if abs(steady_pp) > 1e-12 else float("nan")
+        if prefix == "field":
+            field_offset_delta = float(first_mean - steady_mean)
+            field_pp_for_residual = steady_pp
+            diagnostics["first_cycle_field_mean_mT"] = first_mean
+            diagnostics["steady_field_mean_mT"] = steady_mean
+            diagnostics["first_cycle_field_offset_delta_mT"] = field_offset_delta
+            diagnostics["first_cycle_field_ratio_vs_steady"] = ratio
+            diagnostics["first_cycle_field_pp_mT"] = first_pp
+            diagnostics["steady_field_pp_mT_mean"] = steady_pp
+        else:
+            current_offset_delta = float(first_mean - steady_mean)
+            current_pp_for_residual = steady_pp
+            diagnostics["first_cycle_current_mean_a"] = first_mean
+            diagnostics["steady_current_mean_a"] = steady_mean
+            diagnostics["first_cycle_current_offset_delta_a"] = current_offset_delta
+            diagnostics["first_cycle_current_ratio_vs_steady"] = ratio
+    diagnostics["first_cycle_field_unexplained_offset_delta_mT"] = _field_offset_residual_from_current(
+        field_offset_delta=field_offset_delta,
+        current_offset_delta=current_offset_delta,
+        field_pp=field_pp_for_residual,
+        current_pp=current_pp_for_residual,
+    )
+    field_delta = _first_numeric(diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
+    field_ratio = _first_numeric(diagnostics.get("first_cycle_field_ratio_vs_steady"))
+    if np.isfinite(field_delta) and abs(field_delta) > 1.0:
+        diagnostics["behavior_flag"] = "first_cycle_offset"
+    elif np.isfinite(field_ratio) and field_ratio > 1.05:
+        diagnostics["behavior_flag"] = "first_cycle_overshoot"
+    elif np.isfinite(field_ratio) and field_ratio < 0.95:
+        diagnostics["behavior_flag"] = "first_cycle_undershoot"
+    else:
+        diagnostics["behavior_flag"] = "steady_like"
+    return diagnostics
+
+
+def _apply_startup_transient_prediction(
+    *,
+    command_profile: pd.DataFrame,
+    startup_diagnostics: dict[str, Any],
+    target_output_type: str,
+    freq_hz: float,
+    transition_cycles: float,
+    correction_strength: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if command_profile.empty or "time_s" not in command_profile.columns:
+        return command_profile, {"startup_transient_applied": False}
+    if target_output_type != "field":
+        return command_profile, {"startup_transient_applied": False}
+    offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
+    if offset_delta is None or not np.isfinite(offset_delta):
+        offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_offset_delta_mT"))
+    observed_ratio = _first_numeric(startup_diagnostics.get("first_cycle_field_ratio_vs_steady"))
+    if offset_delta is None or not np.isfinite(offset_delta):
+        offset_delta = 0.0
+    if observed_ratio is None or not np.isfinite(observed_ratio) or observed_ratio <= 0:
+        observed_ratio = 1.0
+    if abs(float(offset_delta)) < 1.0:
+        observed_ratio = 1.0
+    if abs(offset_delta) < 1e-6 and abs(observed_ratio - 1.0) < 0.03:
+        return command_profile, {
+            "startup_transient_applied": False,
+            "startup_initial_field_offset_mT": startup_diagnostics.get("first_cycle_field_mean_mT"),
+            "startup_steady_field_offset_mT": startup_diagnostics.get("steady_field_mean_mT"),
+            "startup_field_offset_delta_mT": offset_delta,
+            "startup_transient_reason": "steady_like",
+        }
+
+    adjusted = command_profile.copy()
+    time_values = pd.to_numeric(adjusted["time_s"], errors="coerce").to_numpy(dtype=float)
+    finite_time = time_values[np.isfinite(time_values)]
+    if finite_time.size < 3 or not np.isfinite(freq_hz) or float(freq_hz) <= 0:
+        return command_profile, {"startup_transient_applied": False}
+    start_s = float(np.nanmin(finite_time))
+    transition_cycles = max(float(transition_cycles), 0.25)
+    strength = float(np.clip(correction_strength, 0.0, 1.0))
+    cycle_progress_total = (time_values - start_s) * float(freq_hz)
+    transient_weight = np.clip(1.0 - cycle_progress_total / transition_cycles, 0.0, 1.0) * strength
+    ratio_envelope = 1.0 + (float(observed_ratio) - 1.0) * transient_weight
+    offset_envelope = float(offset_delta) * transient_weight
+
+    for column in (
+        "expected_field_mT",
+        "predicted_field_mT",
+        "support_scaled_field_mT",
+        "support_reference_output_mT",
+        "modeled_field_mT",
+    ):
+        if column not in adjusted.columns:
+            continue
+        values = pd.to_numeric(adjusted[column], errors="coerce").to_numpy(dtype=float).copy()
+        valid = np.isfinite(values) & np.isfinite(transient_weight)
+        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
+        adjusted[column] = values
+    if "expected_output" in adjusted.columns:
+        values = pd.to_numeric(adjusted["expected_output"], errors="coerce").to_numpy(dtype=float).copy()
+        valid = np.isfinite(values) & np.isfinite(transient_weight)
+        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
+        adjusted["expected_output"] = values
+    if "modeled_output" in adjusted.columns:
+        values = pd.to_numeric(adjusted["modeled_output"], errors="coerce").to_numpy(dtype=float).copy()
+        valid = np.isfinite(values) & np.isfinite(transient_weight)
+        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
+        adjusted["modeled_output"] = values
+    adjusted["startup_transient_applied"] = True
+    adjusted["startup_initial_field_offset_mT"] = startup_diagnostics.get("first_cycle_field_mean_mT")
+    adjusted["startup_steady_field_offset_mT"] = startup_diagnostics.get("steady_field_mean_mT")
+    adjusted["startup_field_offset_delta_mT"] = float(offset_delta)
+    adjusted["startup_transient_transition_cycles"] = float(transition_cycles)
+    adjusted["startup_transient_reason"] = startup_diagnostics.get("behavior_flag", "startup_transient")
+    return _sync_modeled_alias_columns(adjusted), {
+        "startup_transient_applied": True,
+        "startup_initial_field_offset_mT": startup_diagnostics.get("first_cycle_field_mean_mT"),
+        "startup_steady_field_offset_mT": startup_diagnostics.get("steady_field_mean_mT"),
+        "startup_field_offset_delta_mT": float(offset_delta),
+        "startup_transient_transition_cycles": float(transition_cycles),
+        "startup_transient_reason": startup_diagnostics.get("behavior_flag", "startup_transient"),
     }
 
 
