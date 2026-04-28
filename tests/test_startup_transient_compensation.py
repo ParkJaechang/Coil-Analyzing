@@ -184,7 +184,18 @@ def test_continuous_prediction_reflects_startup_initial_field_offset() -> None:
     profile = result["command_profile"]
 
     assert result["startup_transient_applied"] is True
+    assert result["startup_transient_source"] == "continuous_early_cycles"
+    assert result["startup_transient_status"] == "ok"
+    assert result["startup_data_quality_ok"] is True
+    assert result["startup_cycle_count_used"] == 1
+    assert result["steady_cycle_count_used"] >= 3
     assert result["startup_initial_field_offset_mT"] > 0.0
+    assert result["startup_bias_mT"] > 0.0
+    assert result["startup_residual_pp_mT"] > 0.0
+    assert result["startup_residual_rms_mT"] > 0.0
+    assert result["startup_source_freq_hz"] == 5.0
+    assert result["startup_target_freq_hz"] == 5.0
+    assert result["startup_frequency_distance_hz"] == 0.0
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
     first_residual = float(profile["predicted_field_mT"].iloc[0] - profile["physical_target_output_mT"].iloc[0])
     assert first_residual > 10.0
@@ -213,11 +224,40 @@ def test_finite_prediction_reflects_startup_offset_without_target_stretch() -> N
 
     assert result["finite_route_mode"] == "finite_empirical_field_support"
     assert result["startup_transient_applied"] is True
+    assert result["startup_transient_source"] == "finite_support"
+    assert result["startup_transient_status"] == "ok"
+    assert result["startup_data_quality_ok"] is True
     assert result["startup_initial_field_offset_mT"] > 0.0
     assert np.isclose(float(result["target_active_end_s"]), 0.3, atol=0.002)
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
     assert _early_late_residual_delta(profile, "predicted_field_mT", period_s=0.2) > 2.0
     assert float(result["predicted_jump_ratio"]) <= 0.20
+
+
+def test_nonzero_start_support_is_rejected_as_startup_source() -> None:
+    entry = finite_fixture._build_finite_entry(
+        test_id="finite_nonzero_start",
+        waveform_type="sine",
+        freq_hz=5.0,
+        cycle_count=1.5,
+        field_pp=100.0,
+    )
+    frame = entry["frame"].copy()
+    frame.loc[0, "daq_input_v"] = 6.0
+    frame.loc[0, "bz_mT"] = 25.0
+    entry["frame"] = frame
+
+    result = _run_compensation(
+        finite_support_entries=[entry],
+        finite_cycle_mode=True,
+        target_cycle_count=1.5,
+        freq_hz=5.0,
+    )
+
+    assert result["startup_transient_applied"] is False
+    assert result["startup_transient_status"] == "source_nonzero_start"
+    assert result["startup_data_quality_ok"] is False
+    assert result["startup_transient_source"] == "finite_support"
 
 
 def test_one_point_seven_five_without_exact_support_remains_unavailable() -> None:

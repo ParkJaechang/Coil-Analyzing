@@ -1108,11 +1108,27 @@ def synthesize_current_waveform_compensation(
         "startup_correction_strength": float(startup_correction_strength),
         "startup_preview_cycle_count": int(startup_preview_cycle_count),
         "startup_transient_applied": bool(startup_transient_metadata.get("startup_transient_applied", False)),
+        "startup_transient_source": startup_transient_metadata.get("startup_transient_source"),
+        "startup_transient_status": startup_transient_metadata.get("startup_transient_status"),
+        "startup_cycle_count_used": startup_transient_metadata.get("startup_cycle_count_used"),
+        "steady_cycle_count_used": startup_transient_metadata.get("steady_cycle_count_used"),
+        "startup_bias_mT": startup_transient_metadata.get("startup_bias_mT"),
+        "startup_peak_shift_mT": startup_transient_metadata.get("startup_peak_shift_mT"),
+        "startup_phase_shift_s": startup_transient_metadata.get("startup_phase_shift_s"),
+        "startup_settling_cycle_count": startup_transient_metadata.get("startup_settling_cycle_count"),
+        "startup_residual_pp_mT": startup_transient_metadata.get("startup_residual_pp_mT"),
+        "startup_residual_rms_mT": startup_transient_metadata.get("startup_residual_rms_mT"),
+        "startup_envelope_decay_ratio": startup_transient_metadata.get("startup_envelope_decay_ratio"),
+        "startup_source_support_id": startup_transient_metadata.get("startup_source_support_id"),
+        "startup_data_quality_ok": startup_transient_metadata.get("startup_data_quality_ok"),
         "startup_initial_field_offset_mT": startup_transient_metadata.get("startup_initial_field_offset_mT"),
         "startup_steady_field_offset_mT": startup_transient_metadata.get("startup_steady_field_offset_mT"),
         "startup_field_offset_delta_mT": startup_transient_metadata.get("startup_field_offset_delta_mT"),
         "startup_transient_transition_cycles": startup_transient_metadata.get("startup_transient_transition_cycles"),
         "startup_transient_reason": startup_transient_metadata.get("startup_transient_reason"),
+        "startup_source_freq_hz": startup_transient_metadata.get("startup_source_freq_hz"),
+        "startup_target_freq_hz": startup_transient_metadata.get("startup_target_freq_hz"),
+        "startup_frequency_distance_hz": startup_transient_metadata.get("startup_frequency_distance_hz"),
         "startup_preview_profile": startup_preview_profile,
         "validation_base_profile": validation_base_profile,
         "compensation_sequence": compensation_sequence,
@@ -3731,6 +3747,8 @@ def _build_startup_diagnostics(
         field_pp=steady_field_mean,
         current_pp=steady_current_mean,
     )
+    source_freq_hz = _first_numeric(getattr(getattr(analysis, "cycle_detection", None), "estimated_frequency_hz", np.nan))
+    startup_status = "ok" if len(steady_window) >= 1 else "insufficient_cycles"
 
     behavior = "insufficient_cycles"
     ratio_candidates = [value for value in (current_ratio, field_ratio) if np.isfinite(value)]
@@ -3747,6 +3765,13 @@ def _build_startup_diagnostics(
     return {
         "cycle_count": int(working["cycle_index"].nunique()),
         "steady_window_cycle_count": int(len(steady_window)),
+        "startup_transient_source": "continuous_early_cycles",
+        "startup_transient_status": startup_status,
+        "startup_cycle_count_used": 1,
+        "steady_cycle_count_used": int(len(steady_window)),
+        "startup_source_freq_hz": source_freq_hz,
+        "startup_target_freq_hz": source_freq_hz,
+        "startup_frequency_distance_hz": 0.0,
         "first_cycle_current_pp_a": first_current,
         "steady_current_pp_a_mean": steady_current_mean,
         "first_cycle_current_ratio_vs_steady": current_ratio,
@@ -4550,9 +4575,18 @@ def _build_finite_support_startup_diagnostics(
     steady = active & (time_values > period_s + 1e-12)
     if steady.sum() < 3:
         steady = active & (time_values > active_end_s * 0.5)
+    nonzero_start = _finite_support_has_nonzero_start(frame)
     diagnostics: dict[str, Any] = {
         "cycle_count": float(cycle_count) if np.isfinite(cycle_count) else None,
         "behavior_flag": "unknown",
+        "startup_transient_source": "finite_support",
+        "startup_transient_status": "source_nonzero_start" if nonzero_start else "ok",
+        "startup_cycle_count_used": 1,
+        "steady_cycle_count_used": int(max(0.0, np.floor(float(cycle_count) - 1.0))) if np.isfinite(cycle_count) else 0,
+        "startup_source_freq_hz": float(freq_hz),
+        "startup_target_freq_hz": float(freq_hz),
+        "startup_frequency_distance_hz": 0.0,
+        "startup_data_quality_ok": not nonzero_start,
     }
     field_offset_delta = float("nan")
     current_offset_delta = float("nan")
@@ -4606,6 +4640,18 @@ def _build_finite_support_startup_diagnostics(
     return diagnostics
 
 
+def _finite_support_has_nonzero_start(frame: pd.DataFrame) -> bool:
+    if frame.empty or "daq_input_v" not in frame.columns:
+        return False
+    values = pd.to_numeric(frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+    pp = float(np.nanmax(finite) - np.nanmin(finite))
+    threshold = max(pp * 0.55, 1e-6)
+    return bool(abs(float(finite[0])) > threshold)
+
+
 def _apply_startup_transient_prediction(
     *,
     command_profile: pd.DataFrame,
@@ -4619,6 +4665,19 @@ def _apply_startup_transient_prediction(
         return command_profile, {"startup_transient_applied": False}
     if target_output_type != "field":
         return command_profile, {"startup_transient_applied": False}
+    source = str(startup_diagnostics.get("startup_transient_source") or "unavailable")
+    status = str(startup_diagnostics.get("startup_transient_status") or "unavailable")
+    base_metadata = _startup_transient_base_metadata(
+        startup_diagnostics=startup_diagnostics,
+        source=source,
+        status=status,
+        applied=False,
+        offset_delta=float("nan"),
+        transition_cycles=transition_cycles,
+        reason=status,
+    )
+    if status not in {"ok", "steady_like"}:
+        return command_profile, base_metadata
     offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
     if offset_delta is None or not np.isfinite(offset_delta):
         offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_offset_delta_mT"))
@@ -4630,13 +4689,15 @@ def _apply_startup_transient_prediction(
     if abs(float(offset_delta)) < 1.0:
         observed_ratio = 1.0
     if abs(offset_delta) < 1e-6 and abs(observed_ratio - 1.0) < 0.03:
-        return command_profile, {
-            "startup_transient_applied": False,
-            "startup_initial_field_offset_mT": startup_diagnostics.get("first_cycle_field_mean_mT"),
-            "startup_steady_field_offset_mT": startup_diagnostics.get("steady_field_mean_mT"),
-            "startup_field_offset_delta_mT": offset_delta,
-            "startup_transient_reason": "steady_like",
-        }
+        return command_profile, _startup_transient_base_metadata(
+            startup_diagnostics=startup_diagnostics,
+            source=source,
+            status="unavailable" if status == "ok" else status,
+            applied=False,
+            offset_delta=float(offset_delta),
+            transition_cycles=transition_cycles,
+            reason="steady_like",
+        )
 
     adjusted = command_profile.copy()
     time_values = pd.to_numeric(adjusted["time_s"], errors="coerce").to_numpy(dtype=float)
@@ -4675,18 +4736,77 @@ def _apply_startup_transient_prediction(
         values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
         adjusted["modeled_output"] = values
     adjusted["startup_transient_applied"] = True
-    adjusted["startup_initial_field_offset_mT"] = startup_diagnostics.get("first_cycle_field_mean_mT")
-    adjusted["startup_steady_field_offset_mT"] = startup_diagnostics.get("steady_field_mean_mT")
-    adjusted["startup_field_offset_delta_mT"] = float(offset_delta)
-    adjusted["startup_transient_transition_cycles"] = float(transition_cycles)
-    adjusted["startup_transient_reason"] = startup_diagnostics.get("behavior_flag", "startup_transient")
-    return _sync_modeled_alias_columns(adjusted), {
-        "startup_transient_applied": True,
+    metadata = _startup_transient_base_metadata(
+        startup_diagnostics=startup_diagnostics,
+        source=source,
+        status="ok",
+        applied=True,
+        offset_delta=float(offset_delta),
+        transition_cycles=transition_cycles,
+        reason=str(startup_diagnostics.get("behavior_flag", "startup_transient")),
+        weight=transient_weight,
+        offset_envelope=offset_envelope,
+    )
+    for key, value in metadata.items():
+        adjusted[key] = value
+    return _sync_modeled_alias_columns(adjusted), metadata
+
+
+def _startup_transient_base_metadata(
+    *,
+    startup_diagnostics: dict[str, Any],
+    source: str,
+    status: str,
+    applied: bool,
+    offset_delta: float,
+    transition_cycles: float,
+    reason: str,
+    weight: np.ndarray | None = None,
+    offset_envelope: np.ndarray | None = None,
+) -> dict[str, Any]:
+    source_freq = _first_numeric(startup_diagnostics.get("startup_source_freq_hz"))
+    target_freq = _first_numeric(startup_diagnostics.get("startup_target_freq_hz"))
+    freq_distance = _first_numeric(startup_diagnostics.get("startup_frequency_distance_hz"))
+    residual_pp = float("nan")
+    residual_rms = float("nan")
+    decay_ratio = float("nan")
+    settling_cycles = float("nan")
+    if offset_envelope is not None and len(offset_envelope):
+        finite = np.asarray(offset_envelope, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size:
+            residual_pp = float(np.nanmax(finite) - np.nanmin(finite))
+            residual_rms = float(np.sqrt(np.nanmean(np.square(finite))))
+            first_abs = max(abs(float(finite[0])), 1e-12)
+            last_abs = abs(float(finite[-1]))
+            decay_ratio = float(last_abs / first_abs)
+    if weight is not None and len(weight):
+        above = np.flatnonzero(np.asarray(weight, dtype=float) > 0.05)
+        if above.size:
+            settling_cycles = float(above[-1] / max(len(weight) - 1, 1) * float(transition_cycles))
+    return {
+        "startup_transient_applied": bool(applied),
+        "startup_transient_source": source,
+        "startup_transient_status": status,
+        "startup_cycle_count_used": startup_diagnostics.get("startup_cycle_count_used"),
+        "steady_cycle_count_used": startup_diagnostics.get("steady_cycle_count_used"),
+        "startup_bias_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
+        "startup_peak_shift_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
+        "startup_phase_shift_s": float("nan"),
+        "startup_settling_cycle_count": settling_cycles,
+        "startup_residual_pp_mT": residual_pp,
+        "startup_residual_rms_mT": residual_rms,
+        "startup_envelope_decay_ratio": decay_ratio,
+        "startup_source_support_id": startup_diagnostics.get("source_test_id"),
+        "startup_data_quality_ok": bool(status in {"ok", "steady_like"}),
         "startup_initial_field_offset_mT": startup_diagnostics.get("first_cycle_field_mean_mT"),
         "startup_steady_field_offset_mT": startup_diagnostics.get("steady_field_mean_mT"),
-        "startup_field_offset_delta_mT": float(offset_delta),
+        "startup_field_offset_delta_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
         "startup_transient_transition_cycles": float(transition_cycles),
-        "startup_transient_reason": startup_diagnostics.get("behavior_flag", "startup_transient"),
+        "startup_transient_reason": reason,
+        "startup_source_freq_hz": source_freq,
+        "startup_target_freq_hz": target_freq,
+        "startup_frequency_distance_hz": freq_distance,
     }
 
 
