@@ -19,7 +19,7 @@ def test_target_support_predicted_semantics_markers_exist() -> None:
     assert "Support Reference" in source
     assert "Support-Blended Preview" in source
     assert "Command Waveform" in source
-    assert "Internal Reference (lag/support-conditioned)" in source
+    assert "Internal Reference (debug, hidden by default)" in source
 
 
 def test_plot_semantics_explanation_separates_target_from_support() -> None:
@@ -31,6 +31,8 @@ def test_plot_semantics_explanation_separates_target_from_support() -> None:
     assert "`Support Reference` is not " in source
     assert "the target;" in source
     assert "`Predicted Output` is the model response;" in source
+    assert "Advanced / Debug plot references" in source
+    assert "It is not the physical target." in source
 
 
 def test_plot_profile_uses_physical_target_backend_column() -> None:
