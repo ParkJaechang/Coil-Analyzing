@@ -1147,6 +1147,12 @@ def synthesize_current_waveform_compensation(
         "startup_bias_after_mT": startup_transient_metadata.get("startup_bias_after_mT"),
         "startup_residual_rms_before_mT": startup_transient_metadata.get("startup_residual_rms_before_mT"),
         "startup_residual_rms_after_mT": startup_transient_metadata.get("startup_residual_rms_after_mT"),
+        "startup_compensation_applied": startup_transient_metadata.get("startup_compensation_applied"),
+        "startup_compensation_reject_reason": startup_transient_metadata.get("startup_compensation_reject_reason"),
+        "startup_candidate_forward_prediction_available": startup_transient_metadata.get("startup_candidate_forward_prediction_available"),
+        "voltage_limit_respected": startup_transient_metadata.get("voltage_limit_respected"),
+        "command_smoothness_score_before": startup_transient_metadata.get("command_smoothness_score_before"),
+        "command_smoothness_score_after": startup_transient_metadata.get("command_smoothness_score_after"),
         "startup_preview_profile": startup_preview_profile,
         "validation_base_profile": validation_base_profile,
         "compensation_sequence": compensation_sequence,
@@ -4979,7 +4985,7 @@ def _apply_startup_transient_prediction(
             support_valid = np.isfinite(support_values) & np.isfinite(transient_weight)
             support_values[support_valid] = support_values[support_valid] * ratio_envelope[support_valid] + offset_envelope[support_valid]
             adjusted[support_column] = support_values
-    _apply_startup_command_correction(
+    command_metadata = _apply_startup_command_correction(
         adjusted,
         startup_component=startup_component,
         transient_weight=transient_weight,
@@ -5018,6 +5024,7 @@ def _apply_startup_transient_prediction(
         rejected_metadata["startup_rejected_reason"] = "startup_metric_regression"
         return command_profile, rejected_metadata
     metadata.update(metric_metadata)
+    metadata.update(command_metadata)
     for key, value in metadata.items():
         adjusted[key] = value
     return _sync_modeled_alias_columns(adjusted), metadata
@@ -5096,22 +5103,68 @@ def _apply_startup_command_correction(
     *,
     startup_component: np.ndarray,
     transient_weight: np.ndarray,
-) -> None:
+) -> dict[str, Any]:
     component = np.asarray(startup_component, dtype=float)
     weight = np.asarray(transient_weight, dtype=float)
     finite_component = component[np.isfinite(component)]
     component_scale = max(float(np.nanmax(np.abs(finite_component))) if finite_component.size else 0.0, 1e-9)
     correction_strength = np.clip(np.abs(component) / component_scale, 0.0, 1.0) * np.clip(weight, 0.0, 1.0)
     attenuation = 1.0 - np.clip(0.25 * correction_strength, 0.0, 0.25)
-    for column in ("recommended_voltage_v", "limited_voltage_v"):
-        if column not in command_profile.columns:
-            continue
-        values = pd.to_numeric(command_profile[column], errors="coerce").to_numpy(dtype=float).copy()
-        valid = np.isfinite(values) & np.isfinite(attenuation)
-        values[valid] = values[valid] * attenuation[valid]
-        command_profile[column] = values
+    baseline_column = "recommended_voltage_v" if "recommended_voltage_v" in command_profile.columns else None
+    if baseline_column is None:
+        return {
+            "startup_compensation_applied": False,
+            "startup_compensation_reject_reason": "candidate_forward_prediction_unavailable",
+            "startup_candidate_forward_prediction_available": False,
+        }
+    baseline = pd.to_numeric(command_profile[baseline_column], errors="coerce").to_numpy(dtype=float).copy()
+    valid = np.isfinite(baseline) & np.isfinite(attenuation)
+    compensated = baseline.copy()
+    compensated[valid] = compensated[valid] * attenuation[valid]
+    command_profile["baseline_recommended_voltage_v"] = baseline
+    command_profile["compensated_recommended_voltage_v"] = compensated
+    command_profile["startup_command_delta_v"] = compensated - baseline
+    command_profile["recommended_voltage_v"] = compensated
+    if "limited_voltage_v" in command_profile.columns:
+        limited = pd.to_numeric(command_profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float).copy()
+        limited_valid = np.isfinite(limited) & np.isfinite(attenuation)
+        limited[limited_valid] = limited[limited_valid] * attenuation[limited_valid]
+        command_profile["limited_voltage_v"] = limited
     command_profile["startup_command_correction_applied"] = True
     command_profile["startup_command_attenuation"] = attenuation
+    command_profile["startup_candidate_forward_prediction_available"] = True
+    smoothness_before = _command_smoothness_score(baseline)
+    smoothness_after = _command_smoothness_score(compensated)
+    max_limit = _first_numeric(command_profile["limited_voltage_pp"]) if "limited_voltage_pp" in command_profile.columns else None
+    compensated_pp = _array_peak_to_peak(compensated)
+    limit_respected = True
+    if max_limit is not None and np.isfinite(max_limit):
+        limit_respected = bool(compensated_pp <= float(max_limit) + 1e-9)
+    return {
+        "startup_compensation_applied": True,
+        "startup_compensation_reject_reason": None,
+        "startup_candidate_forward_prediction_available": True,
+        "voltage_limit_respected": limit_respected,
+        "command_smoothness_score_before": smoothness_before,
+        "command_smoothness_score_after": smoothness_after,
+    }
+
+
+def _command_smoothness_score(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < 3:
+        return float("nan")
+    pp = max(float(np.nanmax(finite) - np.nanmin(finite)), 1e-9)
+    return float(np.nanmax(np.abs(np.diff(finite, n=2))) / pp)
+
+
+def _array_peak_to_peak(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("nan")
+    return float(np.nanmax(finite) - np.nanmin(finite))
 
 
 def _startup_before_after_metrics(command_profile: pd.DataFrame) -> dict[str, float]:
