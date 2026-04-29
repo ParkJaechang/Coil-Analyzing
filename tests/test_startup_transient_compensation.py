@@ -221,7 +221,7 @@ def test_continuous_startup_component_is_separated_and_compensated() -> None:
         "compensated_predicted_field_mT",
         "baseline_recommended_voltage_v",
         "compensated_recommended_voltage_v",
-        "startup_command_delta_v",
+        "startup_compensation_command_delta_v",
         "recommended_voltage_v",
     ):
         assert column in profile.columns
@@ -235,12 +235,17 @@ def test_continuous_startup_component_is_separated_and_compensated() -> None:
     assert result["startup_compensation_applied"] is True
     assert result["startup_compensation_reject_reason"] in (None, [])
     assert result["voltage_limit_respected"] is True
-    assert np.isfinite(float(result["command_smoothness_score_before"]))
-    assert np.isfinite(float(result["command_smoothness_score_after"]))
-    assert float(result["command_smoothness_score_after"]) <= float(result["command_smoothness_score_before"]) + 0.05
+    assert result["startup_compensated_prediction_source"] == "compensated_command_forward_approximation"
+    assert np.isfinite(float(result["command_smoothness_before"]))
+    assert np.isfinite(float(result["command_smoothness_after"]))
+    assert float(result["command_smoothness_after"]) <= float(result["command_smoothness_before"]) + 0.05
+    assert "terminal_peak_error_before_mT" in result
+    assert "terminal_peak_error_after_mT" in result
+    assert "tail_residual_before" in result
+    assert "tail_residual_after" in result
     baseline_command = pd.to_numeric(profile["baseline_recommended_voltage_v"], errors="coerce")
     compensated_command = pd.to_numeric(profile["compensated_recommended_voltage_v"], errors="coerce")
-    command_delta = pd.to_numeric(profile["startup_command_delta_v"], errors="coerce")
+    command_delta = pd.to_numeric(profile["startup_compensation_command_delta_v"], errors="coerce")
     assert float(command_delta.abs().max()) > 1e-9
     assert not np.allclose(baseline_command, compensated_command)
     assert np.allclose(profile["recommended_voltage_v"], compensated_command)
@@ -292,7 +297,7 @@ def test_finite_startup_component_is_separated_and_compensated_without_target_st
         "compensated_predicted_field_mT",
         "baseline_recommended_voltage_v",
         "compensated_recommended_voltage_v",
-        "startup_command_delta_v",
+        "startup_compensation_command_delta_v",
         "recommended_voltage_v",
     ):
         assert column in profile.columns
@@ -307,6 +312,9 @@ def test_finite_startup_component_is_separated_and_compensated_without_target_st
     assert not np.allclose(baseline_command, compensated_command)
     assert np.allclose(profile["recommended_voltage_v"], compensated_command)
     assert result["startup_compensation_applied"] is True
+    assert result["startup_compensated_prediction_source"] == "compensated_command_forward_approximation"
+    assert abs(float(result["terminal_peak_error_after_mT"])) <= abs(float(result["terminal_peak_error_before_mT"])) + 1e-9
+    assert float(result["tail_residual_after"]) <= float(result["tail_residual_before"]) + 1e-9
     assert bool(profile["startup_candidate_forward_prediction_available"].all()) is True
     assert float(result["predicted_jump_ratio"]) <= 0.20
 

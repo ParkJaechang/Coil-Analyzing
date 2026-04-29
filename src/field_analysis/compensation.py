@@ -1151,8 +1151,15 @@ def synthesize_current_waveform_compensation(
         "startup_compensation_reject_reason": startup_transient_metadata.get("startup_compensation_reject_reason"),
         "startup_candidate_forward_prediction_available": startup_transient_metadata.get("startup_candidate_forward_prediction_available"),
         "voltage_limit_respected": startup_transient_metadata.get("voltage_limit_respected"),
+        "command_smoothness_before": startup_transient_metadata.get("command_smoothness_before"),
+        "command_smoothness_after": startup_transient_metadata.get("command_smoothness_after"),
         "command_smoothness_score_before": startup_transient_metadata.get("command_smoothness_score_before"),
         "command_smoothness_score_after": startup_transient_metadata.get("command_smoothness_score_after"),
+        "terminal_peak_error_before_mT": startup_transient_metadata.get("terminal_peak_error_before_mT"),
+        "terminal_peak_error_after_mT": startup_transient_metadata.get("terminal_peak_error_after_mT"),
+        "tail_residual_before": startup_transient_metadata.get("tail_residual_before"),
+        "tail_residual_after": startup_transient_metadata.get("tail_residual_after"),
+        "startup_compensated_prediction_source": startup_transient_metadata.get("startup_compensated_prediction_source"),
         "startup_preview_profile": startup_preview_profile,
         "validation_base_profile": validation_base_profile,
         "compensation_sequence": compensation_sequence,
@@ -4962,11 +4969,14 @@ def _apply_startup_transient_prediction(
     predicted_column = _resolve_predicted_field_column(adjusted) or "predicted_field_mT"
     if predicted_column not in adjusted.columns:
         return command_profile, {"startup_transient_applied": False}
-    compensated_values = pd.to_numeric(adjusted[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
-    valid = np.isfinite(compensated_values) & np.isfinite(transient_weight)
-    startup_component = np.zeros_like(compensated_values, dtype=float)
-    startup_component[valid] = compensated_values[valid] * (ratio_envelope[valid] - 1.0) + offset_envelope[valid]
-    open_loop_values = compensated_values + startup_component
+    steady_values = pd.to_numeric(adjusted[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    valid = np.isfinite(steady_values) & np.isfinite(transient_weight)
+    startup_component = np.zeros_like(steady_values, dtype=float)
+    startup_component[valid] = steady_values[valid] * (ratio_envelope[valid] - 1.0) + offset_envelope[valid]
+    open_loop_values = steady_values + startup_component
+    compensation_effect = np.clip(transient_weight, 0.0, 1.0)
+    compensated_values = open_loop_values.copy()
+    compensated_values[valid] = open_loop_values[valid] - startup_component[valid] * compensation_effect[valid]
     adjusted["open_loop_predicted_field_mT"] = open_loop_values
     adjusted["startup_transient_component_mT"] = startup_component
     adjusted["compensated_predicted_field_mT"] = compensated_values
@@ -5025,6 +5035,7 @@ def _apply_startup_transient_prediction(
         return command_profile, rejected_metadata
     metadata.update(metric_metadata)
     metadata.update(command_metadata)
+    metadata["startup_compensated_prediction_source"] = "compensated_command_forward_approximation"
     for key, value in metadata.items():
         adjusted[key] = value
     return _sync_modeled_alias_columns(adjusted), metadata
@@ -5124,6 +5135,7 @@ def _apply_startup_command_correction(
     command_profile["baseline_recommended_voltage_v"] = baseline
     command_profile["compensated_recommended_voltage_v"] = compensated
     command_profile["startup_command_delta_v"] = compensated - baseline
+    command_profile["startup_compensation_command_delta_v"] = compensated - baseline
     command_profile["recommended_voltage_v"] = compensated
     if "limited_voltage_v" in command_profile.columns:
         limited = pd.to_numeric(command_profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float).copy()
@@ -5145,6 +5157,8 @@ def _apply_startup_command_correction(
         "startup_compensation_reject_reason": None,
         "startup_candidate_forward_prediction_available": True,
         "voltage_limit_respected": limit_respected,
+        "command_smoothness_before": smoothness_before,
+        "command_smoothness_after": smoothness_after,
         "command_smoothness_score_before": smoothness_before,
         "command_smoothness_score_after": smoothness_after,
     }
@@ -5205,12 +5219,16 @@ def _startup_before_after_metrics(command_profile: pd.DataFrame) -> dict[str, fl
     residual = predicted - target
     early_residual = float(np.nanmean(residual[early_mask])) if np.any(early_mask) else float("nan")
     residual_active = residual[valid_active]
+    terminal_mask = _startup_terminal_mask(command_profile, valid_active, time_values)
+    tail_mask = _startup_tail_mask(command_profile, valid_active, time_values)
     return {
         "early_cycle_residual": early_residual,
         "active_nrmse": active_nrmse,
         "active_shape_corr": active_corr,
         "startup_bias_mT": early_residual,
         "startup_residual_rms_mT": float(np.sqrt(np.nanmean(np.square(residual_active)))),
+        "terminal_peak_error_mT": _startup_terminal_peak_error(target, predicted, terminal_mask),
+        "tail_residual": _startup_tail_residual_ratio(predicted, target, tail_mask),
     }
 
 
@@ -5221,6 +5239,8 @@ def _empty_startup_metrics() -> dict[str, float]:
         "active_shape_corr": float("nan"),
         "startup_bias_mT": float("nan"),
         "startup_residual_rms_mT": float("nan"),
+        "terminal_peak_error_mT": float("nan"),
+        "tail_residual": float("nan"),
     }
 
 
@@ -5238,6 +5258,10 @@ def _startup_metric_metadata(before: dict[str, float], after: dict[str, float]) 
         "startup_bias_after_mT": after.get("startup_bias_mT", float("nan")),
         "startup_residual_rms_before_mT": before.get("startup_residual_rms_mT", float("nan")),
         "startup_residual_rms_after_mT": after.get("startup_residual_rms_mT", float("nan")),
+        "terminal_peak_error_before_mT": before.get("terminal_peak_error_mT", float("nan")),
+        "terminal_peak_error_after_mT": after.get("terminal_peak_error_mT", float("nan")),
+        "tail_residual_before": before.get("tail_residual", float("nan")),
+        "tail_residual_after": after.get("tail_residual", float("nan")),
     }
 
 
@@ -5253,6 +5277,44 @@ def _startup_metrics_worsened(before: dict[str, float], after: dict[str, float])
         if float(after_corr) < float(before_corr) - 0.075:
             return True
     return False
+
+
+def _startup_terminal_mask(command_profile: pd.DataFrame, active_mask: np.ndarray, time_values: np.ndarray) -> np.ndarray:
+    mask = np.asarray(active_mask, dtype=bool).copy()
+    active_times = time_values[mask & np.isfinite(time_values)]
+    if active_times.size < 3:
+        return mask
+    active_start = float(np.nanmin(active_times))
+    active_end = float(np.nanmax(active_times))
+    cutoff = active_start + (active_end - active_start) * 0.8
+    return mask & np.isfinite(time_values) & (time_values >= cutoff)
+
+
+def _startup_tail_mask(command_profile: pd.DataFrame, active_mask: np.ndarray, time_values: np.ndarray) -> np.ndarray:
+    mask = np.asarray(active_mask, dtype=bool)
+    active_times = time_values[mask & np.isfinite(time_values)]
+    if active_times.size < 3:
+        return np.zeros_like(mask, dtype=bool)
+    active_end = float(np.nanmax(active_times))
+    return (~mask) & np.isfinite(time_values) & (time_values > active_end)
+
+
+def _startup_terminal_peak_error(target: np.ndarray, predicted: np.ndarray, mask: np.ndarray) -> float:
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(target) & np.isfinite(predicted)
+    if valid.sum() < 2:
+        return float("nan")
+    return float(np.nanmax(np.abs(predicted[valid])) - np.nanmax(np.abs(target[valid])))
+
+
+def _startup_tail_residual_ratio(predicted: np.ndarray, target: np.ndarray, mask: np.ndarray) -> float:
+    target_finite = target[np.isfinite(target)]
+    target_pp = float(np.nanmax(target_finite) - np.nanmin(target_finite)) if target_finite.size else float("nan")
+    if not np.isfinite(target_pp) or target_pp <= 1e-9:
+        return float("nan")
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(predicted)
+    if not np.any(valid):
+        return 0.0
+    return float(np.nanmax(np.abs(predicted[valid])) / max(target_pp / 2.0, 1e-9))
 
 
 def _finite_target_template(
