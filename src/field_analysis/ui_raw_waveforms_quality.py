@@ -102,6 +102,33 @@ def render_anomaly_helper(
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
 
+def render_channel_timebase_summary(display_frame: pd.DataFrame, selected_channels: list[str]) -> None:
+    if "time_s" not in display_frame.columns:
+        return
+    time_values = pd.to_numeric(display_frame["time_s"], errors="coerce")
+    rows: list[dict[str, object]] = []
+    for channel in selected_channels:
+        if channel not in display_frame.columns:
+            continue
+        values = pd.to_numeric(display_frame[channel], errors="coerce")
+        valid = values.notna() & time_values.notna()
+        if not valid.any():
+            continue
+        channel_time = time_values[valid]
+        rows.append(
+            {
+                "channel": channel,
+                "samples": int(valid.sum()),
+                "time_min_s": float(channel_time.min()),
+                "time_max_s": float(channel_time.max()),
+                "duration_s": float(channel_time.max() - channel_time.min()),
+            }
+        )
+    if rows:
+        st.markdown("#### Channel timebase summary")
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+
 def _build_signal_quality_row(
     frame: pd.DataFrame,
     channel: str,

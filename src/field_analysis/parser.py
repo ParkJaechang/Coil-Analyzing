@@ -28,6 +28,7 @@ from .utils import (
 
 
 SUPPORTED_FILE_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm", ".xls"}
+PARSER_VERSION = "parser_timebase_v2"
 CONTINUOUS_FILENAME_PATTERN = re.compile(
     r"^continuous_(?P<waveform>sine|triangle)_(?P<freq>\d+(?:[._p]\d+)?)hz$",
     flags=re.IGNORECASE,
@@ -423,7 +424,21 @@ def _recommend_mapping(columns: list[str], schema: SchemaConfig) -> dict[str, st
     mapping: dict[str, str | None] = {}
     for key, aliases in schema.column_aliases.items():
         mapping[key] = choose_best_match(columns, aliases)
-    return mapping
+    return _sanitize_recommended_mapping(mapping)
+
+
+def _sanitize_recommended_mapping(mapping: dict[str, str | None]) -> dict[str, str | None]:
+    sanitized = dict(mapping)
+    for key in ("temperature_t1_c", "temperature_t2_c", "temperature_t3_c", "temperature_t4_c", "temperature_c"):
+        source_column = sanitized.get(key)
+        if source_column and _looks_like_signal_column(source_column):
+            sanitized[key] = None
+    return sanitized
+
+
+def _looks_like_signal_column(column: str) -> bool:
+    normalized = normalize_name(column)
+    return any(token in normalized for token in ("current", "voltage", "daq", "hall", "bmt", "bzm", "bxm", "bym"))
 
 
 def _load_sheet_frame(
@@ -614,6 +629,9 @@ def _normalize_frame(
     normalized["daq_pp_v"] = daq_pp_v
     normalized["dcamp_gain_percent"] = dcamp_gain_percent
     normalized["filename_metadata_inferred"] = filename_metadata_inferred
+    normalized["parser_version"] = PARSER_VERSION
+    normalized["detected_format"] = _detect_table_format(source_file=source_file, frame=frame, metadata=metadata)
+    normalized["sample_rate_hz"] = _estimate_sample_rate_hz(normalized["time_s"])
     if amp_gain_setting is not None:
         normalized["amp_gain_setting"] = normalized["amp_gain_setting"].fillna(amp_gain_setting)
     normalized["notes"] = notes_value or ""
@@ -627,6 +645,13 @@ def _normalize_frame(
     if required_missing:
         warnings.append(f"필수 매핑 누락: {', '.join(required_missing)}")
 
+    quality_flags = _build_timebase_quality_flags(
+        normalized=normalized,
+        mapping=mapping,
+        freq_hz=freq_hz,
+        cycle_count=cycle_hint,
+    )
+    normalized["parse_quality_flags"] = "|".join(quality_flags)
     warnings.extend(_series_quality_warnings(normalized))
     normalized["parse_warnings"] = flatten_messages(warnings)
     logs.append(
@@ -652,24 +677,40 @@ def _assign_time_columns(
     if source_column is None or source_column not in frame.columns:
         normalized["timestamp"] = pd.NaT
         normalized["time_s"] = np.arange(len(frame), dtype=float)
+        normalized["timebase_source"] = "sample_index_only"
+        normalized["time_unit"] = "sample_index"
         warnings.append("시간 컬럼을 찾지 못해 sample index 를 time_s 로 사용합니다.")
         return
 
     raw_series = frame[source_column]
+    numeric = pd.to_numeric(raw_series, errors="coerce")
+    time_unit, scale_to_seconds = _infer_time_unit_from_column(source_column)
+    if numeric.notna().any() and scale_to_seconds is not None:
+        normalized["timestamp"] = pd.NaT
+        normalized["time_s"] = (numeric - numeric.dropna().iloc[0]) * scale_to_seconds
+        normalized["timebase_source"] = "explicit_time_column"
+        normalized["time_unit"] = time_unit
+        return
+
     dt_series = pd.to_datetime(raw_series, errors="coerce")
     dt_valid_ratio = float(dt_series.notna().mean())
     if dt_valid_ratio >= 0.5:
         normalized["timestamp"] = dt_series
         normalized["time_s"] = (dt_series - dt_series.iloc[0]).dt.total_seconds()
+        normalized["timebase_source"] = "explicit_datetime_column"
+        normalized["time_unit"] = "datetime"
         return
 
-    numeric = pd.to_numeric(raw_series, errors="coerce")
     normalized["timestamp"] = pd.NaT
     if numeric.notna().any():
         normalized["time_s"] = numeric - numeric.iloc[0]
+        normalized["timebase_source"] = "explicit_time_column"
+        normalized["time_unit"] = "seconds_assumed"
         return
 
     normalized["time_s"] = np.arange(len(frame), dtype=float)
+    normalized["timebase_source"] = "sample_index_only"
+    normalized["time_unit"] = "sample_index"
     warnings.append("시간 컬럼이 datetime/numeric 으로 해석되지 않아 sample index 를 사용합니다.")
 
 
@@ -684,6 +725,105 @@ def _assign_numeric_column(
         normalized[target_key] = np.nan
         return
     normalized[target_key] = pd.to_numeric(frame[source_column], errors="coerce")
+
+
+def _infer_time_unit_from_column(source_column: str) -> tuple[str, float | None]:
+    normalized = normalize_name(source_column)
+    if normalized in {"timems", "timestampms", "elapsedms", "milliseconds", "millisecond"} or normalized.endswith("ms"):
+        return "milliseconds", 0.001
+    if normalized in {"timeus", "timestampus", "elapsedus", "microseconds", "microsecond"} or normalized.endswith("us"):
+        return "microseconds", 0.000001
+    if normalized in {"time", "times", "timestamp", "timestamps", "elapsed", "seconds", "second", "timesec", "timesecs"}:
+        return "seconds", 1.0
+    return "unknown", None
+
+
+def _detect_table_format(*, source_file: str, frame: pd.DataFrame, metadata: dict[str, Any]) -> str:
+    columns = {normalize_name(column) for column in frame.columns}
+    if {"timems", "hallbx", "hallby", "hallbz"} & columns and {"voltage1v", "current1a"} <= columns:
+        return "new_lut_csv"
+    if bool(metadata.get("filename_metadata_inferred")):
+        return "filename_metadata_csv"
+    if Path(source_file).suffix.lower() in {".csv", ".txt"}:
+        return "legacy_csv"
+    if Path(source_file).suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
+        return "legacy_excel"
+    return "unknown"
+
+
+def _estimate_sample_rate_hz(time_s: pd.Series) -> float:
+    values = pd.to_numeric(time_s, errors="coerce").dropna().to_numpy(dtype=float)
+    if len(values) < 2:
+        return float("nan")
+    diffs = np.diff(values)
+    diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
+    if len(diffs) == 0:
+        return float("nan")
+    return float(1.0 / np.median(diffs))
+
+
+def _build_timebase_quality_flags(
+    *,
+    normalized: pd.DataFrame,
+    mapping: dict[str, str | None],
+    freq_hz: float | None,
+    cycle_count: float | None,
+) -> list[str]:
+    flags: set[str] = set()
+    time_values = pd.to_numeric(normalized.get("time_s"), errors="coerce").to_numpy(dtype=float)
+    finite_time = time_values[np.isfinite(time_values)]
+    time_unit = str(_first_column_value(normalized, "time_unit") or "")
+    if time_unit == "sample_index":
+        flags.add("SAMPLE_INDEX_TIMEBASE")
+    if time_unit == "seconds_assumed":
+        flags.add("UNKNOWN_TIME_UNIT")
+    if len(finite_time) >= 2:
+        diffs = np.diff(finite_time)
+        valid_diffs = diffs[np.isfinite(diffs)]
+        if np.any(valid_diffs <= 0):
+            flags.add("TIME_NOT_MONOTONIC")
+        positive = valid_diffs[valid_diffs > 0]
+        if len(positive) >= 4:
+            median = float(np.median(positive))
+            if median > 0 and float(np.percentile(positive, 95) - np.percentile(positive, 5)) / median > 1.0:
+                flags.add("TIME_INTERVAL_JITTER")
+    if mapping.get("timestamp") is None:
+        flags.add("NO_EXPLICIT_TIME_COLUMN")
+    if np.isfinite(freq_hz or np.nan) and np.isfinite(cycle_count or np.nan) and freq_hz and cycle_count:
+        duration = float(np.nanmax(finite_time) - np.nanmin(finite_time)) if len(finite_time) else float("nan")
+        expected = float(cycle_count) / float(freq_hz)
+        if np.isfinite(duration) and expected > 0 and duration > expected * 3.0:
+            flags.add("POST_WINDOW_INCLUDED")
+    current_peaks = _estimate_peak_count(normalized.get("i_sum"))
+    field_peaks = _estimate_peak_count(normalized.get("bz_mT"))
+    if current_peaks is not None and field_peaks is not None and abs(current_peaks - field_peaks) > max(2, current_peaks * 0.35):
+        flags.add("FIELD_PEAK_COUNT_MISMATCH")
+    return sorted(flags)
+
+
+def _first_column_value(frame: pd.DataFrame, column: str) -> object | None:
+    if column not in frame.columns or frame.empty:
+        return None
+    values = frame[column].dropna()
+    return None if values.empty else values.iloc[0]
+
+
+def _estimate_peak_count(series: pd.Series | None) -> int | None:
+    if series is None:
+        return None
+    values = pd.to_numeric(series, errors="coerce").dropna().to_numpy(dtype=float)
+    if len(values) < 8:
+        return None
+    centered = values - float(np.nanmedian(values))
+    amplitude = float(np.nanmax(centered) - np.nanmin(centered))
+    if amplitude <= 1e-9:
+        return 0
+    threshold = max(amplitude * 0.08, 1e-9)
+    signs = np.sign(np.where(np.abs(centered) < threshold, 0.0, centered))
+    nonzero = signs[signs != 0.0]
+    if len(nonzero) < 2:
+        return 0
+    return int(np.count_nonzero((nonzero[:-1] < 0) & (nonzero[1:] > 0)))
 
 
 def _extract_metadata_value(metadata: dict[str, Any], aliases: tuple[str, ...]) -> str | None:
