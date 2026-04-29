@@ -178,15 +178,25 @@ def _early_late_residual_delta(profile: pd.DataFrame, column: str, *, period_s: 
     return float(early - late)
 
 
+def _with_unstable_start(frame: pd.DataFrame) -> pd.DataFrame:
+    mutated = frame.copy()
+    mutated.loc[mutated.index[:8], "bz_mT"] = [40.0, -40.0] * 4
+    return mutated
+
+
 def test_continuous_prediction_reflects_startup_initial_field_offset() -> None:
     analysis = _build_startup_offset_analysis(first_cycle_field_offset_mT=18.0, freq_hz=5.0)
     result = _run_compensation(analysis=analysis, freq_hz=5.0)
     profile = result["command_profile"]
 
     assert result["startup_transient_applied"] is True
+    assert result["startup_source_type"] == "continuous_early_cycles"
+    assert result["startup_source_file"] == "startup_5hz.csv"
     assert result["startup_transient_source"] == "continuous_early_cycles"
     assert result["startup_transient_status"] == "ok"
+    assert result["startup_rejected_reason"] in (None, [])
     assert result["startup_data_quality_ok"] is True
+    assert result["startup_source_waveform_family"] == "sine"
     assert result["startup_cycle_count_used"] == 1
     assert result["steady_cycle_count_used"] >= 3
     assert result["startup_initial_field_offset_mT"] > 0.0
@@ -196,6 +206,15 @@ def test_continuous_prediction_reflects_startup_initial_field_offset() -> None:
     assert result["startup_source_freq_hz"] == 5.0
     assert result["startup_target_freq_hz"] == 5.0
     assert result["startup_frequency_distance_hz"] == 0.0
+    assert result["startup_frequency_fallback_used"] is False
+    assert np.isfinite(float(result["early_cycle_residual_before"]))
+    assert np.isfinite(float(result["early_cycle_residual_after"]))
+    assert np.isfinite(float(result["active_nrmse_before"]))
+    assert np.isfinite(float(result["active_nrmse_after"]))
+    assert np.isfinite(float(result["active_shape_corr_before"]))
+    assert np.isfinite(float(result["active_shape_corr_after"]))
+    assert float(result["active_nrmse_after"]) <= float(result["active_nrmse_before"]) + 0.05
+    assert float(result["active_shape_corr_after"]) >= float(result["active_shape_corr_before"]) - 0.05
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
     first_residual = float(profile["predicted_field_mT"].iloc[0] - profile["physical_target_output_mT"].iloc[0])
     assert first_residual > 10.0
@@ -224,10 +243,21 @@ def test_finite_prediction_reflects_startup_offset_without_target_stretch() -> N
 
     assert result["finite_route_mode"] == "finite_empirical_field_support"
     assert result["startup_transient_applied"] is True
+    assert result["startup_source_type"] == "finite_support"
+    assert result["startup_source_file"] == "finite_startup_exact.csv"
     assert result["startup_transient_source"] == "finite_support"
     assert result["startup_transient_status"] == "ok"
+    assert result["startup_rejected_reason"] in (None, [])
     assert result["startup_data_quality_ok"] is True
+    assert result["startup_source_waveform_family"] == "sine"
+    assert result["startup_source_cycle_count"] == 1.5
     assert result["startup_initial_field_offset_mT"] > 0.0
+    assert np.isfinite(float(result["early_cycle_residual_before"]))
+    assert np.isfinite(float(result["early_cycle_residual_after"]))
+    assert np.isfinite(float(result["active_nrmse_before"]))
+    assert np.isfinite(float(result["active_nrmse_after"]))
+    assert np.isfinite(float(result["active_shape_corr_before"]))
+    assert np.isfinite(float(result["active_shape_corr_after"]))
     assert np.isclose(float(result["target_active_end_s"]), 0.3, atol=0.002)
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
     assert _early_late_residual_delta(profile, "predicted_field_mT", period_s=0.2) > 2.0
@@ -255,9 +285,114 @@ def test_nonzero_start_support_is_rejected_as_startup_source() -> None:
     )
 
     assert result["startup_transient_applied"] is False
+    assert result["startup_source_type"] == "finite_support"
+    assert result["startup_source_file"] == "finite_nonzero_start.csv"
     assert result["startup_transient_status"] == "source_nonzero_start"
+    rejected_reason = result["startup_rejected_reason"]
+    rejected_reasons = rejected_reason if isinstance(rejected_reason, list) else [rejected_reason]
+    assert "source_nonzero_start" in rejected_reasons
     assert result["startup_data_quality_ok"] is False
     assert result["startup_transient_source"] == "finite_support"
+
+
+def test_startup_source_with_quality_gate_violations_is_rejected() -> None:
+    cases = [
+        ("missing_prebaseline", lambda frame: frame.iloc[4:].reset_index(drop=True), "missing_prebaseline"),
+        (
+            "source_spike_detected",
+            lambda frame: frame.assign(bz_mT=frame["bz_mT"].mask(frame.index == 20, 1000.0)),
+            "source_spike_detected",
+        ),
+        (
+            "truncated_active_window",
+            lambda frame: frame.iloc[:60].reset_index(drop=True),
+            "truncated_active_window",
+        ),
+        (
+            "non_monotonic_time",
+            lambda frame: frame.assign(time_s=frame["time_s"].mask(frame.index == 10, frame["time_s"].iloc[9] - 0.01)),
+            "non_monotonic_time",
+        ),
+        (
+            "duplicated_timestamp",
+            lambda frame: frame.assign(time_s=frame["time_s"].mask(frame.index == 10, frame["time_s"].iloc[9])),
+            "duplicated_timestamp",
+        ),
+        (
+            "severe_sampling_irregularity",
+            lambda frame: frame.assign(time_s=frame["time_s"].mask(frame.index >= 80, frame["time_s"] + 0.2)),
+            "severe_sampling_irregularity",
+        ),
+        (
+            "missing_key_columns",
+            lambda frame: frame.drop(columns=["bz_mT"]),
+            "missing_key_columns",
+        ),
+        (
+            "clipping",
+            lambda frame: frame.assign(daq_input_v=frame["daq_input_v"].mask(frame.index.to_series().between(30, 36), 5.0)),
+            "clipping",
+        ),
+        (
+            "unstable_baseline",
+            _with_unstable_start,
+            "unstable_baseline",
+        ),
+        (
+            "source_coverage_insufficient",
+            lambda frame: frame[frame["time_s"] <= 0.1].reset_index(drop=True),
+            "source_coverage_insufficient",
+        ),
+    ]
+
+    for test_id, mutate_frame, expected_reason in cases:
+        entry = finite_fixture._build_finite_entry(
+            test_id=test_id,
+            waveform_type="sine",
+            freq_hz=5.0,
+            cycle_count=1.5,
+            field_pp=100.0,
+        )
+        entry["frame"] = mutate_frame(entry["frame"].copy())
+
+        result = _run_compensation(
+            finite_support_entries=[entry],
+            finite_cycle_mode=True,
+            target_cycle_count=1.5,
+            freq_hz=5.0,
+        )
+
+        assert result["startup_transient_applied"] is False, test_id
+        assert result["startup_data_quality_ok"] is False, test_id
+        assert result["startup_source_type"] == "finite_support"
+        rejected_reason = result["startup_rejected_reason"]
+        rejected_reasons = rejected_reason if isinstance(rejected_reason, list) else [rejected_reason]
+        assert expected_reason in rejected_reasons, test_id
+
+
+def test_startup_application_is_rejected_when_active_shape_metrics_regress() -> None:
+    entry = finite_fixture._build_finite_entry(
+        test_id="finite_metric_regression",
+        waveform_type="sine",
+        freq_hz=5.0,
+        cycle_count=1.5,
+        field_pp=100.0,
+    )
+    frame = entry["frame"].copy()
+    frame.loc[frame["time_s"] <= 0.2 + 1e-12, "bz_mT"] = frame.loc[frame["time_s"] <= 0.2 + 1e-12, "bz_mT"] + 50.0
+    entry["frame"] = frame
+
+    result = _run_compensation(
+        finite_support_entries=[entry],
+        finite_cycle_mode=True,
+        target_cycle_count=1.5,
+        freq_hz=5.0,
+    )
+
+    assert result["startup_transient_applied"] is False
+    assert result["startup_rejected_reason"] == "startup_metric_regression"
+    assert float(result["active_nrmse_after"]) > float(result["active_nrmse_before"])
+    assert float(result["active_shape_corr_after"]) < float(result["active_shape_corr_before"])
 
 
 def test_one_point_seven_five_without_exact_support_remains_unavailable() -> None:
