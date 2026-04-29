@@ -307,6 +307,17 @@ def test_finite_startup_component_is_separated_and_compensated_without_target_st
         _early_late_residual_delta(profile, "open_loop_predicted_field_mT", period_s=0.2)
     )
     assert abs(float(result["startup_residual_after_mT"])) < abs(float(result["startup_residual_before_mT"]))
+    assert result["support_reference_trace_status"] == "ok"
+    assert result["support_reference_plotted_column"] == "support_reference_output_mT"
+    assert result["support_reference_source_label"] == "selected_support_trace"
+    assert result["support_reference_selected_support_id"] == "finite_startup_exact"
+    support_reference = pd.to_numeric(profile["support_reference_output_mT"], errors="coerce")
+    support_scaled = pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce")
+    open_loop = pd.to_numeric(profile["open_loop_predicted_field_mT"], errors="coerce")
+    compensated = pd.to_numeric(profile["compensated_predicted_field_mT"], errors="coerce")
+    assert np.allclose(support_reference, support_scaled, equal_nan=True)
+    assert not np.allclose(support_reference, open_loop, equal_nan=True)
+    assert not np.allclose(support_reference, compensated, equal_nan=True)
     baseline_command = pd.to_numeric(profile["baseline_recommended_voltage_v"], errors="coerce")
     compensated_command = pd.to_numeric(profile["compensated_recommended_voltage_v"], errors="coerce")
     assert not np.allclose(baseline_command, compensated_command)

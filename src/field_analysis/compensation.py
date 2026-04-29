@@ -755,6 +755,8 @@ def synthesize_current_waveform_compensation(
         finite_prediction_source = final_extension_metadata["finite_prediction_source"] or finite_prediction_source
         predicted_cover_reason = final_extension_metadata["predicted_cover_reason"] or predicted_cover_reason
         support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
+    if field_only_route and "support_scaled_field_mT" in command_profile.columns:
+        command_profile["support_reference_output_mT"] = command_profile["support_scaled_field_mT"]
     startup_diagnostics = dict(
         finite_empirical_model.get("startup_diagnostics", {})
         if use_finite_empirical_route
@@ -816,6 +818,17 @@ def synthesize_current_waveform_compensation(
         }
         support_min = min(support_min, float(finite_empirical_model.get("support_output_pp", support_min)))
         support_max = max(support_max, float(finite_empirical_model.get("support_output_pp", support_max)))
+    support_reference_contract = _build_support_reference_trace_contract(
+        command_profile=command_profile,
+        selected_support_id=str(support_selection_meta.get("selected_support_id") or nearest_test_id or ""),
+        route_mode=str(
+            (finite_empirical_model.get("mode") if isinstance(finite_empirical_model, dict) else None)
+            or ("finite_empirical_field_support" if use_finite_empirical_route else "steady_state_preview")
+        ),
+        finite_support_used=bool(finite_support_used),
+    )
+    for key, value in support_reference_contract.items():
+        command_profile[key] = value
     finite_stop_policy = _summarize_finite_command_stop_policy(
         command_profile=command_profile,
         target_active_end_s=target_active_end_s,
@@ -1043,6 +1056,16 @@ def synthesize_current_waveform_compensation(
         "target_pp_fixed": float(FIELD_ROUTE_NORMALIZED_TARGET_PP) if field_only_route else None,
         "physical_target_output_column": "physical_target_output_mT" if field_only_route else None,
         "support_reference_output_column": "support_reference_output_mT" if field_only_route else None,
+        "support_reference_available": support_reference_contract.get("support_reference_available"),
+        "support_reference_trace_status": support_reference_contract.get("support_reference_trace_status"),
+        "support_reference_plotted_column": support_reference_contract.get("support_reference_plotted_column"),
+        "support_reference_source_label": support_reference_contract.get("support_reference_source_label"),
+        "support_reference_selected_support_id": support_reference_contract.get("support_reference_selected_support_id"),
+        "support_reference_route_mode": support_reference_contract.get("support_reference_route_mode"),
+        "support_reference_pp": support_reference_contract.get("support_reference_pp"),
+        "support_reference_duration_s": support_reference_contract.get("support_reference_duration_s"),
+        "support_reference_nonzero_start_s": support_reference_contract.get("support_reference_nonzero_start_s"),
+        "support_reference_nonzero_end_s": support_reference_contract.get("support_reference_nonzero_end_s"),
         "predicted_output_column": "predicted_field_mT" if field_only_route else "predicted_output",
         "support_family_used": selected_support_waveform,
         "support_family_requested": user_requested_support_family,
@@ -3687,6 +3710,61 @@ def _signal_peak_to_peak(frame: pd.DataFrame, column: str) -> float:
     return float(np.nanmax(finite) - np.nanmin(finite))
 
 
+def _build_support_reference_trace_contract(
+    *,
+    command_profile: pd.DataFrame,
+    selected_support_id: str,
+    route_mode: str,
+    finite_support_used: bool,
+) -> dict[str, Any]:
+    column = None
+    for candidate in ("support_reference_output_mT", "support_scaled_field_mT", "support_blended_field_mT"):
+        if candidate in command_profile.columns:
+            column = candidate
+            break
+    if column is None or command_profile.empty or "time_s" not in command_profile.columns:
+        return {
+            "support_reference_available": False,
+            "support_reference_trace_status": "unavailable",
+            "support_reference_plotted_column": column,
+            "support_reference_source_label": "unavailable",
+            "support_reference_selected_support_id": selected_support_id or None,
+            "support_reference_route_mode": route_mode,
+            "support_reference_pp": float("nan"),
+            "support_reference_duration_s": float("nan"),
+            "support_reference_nonzero_start_s": float("nan"),
+            "support_reference_nonzero_end_s": float("nan"),
+        }
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    values = pd.to_numeric(command_profile[column], errors="coerce").to_numpy(dtype=float)
+    finite_mask = np.isfinite(time_values) & np.isfinite(values)
+    finite_values = values[finite_mask]
+    finite_times = time_values[finite_mask]
+    pp = float(np.nanmax(finite_values) - np.nanmin(finite_values)) if finite_values.size else float("nan")
+    threshold = max(abs(pp) * 0.01, 1e-6) if np.isfinite(pp) else 1e-6
+    nonzero_mask = finite_mask & (np.abs(values) > threshold)
+    nonzero_times = time_values[nonzero_mask]
+    duration_s = (
+        float(np.nanmax(finite_times) - np.nanmin(finite_times))
+        if finite_times.size
+        else float("nan")
+    )
+    status = "ok" if finite_values.size and np.isfinite(pp) and pp > threshold else "near_zero_or_unavailable"
+    return {
+        "support_reference_available": status == "ok",
+        "support_reference_trace_status": status,
+        "support_reference_plotted_column": column,
+        "support_reference_source_label": "selected_support_trace" if finite_support_used else "nearest_support_preview",
+        "support_reference_selected_support_id": selected_support_id or None,
+        "support_reference_route_mode": route_mode,
+        "support_reference_pp": pp,
+        "support_reference_duration_s": duration_s,
+        "support_reference_nonzero_start_s": float(np.nanmin(nonzero_times)) if nonzero_times.size else float("nan"),
+        "support_reference_nonzero_end_s": float(np.nanmax(nonzero_times)) if nonzero_times.size else float("nan"),
+    }
+
+
 def _select_representative_cycle_indices(
     analysis: DatasetAnalysis | Any,
     cycle_selection_mode: str = "warm_tail",
@@ -4989,12 +5067,6 @@ def _apply_startup_transient_prediction(
         adjusted["modeled_field_mT"] = compensated_values
     if "modeled_output" in adjusted.columns:
         adjusted["modeled_output"] = compensated_values
-    for support_column in ("support_scaled_field_mT", "support_reference_output_mT"):
-        if support_column in adjusted.columns:
-            support_values = pd.to_numeric(adjusted[support_column], errors="coerce").to_numpy(dtype=float).copy()
-            support_valid = np.isfinite(support_values) & np.isfinite(transient_weight)
-            support_values[support_valid] = support_values[support_valid] * ratio_envelope[support_valid] + offset_envelope[support_valid]
-            adjusted[support_column] = support_values
     command_metadata = _apply_startup_command_correction(
         adjusted,
         startup_component=startup_component,
