@@ -1,0 +1,14 @@
+{
+  "quality_cases/finite_nonzero_start_example.csv": [
+    "daq_nonzero_start"
+  ],
+  "quality_cases/finite_spike_example.csv": [
+    "field_spike"
+  ],
+  "quality_cases/continuous_current_offset_example.csv": [
+    "current_offset"
+  ],
+  "quality_cases/finite_truncated_example.csv": [
+    "truncated_active_window"
+  ]
+}

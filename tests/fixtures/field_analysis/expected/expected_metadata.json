@@ -1,0 +1,162 @@
+{
+  "continuous/continuous_sine_1Hz.csv": {
+    "source_type": "continuous",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": null,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "continuous/continuous_sine_5Hz.csv": {
+    "source_type": "continuous",
+    "waveform_type": "sine",
+    "freq_hz": 5.0,
+    "cycle_count": null,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "continuous/continuous_triangle_1Hz.csv": {
+    "source_type": "continuous",
+    "waveform_type": "triangle",
+    "freq_hz": 1.0,
+    "cycle_count": null,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "continuous/continuous_triangle_5Hz.csv": {
+    "source_type": "continuous",
+    "waveform_type": "triangle",
+    "freq_hz": 5.0,
+    "cycle_count": null,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_sine_1Hz_1cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.0,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_sine_1Hz_1.25cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.25,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_sine_1Hz_1.5cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.5,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_sine_1Hz_1.75cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.75,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_triangle_1Hz_1cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "triangle",
+    "freq_hz": 1.0,
+    "cycle_count": 1.0,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_triangle_1Hz_1.25cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "triangle",
+    "freq_hz": 1.0,
+    "cycle_count": 1.25,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_triangle_1Hz_1.5cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "triangle",
+    "freq_hz": 1.0,
+    "cycle_count": 1.5,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "finite/finite_triangle_1Hz_1.75cycle.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "triangle",
+    "freq_hz": 1.0,
+    "cycle_count": 1.75,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "usable"
+  },
+  "quality_cases/finite_nonzero_start_example.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.25,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "retest_required"
+  },
+  "quality_cases/finite_spike_example.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.25,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "retest_required"
+  },
+  "quality_cases/continuous_current_offset_example.csv": {
+    "source_type": "continuous",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": null,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "retest_required"
+  },
+  "quality_cases/finite_truncated_example.csv": {
+    "source_type": "finite-cycle",
+    "waveform_type": "sine",
+    "freq_hz": 1.0,
+    "cycle_count": 1.5,
+    "daq_amplitude_v": 5.0,
+    "daq_pp_v": 10.0,
+    "dcamp_gain_percent": 100.0,
+    "expected_quality": "retest_required"
+  }
+}
