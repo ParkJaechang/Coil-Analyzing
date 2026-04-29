@@ -32,6 +32,11 @@ def _record_for_fixture(file_name: str) -> RawWaveformTestRecord:
         sample_count=1000,
         duration_s=1.0,
         sampling_rate_hz=1000.0,
+        detected_format="fixture_csv",
+        parser_version="parser_timebase_v2",
+        timebase_source="fixture_time_column",
+        time_unit="seconds",
+        quality_flags="",
     )
 
 
