@@ -62,6 +62,7 @@ from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_sec
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
+from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .utils import first_number, infer_current_from_text, infer_frequency_from_text, infer_waveform_from_text
@@ -2055,6 +2056,7 @@ def _render_quick_lut_tab_v2(
                 _render_finite_prediction_availability(compensation)
                 _render_end_marker_summary(compensation, command_profile)
                 _render_finite_signal_consistency_summary(compensation, command_profile)
+                render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
