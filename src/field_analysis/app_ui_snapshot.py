@@ -1200,7 +1200,7 @@ def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
 
     if _cycle_in_set(float(requested), UI_UNAVAILABLE_FINITE_CYCLE_COUNTS):
         st.warning(
-            "Previous finite cycle value `0.75` is legacy/unexpected for the primary selector; "
+            "Previous finite cycle value `0.75` is not supported by the primary finite-cycle selector; "
             "reset to 1.0. 0.75 is not treated as 1.75."
         )
         st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
@@ -1374,7 +1374,8 @@ def _retitle_compensation_semantics_figure(figure: object) -> object:
         if trace.name == "Target Output":
             trace.name = "Physical Target"
         elif trace.name == "Lag-Compensated Target":
-            trace.name = "Internal Reference (lag/support-conditioned)"
+            trace.name = "Internal Reference (debug, hidden by default)"
+            trace.visible = "legendonly"
         elif trace.name == "Support-Blended Output":
             trace.name = "Support-Blended Preview"
     for annotation in getattr(getattr(figure, "layout", None), "annotations", []) or []:
@@ -1599,10 +1600,14 @@ def _render_finite_prediction_availability(compensation: dict[str, object]) -> N
         return
 
     reason_text = unavailable_reason or "unavailable"
-    if "1_75" in reason_text or "1.75" in reason_text or user_warning_key == "no_safe_1_75_support":
+    if (
+        "1_75" in reason_text
+        or "1.75" in reason_text
+        or user_warning_key in {"no_safe_1_75_support", "no_exact_1_75_support"}
+    ):
         st.warning(
             "1.75 finite prediction unavailable: exact finite-cycle support data was not available or usable. "
-            "1.75 cycle is supported when exact finite-cycle support data exists; it is not treated as 0.75."
+            "1.75 cycle is supported only when exact finite-cycle support data exists; no 0.75 substitution is used."
         )
     else:
         st.warning(
@@ -1821,7 +1826,8 @@ def _render_quick_lut_tab_v2(
             st.caption(
                 f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
                 "1.75 cycle is supported when exact finite-cycle support data exists. "
-                "DAQ output fixed: ±5V · DCAMP Gain fixed: 100% · target field remains rounded-triangle / 100pp fixed."
+                "If exact 1.75 support is absent, 1.75 is unavailable rather than substituted. "
+                "DAQ output fixed: ±5V | DCAMP Gain fixed: 100% | target field remains rounded-triangle / 100pp fixed."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
@@ -1832,7 +1838,7 @@ def _render_quick_lut_tab_v2(
                     key="target_cycle_count_v2",
                     help=(
                         "1.0 / 1.25 / 1.5 / 1.75 are primary UI choices. "
-                        "1.75 cycle uses exact finite support when available; 0.75 is legacy and not treated as 1.75."
+                        "1.75 cycle uses exact finite support when available; 0.75 is unsupported and not treated as 1.75."
                     ),
                 )
             )
@@ -2039,8 +2045,12 @@ def _render_quick_lut_tab_v2(
                 st.caption(
                     "Plot semantics: `Physical Target` is the requested field waveform; `Support Reference` is not "
                     "the target; `Predicted Output` is the model response; `Command Waveform` is shown separately. "
-                    "`Internal Reference (lag/support-conditioned)` is an internal alignment/reference trace."
                 )
+                with st.expander("Advanced / Debug plot references", expanded=False):
+                    st.caption(
+                        "`Internal Reference (debug, hidden by default)` may appear as a legend-only trace when the "
+                        "backend provides an internal lag/support-conditioned reference. It is not the physical target."
+                    )
                 _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
                 _render_finite_prediction_availability(compensation)
                 _render_end_marker_summary(compensation, command_profile)
