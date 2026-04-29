@@ -26,7 +26,6 @@ from .utils import (
     reconstruct_signed_current_channels,
 )
 
-
 SUPPORTED_FILE_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm", ".xls"}
 PARSER_VERSION = "parser_timebase_v2"
 CONTINUOUS_FILENAME_PATTERN = re.compile(
@@ -429,16 +428,28 @@ def _recommend_mapping(columns: list[str], schema: SchemaConfig) -> dict[str, st
 
 def _sanitize_recommended_mapping(mapping: dict[str, str | None]) -> dict[str, str | None]:
     sanitized = dict(mapping)
-    for key in ("temperature_t1_c", "temperature_t2_c", "temperature_t3_c", "temperature_t4_c", "temperature_c"):
-        source_column = sanitized.get(key)
-        if source_column and _looks_like_signal_column(source_column):
+    for key, value in list(sanitized.items()):
+        if key.startswith("temperature") and value is not None and _looks_like_signal_column(value):
             sanitized[key] = None
     return sanitized
 
 
 def _looks_like_signal_column(column: str) -> bool:
     normalized = normalize_name(column)
-    return any(token in normalized for token in ("current", "voltage", "daq", "hall", "bmt", "bzm", "bxm", "bym"))
+    signal_tokens = (
+        "current",
+        "voltage",
+        "daq",
+        "hall",
+        "bmt",
+        "bzm",
+        "bxm",
+        "bym",
+        "bx",
+        "by",
+        "bz",
+    )
+    return any(token in normalized for token in signal_tokens)
 
 
 def _load_sheet_frame(

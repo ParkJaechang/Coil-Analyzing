@@ -755,6 +755,22 @@ def synthesize_current_waveform_compensation(
         finite_prediction_source = final_extension_metadata["finite_prediction_source"] or finite_prediction_source
         predicted_cover_reason = final_extension_metadata["predicted_cover_reason"] or predicted_cover_reason
         support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
+    startup_diagnostics = dict(
+        finite_empirical_model.get("startup_diagnostics", {})
+        if use_finite_empirical_route
+        else nearest_support.get("startup_diagnostics", {})
+    )
+    startup_diagnostics.setdefault("source_test_id", nearest_test_id)
+    startup_transient_metadata: dict[str, Any] = {"startup_transient_applied": False}
+    if field_only_route:
+        command_profile, startup_transient_metadata = _apply_startup_transient_prediction(
+            command_profile=command_profile,
+            startup_diagnostics=startup_diagnostics,
+            target_output_type=output_context["output_type"],
+            freq_hz=requested_freq_hz,
+            transition_cycles=startup_transition_cycles,
+            correction_strength=startup_correction_strength,
+        )
     finite_route_mode = None
     finite_route_reason = None
     finite_route_warning = None
@@ -941,8 +957,6 @@ def synthesize_current_waveform_compensation(
             max_slope_jump_ratio=finite_signal_consistency.get("max_slope_jump_ratio"),
         )
     nearest_cycle_selection = nearest_support.get("cycle_selection", {})
-    startup_diagnostics = dict(nearest_support.get("startup_diagnostics", {}))
-    startup_diagnostics.setdefault("source_test_id", nearest_test_id)
     startup_preview_profile = pd.DataFrame()
     startup_correction_applied = False
     startup_correction_factor = float("nan")
@@ -1093,6 +1107,59 @@ def synthesize_current_waveform_compensation(
         "startup_transition_cycles": float(startup_transition_cycles),
         "startup_correction_strength": float(startup_correction_strength),
         "startup_preview_cycle_count": int(startup_preview_cycle_count),
+        "startup_transient_applied": bool(startup_transient_metadata.get("startup_transient_applied", False)),
+        "startup_transient_source": startup_transient_metadata.get("startup_transient_source"),
+        "startup_source_type": startup_transient_metadata.get("startup_source_type"),
+        "startup_source_file": startup_transient_metadata.get("startup_source_file"),
+        "startup_transient_status": startup_transient_metadata.get("startup_transient_status"),
+        "startup_rejected_reason": startup_transient_metadata.get("startup_rejected_reason"),
+        "startup_cycle_count_used": startup_transient_metadata.get("startup_cycle_count_used"),
+        "steady_cycle_count_used": startup_transient_metadata.get("steady_cycle_count_used"),
+        "startup_bias_mT": startup_transient_metadata.get("startup_bias_mT"),
+        "startup_peak_shift_mT": startup_transient_metadata.get("startup_peak_shift_mT"),
+        "startup_phase_shift_s": startup_transient_metadata.get("startup_phase_shift_s"),
+        "startup_settling_cycle_count": startup_transient_metadata.get("startup_settling_cycle_count"),
+        "startup_residual_pp_mT": startup_transient_metadata.get("startup_residual_pp_mT"),
+        "startup_residual_rms_mT": startup_transient_metadata.get("startup_residual_rms_mT"),
+        "startup_envelope_decay_ratio": startup_transient_metadata.get("startup_envelope_decay_ratio"),
+        "startup_source_support_id": startup_transient_metadata.get("startup_source_support_id"),
+        "startup_source_waveform_family": startup_transient_metadata.get("startup_source_waveform_family"),
+        "startup_source_cycle_count": startup_transient_metadata.get("startup_source_cycle_count"),
+        "startup_data_quality_ok": startup_transient_metadata.get("startup_data_quality_ok"),
+        "startup_initial_field_offset_mT": startup_transient_metadata.get("startup_initial_field_offset_mT"),
+        "startup_steady_field_offset_mT": startup_transient_metadata.get("startup_steady_field_offset_mT"),
+        "startup_field_offset_delta_mT": startup_transient_metadata.get("startup_field_offset_delta_mT"),
+        "startup_transient_transition_cycles": startup_transient_metadata.get("startup_transient_transition_cycles"),
+        "startup_transient_reason": startup_transient_metadata.get("startup_transient_reason"),
+        "startup_source_freq_hz": startup_transient_metadata.get("startup_source_freq_hz"),
+        "startup_target_freq_hz": startup_transient_metadata.get("startup_target_freq_hz"),
+        "startup_frequency_distance_hz": startup_transient_metadata.get("startup_frequency_distance_hz"),
+        "startup_frequency_fallback_used": startup_transient_metadata.get("startup_frequency_fallback_used"),
+        "early_cycle_residual_before": startup_transient_metadata.get("early_cycle_residual_before"),
+        "early_cycle_residual_after": startup_transient_metadata.get("early_cycle_residual_after"),
+        "startup_residual_before_mT": startup_transient_metadata.get("startup_residual_before_mT"),
+        "startup_residual_after_mT": startup_transient_metadata.get("startup_residual_after_mT"),
+        "active_nrmse_before": startup_transient_metadata.get("active_nrmse_before"),
+        "active_nrmse_after": startup_transient_metadata.get("active_nrmse_after"),
+        "active_shape_corr_before": startup_transient_metadata.get("active_shape_corr_before"),
+        "active_shape_corr_after": startup_transient_metadata.get("active_shape_corr_after"),
+        "startup_bias_before_mT": startup_transient_metadata.get("startup_bias_before_mT"),
+        "startup_bias_after_mT": startup_transient_metadata.get("startup_bias_after_mT"),
+        "startup_residual_rms_before_mT": startup_transient_metadata.get("startup_residual_rms_before_mT"),
+        "startup_residual_rms_after_mT": startup_transient_metadata.get("startup_residual_rms_after_mT"),
+        "startup_compensation_applied": startup_transient_metadata.get("startup_compensation_applied"),
+        "startup_compensation_reject_reason": startup_transient_metadata.get("startup_compensation_reject_reason"),
+        "startup_candidate_forward_prediction_available": startup_transient_metadata.get("startup_candidate_forward_prediction_available"),
+        "voltage_limit_respected": startup_transient_metadata.get("voltage_limit_respected"),
+        "command_smoothness_before": startup_transient_metadata.get("command_smoothness_before"),
+        "command_smoothness_after": startup_transient_metadata.get("command_smoothness_after"),
+        "command_smoothness_score_before": startup_transient_metadata.get("command_smoothness_score_before"),
+        "command_smoothness_score_after": startup_transient_metadata.get("command_smoothness_score_after"),
+        "terminal_peak_error_before_mT": startup_transient_metadata.get("terminal_peak_error_before_mT"),
+        "terminal_peak_error_after_mT": startup_transient_metadata.get("terminal_peak_error_after_mT"),
+        "tail_residual_before": startup_transient_metadata.get("tail_residual_before"),
+        "tail_residual_after": startup_transient_metadata.get("tail_residual_after"),
+        "startup_compensated_prediction_source": startup_transient_metadata.get("startup_compensated_prediction_source"),
         "startup_preview_profile": startup_preview_profile,
         "validation_base_profile": validation_base_profile,
         "compensation_sequence": compensation_sequence,
@@ -2196,6 +2263,12 @@ def synthesize_finite_empirical_compensation(
     ]
     selected_support_id = str(support["test_id"])
     selected_support_family = selected_support_waveform or None
+    startup_diagnostics = _build_finite_support_startup_diagnostics(
+        support,
+        field_channel=field_channel,
+        current_channel=current_channel,
+    )
+    startup_diagnostics.setdefault("source_test_id", selected_support_id)
     cycle_decomposition = _finite_cycle_decomposition_metadata(
         target_cycle_count,
         finite_support_used=True,
@@ -2287,6 +2360,7 @@ def synthesize_finite_empirical_compensation(
         "support_spike_filtered_count": int(_first_numeric(modeled.get("support_spike_filtered_count")) or 0),
         "support_source_spike_detected": bool(_first_boolish(modeled.get("support_source_spike_detected"))),
         "support_blend_boundary_count": int(_first_numeric(modeled.get("support_blend_boundary_count")) or 0),
+        "startup_diagnostics": startup_diagnostics,
         **cycle_decomposition,
         "command_nonzero_end_s": command_nonzero_end_s,
         "target_active_end_s": target_active_end_s,
@@ -3680,6 +3754,15 @@ def _build_startup_diagnostics(
     first_current = float(first_row[current_column]) if current_column in first_row.index else float("nan")
     first_field = float(first_row[field_column]) if field_column in first_row.index else float("nan")
     first_voltage = float(first_row[voltage_column]) if voltage_column in first_row.index else float("nan")
+    annotated_frame = getattr(getattr(analysis, "cycle_detection", None), "annotated_frame", pd.DataFrame())
+    field_mean_stats = _cycle_signal_mean_startup_stats(
+        annotated_frame=annotated_frame,
+        signal_column=field_channel,
+    )
+    current_mean_stats = _cycle_signal_mean_startup_stats(
+        annotated_frame=annotated_frame,
+        signal_column="i_sum_signed",
+    )
 
     def _ratio(numerator: float, denominator: float) -> float:
         if not np.isfinite(numerator) or not np.isfinite(denominator) or abs(denominator) < 1e-12:
@@ -3689,6 +3772,24 @@ def _build_startup_diagnostics(
     current_ratio = _ratio(first_current, steady_current_mean)
     field_ratio = _ratio(first_field, steady_field_mean)
     voltage_ratio = _ratio(first_voltage, steady_voltage_mean)
+    unexplained_field_offset_delta = _field_offset_residual_from_current(
+        field_offset_delta=field_mean_stats["offset_delta"],
+        current_offset_delta=current_mean_stats["offset_delta"],
+        field_pp=steady_field_mean,
+        current_pp=steady_current_mean,
+    )
+    source_freq_hz = _first_numeric(getattr(getattr(analysis, "cycle_detection", None), "estimated_frequency_hz", np.nan))
+    source_file = str(getattr(getattr(analysis, "parsed", None), "source_file", "") or "")
+    source_id = str(getattr(getattr(analysis, "parsed", None), "metadata", {}).get("test_id") or source_file or "")
+    per_test_summary = getattr(analysis, "per_test_summary", pd.DataFrame())
+    source_waveform = _first_text(per_test_summary["waveform_type"]) if "waveform_type" in per_test_summary.columns else None
+    quality_reasons = _continuous_startup_quality_rejection_reasons(
+        annotated_frame=annotated_frame,
+        field_channel=field_channel,
+    )
+    if len(steady_window) < 1:
+        quality_reasons.append("insufficient_cycles")
+    startup_status = "ok" if not quality_reasons else str(quality_reasons[0])
 
     behavior = "insufficient_cycles"
     ratio_candidates = [value for value in (current_ratio, field_ratio) if np.isfinite(value)]
@@ -3705,6 +3806,21 @@ def _build_startup_diagnostics(
     return {
         "cycle_count": int(working["cycle_index"].nunique()),
         "steady_window_cycle_count": int(len(steady_window)),
+        "startup_transient_source": "continuous_early_cycles",
+        "startup_source_type": "continuous_early_cycles",
+        "startup_source_file": source_file,
+        "source_test_id": source_id,
+        "startup_source_waveform_family": source_waveform,
+        "startup_source_cycle_count": None,
+        "startup_transient_status": startup_status,
+        "startup_rejected_reason": _format_rejected_reason(quality_reasons),
+        "startup_cycle_count_used": 1,
+        "steady_cycle_count_used": int(len(steady_window)),
+        "startup_source_freq_hz": source_freq_hz,
+        "startup_target_freq_hz": source_freq_hz,
+        "startup_frequency_distance_hz": 0.0,
+        "startup_frequency_fallback_used": False,
+        "startup_data_quality_ok": not quality_reasons,
         "first_cycle_current_pp_a": first_current,
         "steady_current_pp_a_mean": steady_current_mean,
         "first_cycle_current_ratio_vs_steady": current_ratio,
@@ -3714,8 +3830,75 @@ def _build_startup_diagnostics(
         "first_cycle_voltage_pp_v": first_voltage,
         "steady_voltage_pp_v_mean": steady_voltage_mean,
         "first_cycle_voltage_ratio_vs_steady": voltage_ratio,
+        "first_cycle_field_mean_mT": field_mean_stats["first_cycle_mean"],
+        "steady_field_mean_mT": field_mean_stats["steady_mean"],
+        "first_cycle_field_offset_delta_mT": field_mean_stats["offset_delta"],
+        "first_cycle_field_unexplained_offset_delta_mT": unexplained_field_offset_delta,
+        "first_cycle_current_mean_a": current_mean_stats["first_cycle_mean"],
+        "steady_current_mean_a": current_mean_stats["steady_mean"],
+        "first_cycle_current_offset_delta_a": current_mean_stats["offset_delta"],
         "behavior_flag": behavior,
     }
+
+
+def _cycle_signal_mean_startup_stats(
+    *,
+    annotated_frame: pd.DataFrame,
+    signal_column: str,
+) -> dict[str, float]:
+    empty = {
+        "first_cycle_mean": float("nan"),
+        "steady_mean": float("nan"),
+        "offset_delta": float("nan"),
+    }
+    if annotated_frame is None or annotated_frame.empty:
+        return empty
+    if "cycle_index" not in annotated_frame.columns or signal_column not in annotated_frame.columns:
+        return empty
+    working = annotated_frame[["cycle_index", signal_column]].copy()
+    working["cycle_index"] = pd.to_numeric(working["cycle_index"], errors="coerce")
+    working[signal_column] = pd.to_numeric(working[signal_column], errors="coerce")
+    working = working.dropna(subset=["cycle_index", signal_column])
+    if working.empty:
+        return empty
+    grouped = working.groupby("cycle_index", sort=True)[signal_column].mean()
+    if grouped.empty:
+        return empty
+    first_mean = float(grouped.iloc[0])
+    steady = grouped.iloc[1:]
+    if len(steady) > 3:
+        steady = steady.tail(3)
+    steady_mean = float(steady.mean()) if not steady.empty else float("nan")
+    offset_delta = (
+        float(first_mean - steady_mean)
+        if np.isfinite(first_mean) and np.isfinite(steady_mean)
+        else float("nan")
+    )
+    return {
+        "first_cycle_mean": first_mean,
+        "steady_mean": steady_mean,
+        "offset_delta": offset_delta,
+    }
+
+
+def _field_offset_residual_from_current(
+    *,
+    field_offset_delta: float,
+    current_offset_delta: float,
+    field_pp: float,
+    current_pp: float,
+) -> float:
+    if not np.isfinite(field_offset_delta):
+        return float("nan")
+    if (
+        not np.isfinite(current_offset_delta)
+        or not np.isfinite(field_pp)
+        or not np.isfinite(current_pp)
+        or abs(current_pp) <= 1e-12
+    ):
+        return float(field_offset_delta)
+    expected_field_delta = float(current_offset_delta) * abs(float(field_pp) / float(current_pp))
+    return float(field_offset_delta - expected_field_delta)
 
 
 def _build_compensation_sequence_table(
@@ -4418,6 +4601,720 @@ def _build_startup_corrected_preview(
         "startup_correction_factor": startup_correction_factor,
         "startup_observed_output_ratio": float(observed_ratio),
     }
+
+
+def _build_finite_support_startup_diagnostics(
+    support_entry: dict[str, Any],
+    *,
+    field_channel: str,
+    current_channel: str,
+) -> dict[str, Any]:
+    raw_frame = support_entry.get("frame")
+    freq_hz = _first_numeric(support_entry.get("freq_hz"))
+    cycle_count = _first_numeric(support_entry.get("approx_cycle_span"))
+    quality_reasons = _finite_startup_quality_rejection_reasons(
+        raw_frame=raw_frame,
+        field_channel=field_channel,
+        current_channel=current_channel,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    frame = _prepare_finite_time_frame(raw_frame)
+    if frame.empty or "time_s" not in frame.columns:
+        return _empty_startup_diagnostics(
+            source_type="finite_support",
+            source_file=_startup_source_file_from_entry(support_entry),
+            source_support_id=str(support_entry.get("test_id") or ""),
+            rejected_reason="missing_key_columns",
+        )
+    if not np.isfinite(freq_hz) or freq_hz <= 0:
+        return _empty_startup_diagnostics(
+            source_type="finite_support",
+            source_file=_startup_source_file_from_entry(support_entry),
+            source_support_id=str(support_entry.get("test_id") or ""),
+            rejected_reason="missing_key_columns",
+        )
+    period_s = 1.0 / float(freq_hz)
+    active_end_s = float(cycle_count) * period_s if np.isfinite(cycle_count) else float(frame["time_s"].max())
+    time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    active = np.isfinite(time_values) & (time_values <= active_end_s + 1e-12)
+    first_cycle = active & (time_values <= period_s + 1e-12)
+    steady = active & (time_values > period_s + 1e-12)
+    if steady.sum() < 3:
+        steady = active & (time_values > active_end_s * 0.5)
+    nonzero_start = _finite_support_has_nonzero_start(frame)
+    if nonzero_start and "source_nonzero_start" not in quality_reasons:
+        quality_reasons.insert(0, "source_nonzero_start")
+    startup_status = "ok" if not quality_reasons else str(quality_reasons[0])
+    diagnostics: dict[str, Any] = {
+        "cycle_count": float(cycle_count) if np.isfinite(cycle_count) else None,
+        "behavior_flag": "unknown",
+        "startup_transient_source": "finite_support",
+        "startup_source_type": "finite_support",
+        "startup_source_file": _startup_source_file_from_entry(support_entry),
+        "source_test_id": str(support_entry.get("test_id") or ""),
+        "startup_source_waveform_family": support_entry.get("waveform_type"),
+        "startup_source_cycle_count": float(cycle_count) if np.isfinite(cycle_count) else None,
+        "startup_transient_status": startup_status,
+        "startup_rejected_reason": _format_rejected_reason(quality_reasons),
+        "startup_cycle_count_used": 1,
+        "steady_cycle_count_used": int(max(0.0, np.floor(float(cycle_count) - 1.0))) if np.isfinite(cycle_count) else 0,
+        "startup_source_freq_hz": float(freq_hz),
+        "startup_target_freq_hz": float(freq_hz),
+        "startup_frequency_distance_hz": 0.0,
+        "startup_frequency_fallback_used": False,
+        "startup_data_quality_ok": not quality_reasons,
+    }
+    field_offset_delta = float("nan")
+    current_offset_delta = float("nan")
+    field_pp_for_residual = float("nan")
+    current_pp_for_residual = float("nan")
+    for signal_column, prefix in ((field_channel, "field"), (current_channel, "current")):
+        if signal_column not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[signal_column], errors="coerce").to_numpy(dtype=float)
+        first_values = values[first_cycle & np.isfinite(values)]
+        steady_values = values[steady & np.isfinite(values)]
+        if first_values.size < 3 or steady_values.size < 3:
+            continue
+        first_mean = float(np.nanmean(first_values))
+        steady_mean = float(np.nanmean(steady_values))
+        first_pp = float(np.nanmax(first_values) - np.nanmin(first_values))
+        steady_pp = float(np.nanmax(steady_values) - np.nanmin(steady_values))
+        ratio = first_pp / steady_pp if abs(steady_pp) > 1e-12 else float("nan")
+        if prefix == "field":
+            field_offset_delta = float(first_mean - steady_mean)
+            field_pp_for_residual = steady_pp
+            diagnostics["first_cycle_field_mean_mT"] = first_mean
+            diagnostics["steady_field_mean_mT"] = steady_mean
+            diagnostics["first_cycle_field_offset_delta_mT"] = field_offset_delta
+            diagnostics["first_cycle_field_ratio_vs_steady"] = ratio
+            diagnostics["first_cycle_field_pp_mT"] = first_pp
+            diagnostics["steady_field_pp_mT_mean"] = steady_pp
+        else:
+            current_offset_delta = float(first_mean - steady_mean)
+            current_pp_for_residual = steady_pp
+            diagnostics["first_cycle_current_mean_a"] = first_mean
+            diagnostics["steady_current_mean_a"] = steady_mean
+            diagnostics["first_cycle_current_offset_delta_a"] = current_offset_delta
+            diagnostics["first_cycle_current_ratio_vs_steady"] = ratio
+    diagnostics["first_cycle_field_unexplained_offset_delta_mT"] = _field_offset_residual_from_current(
+        field_offset_delta=field_offset_delta,
+        current_offset_delta=current_offset_delta,
+        field_pp=field_pp_for_residual,
+        current_pp=current_pp_for_residual,
+    )
+    field_delta = _first_numeric(diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
+    field_ratio = _first_numeric(diagnostics.get("first_cycle_field_ratio_vs_steady"))
+    if field_delta is not None and np.isfinite(field_delta) and abs(field_delta) > 1.0:
+        diagnostics["behavior_flag"] = "first_cycle_offset"
+    elif field_ratio is not None and np.isfinite(field_ratio) and field_ratio > 1.05:
+        diagnostics["behavior_flag"] = "first_cycle_overshoot"
+    elif field_ratio is not None and np.isfinite(field_ratio) and field_ratio < 0.95:
+        diagnostics["behavior_flag"] = "first_cycle_undershoot"
+    else:
+        diagnostics["behavior_flag"] = "steady_like"
+    return diagnostics
+
+
+def _continuous_startup_quality_rejection_reasons(
+    *,
+    annotated_frame: pd.DataFrame,
+    field_channel: str,
+) -> list[str]:
+    if annotated_frame is None or annotated_frame.empty:
+        return ["missing_key_columns"]
+    required_columns = {"cycle_index", "cycle_time_s", "daq_input_v", field_channel}
+    missing = [column for column in required_columns if column not in annotated_frame.columns]
+    if missing:
+        return ["missing_key_columns"]
+    return []
+
+
+def _startup_source_file_from_entry(support_entry: dict[str, Any]) -> str:
+    source_file = support_entry.get("source_file") or support_entry.get("file_name")
+    if source_file not in (None, ""):
+        return str(source_file)
+    test_id = str(support_entry.get("test_id") or "").strip()
+    return f"{test_id}.csv" if test_id else ""
+
+
+def _empty_startup_diagnostics(
+    *,
+    source_type: str,
+    source_file: str,
+    source_support_id: str,
+    rejected_reason: str,
+) -> dict[str, Any]:
+    return {
+        "startup_transient_source": source_type,
+        "startup_source_type": source_type,
+        "startup_source_file": source_file,
+        "source_test_id": source_support_id,
+        "startup_transient_status": rejected_reason,
+        "startup_rejected_reason": rejected_reason,
+        "startup_data_quality_ok": False,
+    }
+
+
+def _format_rejected_reason(reasons: list[str]) -> str | list[str] | None:
+    unique = list(dict.fromkeys(reason for reason in reasons if reason))
+    if not unique:
+        return None
+    return unique[0] if len(unique) == 1 else unique
+
+
+def _finite_startup_quality_rejection_reasons(
+    *,
+    raw_frame: Any,
+    field_channel: str,
+    current_channel: str,
+    freq_hz: float | None,
+    cycle_count: float | None,
+) -> list[str]:
+    reasons: list[str] = []
+    if not isinstance(raw_frame, pd.DataFrame) or raw_frame.empty:
+        return ["missing_key_columns"]
+    required_columns = ["time_s", "daq_input_v", current_channel, field_channel]
+    if any(column not in raw_frame.columns for column in required_columns):
+        return ["missing_key_columns"]
+
+    time_values = pd.to_numeric(raw_frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    finite_time = time_values[np.isfinite(time_values)]
+    if finite_time.size < 8:
+        return ["source_coverage_insufficient"]
+
+    diffs = np.diff(finite_time)
+    finite_diffs = diffs[np.isfinite(diffs)]
+    if finite_diffs.size == 0:
+        return ["source_coverage_insufficient"]
+    if np.any(finite_diffs < 0):
+        reasons.append("non_monotonic_time")
+    if np.any(np.isclose(finite_diffs, 0.0, atol=1e-12)):
+        reasons.append("duplicated_timestamp")
+    positive_diffs = finite_diffs[finite_diffs > 0]
+    median_dt = float(np.nanmedian(positive_diffs)) if positive_diffs.size else float("nan")
+    if np.isfinite(median_dt) and median_dt > 0:
+        if float(np.nanmin(finite_time)) > median_dt * 2.0:
+            reasons.append("missing_prebaseline")
+        if positive_diffs.size >= 4 and float(np.nanmax(positive_diffs)) > median_dt * 20.0:
+            reasons.append("severe_sampling_irregularity")
+
+    if freq_hz is not None and cycle_count is not None and np.isfinite(freq_hz) and np.isfinite(cycle_count) and freq_hz > 0:
+        active_end_s = float(cycle_count) / float(freq_hz)
+        observed_end_s = float(np.nanmax(finite_time))
+        if observed_end_s < active_end_s * 0.98:
+            reasons.append("truncated_active_window")
+        if observed_end_s < active_end_s * 0.5:
+            reasons.append("source_coverage_insufficient")
+
+    if _finite_support_has_nonzero_start(raw_frame):
+        reasons.append("source_nonzero_start")
+    if _signal_has_isolated_spike(raw_frame, field_channel):
+        reasons.append("source_spike_detected")
+    if _signal_has_clipping(raw_frame, field_channel) or _signal_has_clipping(raw_frame, "daq_input_v"):
+        reasons.append("clipping")
+    if _finite_start_baseline_unstable(raw_frame, field_channel):
+        reasons.append("unstable_baseline")
+    return list(dict.fromkeys(reasons))
+
+
+def _signal_has_isolated_spike(frame: pd.DataFrame, column: str) -> bool:
+    if column not in frame.columns:
+        return False
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 8:
+        return False
+    diffs = np.abs(np.diff(values))
+    finite_diffs = diffs[np.isfinite(diffs)]
+    if finite_diffs.size < 4:
+        return False
+    median_diff = float(np.nanmedian(finite_diffs))
+    max_diff = float(np.nanmax(finite_diffs))
+    signal_pp = float(np.nanmax(values) - np.nanmin(values))
+    return bool(max_diff > max(median_diff * 20.0, signal_pp * 0.45, 1e-6))
+
+
+def _signal_has_clipping(frame: pd.DataFrame, column: str) -> bool:
+    if column not in frame.columns:
+        return False
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 8:
+        return False
+    signal_pp = float(np.nanmax(values) - np.nanmin(values))
+    if signal_pp <= 1e-9:
+        return False
+    tolerance = max(signal_pp * 1e-5, 1e-9)
+    near_max = np.isclose(values, float(np.nanmax(values)), atol=tolerance)
+    near_min = np.isclose(values, float(np.nanmin(values)), atol=tolerance)
+    return bool(_has_interior_true_run(near_max, min_run=4) or _has_interior_true_run(near_min, min_run=4))
+
+
+def _max_true_run_length(mask: np.ndarray) -> int:
+    max_run = 0
+    current_run = 0
+    for value in np.asarray(mask, dtype=bool):
+        if value:
+            current_run += 1
+            max_run = max(max_run, current_run)
+        else:
+            current_run = 0
+    return max_run
+
+
+def _has_interior_true_run(mask: np.ndarray, *, min_run: int) -> bool:
+    values = np.asarray(mask, dtype=bool)
+    if values.size == 0:
+        return False
+    run_start: int | None = None
+    for index, value in enumerate(values):
+        if value and run_start is None:
+            run_start = index
+        if (not value or index == values.size - 1) and run_start is not None:
+            run_end = index if value and index == values.size - 1 else index - 1
+            if run_end - run_start + 1 >= min_run and run_start > 0 and run_end < int(values.size * 0.9):
+                return True
+            run_start = None
+    return False
+
+
+def _finite_start_baseline_unstable(frame: pd.DataFrame, field_channel: str) -> bool:
+    if field_channel not in frame.columns:
+        return False
+    values = pd.to_numeric(frame[field_channel], errors="coerce").to_numpy(dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 16:
+        return False
+    signal_pp = float(np.nanmax(values) - np.nanmin(values))
+    if signal_pp <= 1e-9:
+        return False
+    window = values[: min(8, values.size)]
+    return bool(float(np.nanstd(window)) > signal_pp * 0.35)
+
+
+def _finite_support_has_nonzero_start(frame: pd.DataFrame) -> bool:
+    if frame.empty or "daq_input_v" not in frame.columns:
+        return False
+    values = pd.to_numeric(frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+    pp = float(np.nanmax(finite) - np.nanmin(finite))
+    threshold = max(pp * 0.55, 1e-6)
+    return bool(abs(float(finite[0])) > threshold)
+
+
+def _apply_startup_transient_prediction(
+    *,
+    command_profile: pd.DataFrame,
+    startup_diagnostics: dict[str, Any],
+    target_output_type: str,
+    freq_hz: float,
+    transition_cycles: float,
+    correction_strength: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if command_profile.empty or "time_s" not in command_profile.columns:
+        return command_profile, {"startup_transient_applied": False}
+    if target_output_type != "field":
+        return command_profile, {"startup_transient_applied": False}
+    source = str(startup_diagnostics.get("startup_transient_source") or "unavailable")
+    status = str(startup_diagnostics.get("startup_transient_status") or "unavailable")
+    base_metadata = _startup_transient_base_metadata(
+        startup_diagnostics=startup_diagnostics,
+        source=source,
+        status=status,
+        applied=False,
+        offset_delta=float("nan"),
+        transition_cycles=transition_cycles,
+        reason=status,
+    )
+    if status not in {"ok", "steady_like"}:
+        return command_profile, base_metadata
+    offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
+    if offset_delta is None or not np.isfinite(offset_delta):
+        offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_offset_delta_mT"))
+    observed_ratio = _first_numeric(startup_diagnostics.get("first_cycle_field_ratio_vs_steady"))
+    if offset_delta is None or not np.isfinite(offset_delta):
+        offset_delta = 0.0
+    if observed_ratio is None or not np.isfinite(observed_ratio) or observed_ratio <= 0:
+        observed_ratio = 1.0
+    if abs(float(offset_delta)) < 1.0:
+        observed_ratio = 1.0
+    if abs(offset_delta) < 1e-6 and abs(observed_ratio - 1.0) < 0.03:
+        return command_profile, _startup_transient_base_metadata(
+            startup_diagnostics=startup_diagnostics,
+            source=source,
+            status="unavailable" if status == "ok" else status,
+            applied=False,
+            offset_delta=float(offset_delta),
+            transition_cycles=transition_cycles,
+            reason="steady_like",
+        )
+
+    adjusted = command_profile.copy()
+    time_values = pd.to_numeric(adjusted["time_s"], errors="coerce").to_numpy(dtype=float)
+    finite_time = time_values[np.isfinite(time_values)]
+    if finite_time.size < 3 or not np.isfinite(freq_hz) or float(freq_hz) <= 0:
+        return command_profile, {"startup_transient_applied": False}
+    start_s = float(np.nanmin(finite_time))
+    transition_cycles = max(float(transition_cycles), 0.25)
+    strength = float(np.clip(correction_strength, 0.0, 1.0))
+    cycle_progress_total = (time_values - start_s) * float(freq_hz)
+    transient_weight = np.clip(1.0 - cycle_progress_total / transition_cycles, 0.0, 1.0) * strength
+    ratio_envelope = 1.0 + (float(observed_ratio) - 1.0) * transient_weight
+    offset_envelope = float(offset_delta) * transient_weight
+
+    predicted_column = _resolve_predicted_field_column(adjusted) or "predicted_field_mT"
+    if predicted_column not in adjusted.columns:
+        return command_profile, {"startup_transient_applied": False}
+    steady_values = pd.to_numeric(adjusted[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    valid = np.isfinite(steady_values) & np.isfinite(transient_weight)
+    startup_component = np.zeros_like(steady_values, dtype=float)
+    startup_component[valid] = steady_values[valid] * (ratio_envelope[valid] - 1.0) + offset_envelope[valid]
+    open_loop_values = steady_values + startup_component
+    compensation_effect = np.clip(transient_weight, 0.0, 1.0)
+    compensated_values = open_loop_values.copy()
+    compensated_values[valid] = open_loop_values[valid] - startup_component[valid] * compensation_effect[valid]
+    adjusted["open_loop_predicted_field_mT"] = open_loop_values
+    adjusted["startup_transient_component_mT"] = startup_component
+    adjusted["compensated_predicted_field_mT"] = compensated_values
+    adjusted["predicted_field_mT"] = compensated_values
+    if "expected_field_mT" in adjusted.columns:
+        adjusted["expected_field_mT"] = compensated_values
+    if "expected_output" in adjusted.columns:
+        adjusted["expected_output"] = compensated_values
+    if "modeled_field_mT" in adjusted.columns:
+        adjusted["modeled_field_mT"] = compensated_values
+    if "modeled_output" in adjusted.columns:
+        adjusted["modeled_output"] = compensated_values
+    for support_column in ("support_scaled_field_mT", "support_reference_output_mT"):
+        if support_column in adjusted.columns:
+            support_values = pd.to_numeric(adjusted[support_column], errors="coerce").to_numpy(dtype=float).copy()
+            support_valid = np.isfinite(support_values) & np.isfinite(transient_weight)
+            support_values[support_valid] = support_values[support_valid] * ratio_envelope[support_valid] + offset_envelope[support_valid]
+            adjusted[support_column] = support_values
+    command_metadata = _apply_startup_command_correction(
+        adjusted,
+        startup_component=startup_component,
+        transient_weight=transient_weight,
+    )
+    adjusted["startup_transient_applied"] = True
+    metadata = _startup_transient_base_metadata(
+        startup_diagnostics=startup_diagnostics,
+        source=source,
+        status="ok",
+        applied=True,
+        offset_delta=float(offset_delta),
+        transition_cycles=transition_cycles,
+        reason=str(startup_diagnostics.get("behavior_flag", "startup_transient")),
+        weight=transient_weight,
+        offset_envelope=offset_envelope,
+    )
+    before_profile = adjusted.copy()
+    before_profile["predicted_field_mT"] = adjusted["open_loop_predicted_field_mT"]
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output"):
+        if column in before_profile.columns:
+            before_profile[column] = adjusted["open_loop_predicted_field_mT"]
+    before_metrics = _startup_before_after_metrics(before_profile)
+    after_metrics = _startup_before_after_metrics(adjusted)
+    metric_metadata = _startup_metric_metadata(before_metrics, after_metrics)
+    if _startup_metrics_worsened(before_metrics, after_metrics):
+        rejected_metadata = _startup_transient_base_metadata(
+            startup_diagnostics=startup_diagnostics,
+            source=source,
+            status="startup_metric_regression",
+            applied=False,
+            offset_delta=float(offset_delta),
+            transition_cycles=transition_cycles,
+            reason="startup_metric_regression",
+        )
+        rejected_metadata.update(metric_metadata)
+        rejected_metadata["startup_rejected_reason"] = "startup_metric_regression"
+        return command_profile, rejected_metadata
+    metadata.update(metric_metadata)
+    metadata.update(command_metadata)
+    metadata["startup_compensated_prediction_source"] = "compensated_command_forward_approximation"
+    for key, value in metadata.items():
+        adjusted[key] = value
+    return _sync_modeled_alias_columns(adjusted), metadata
+
+
+def _startup_transient_base_metadata(
+    *,
+    startup_diagnostics: dict[str, Any],
+    source: str,
+    status: str,
+    applied: bool,
+    offset_delta: float,
+    transition_cycles: float,
+    reason: str,
+    weight: np.ndarray | None = None,
+    offset_envelope: np.ndarray | None = None,
+) -> dict[str, Any]:
+    source_freq = _first_numeric(startup_diagnostics.get("startup_source_freq_hz"))
+    target_freq = _first_numeric(startup_diagnostics.get("startup_target_freq_hz"))
+    freq_distance = _first_numeric(startup_diagnostics.get("startup_frequency_distance_hz"))
+    residual_pp = float("nan")
+    residual_rms = float("nan")
+    decay_ratio = float("nan")
+    settling_cycles = float("nan")
+    if offset_envelope is not None and len(offset_envelope):
+        finite = np.asarray(offset_envelope, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size:
+            residual_pp = float(np.nanmax(finite) - np.nanmin(finite))
+            residual_rms = float(np.sqrt(np.nanmean(np.square(finite))))
+            first_abs = max(abs(float(finite[0])), 1e-12)
+            last_abs = abs(float(finite[-1]))
+            decay_ratio = float(last_abs / first_abs)
+    if weight is not None and len(weight):
+        above = np.flatnonzero(np.asarray(weight, dtype=float) > 0.05)
+        if above.size:
+            settling_cycles = float(above[-1] / max(len(weight) - 1, 1) * float(transition_cycles))
+    return {
+        "startup_transient_applied": bool(applied),
+        "startup_transient_source": source,
+        "startup_source_type": startup_diagnostics.get("startup_source_type") or source,
+        "startup_source_file": startup_diagnostics.get("startup_source_file"),
+        "startup_transient_status": status,
+        "startup_rejected_reason": startup_diagnostics.get("startup_rejected_reason") if not applied else None,
+        "startup_cycle_count_used": startup_diagnostics.get("startup_cycle_count_used"),
+        "steady_cycle_count_used": startup_diagnostics.get("steady_cycle_count_used"),
+        "startup_bias_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
+        "startup_peak_shift_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
+        "startup_phase_shift_s": float("nan"),
+        "startup_settling_cycle_count": settling_cycles,
+        "startup_residual_pp_mT": residual_pp,
+        "startup_residual_rms_mT": residual_rms,
+        "startup_envelope_decay_ratio": decay_ratio,
+        "startup_source_support_id": startup_diagnostics.get("source_test_id"),
+        "startup_source_waveform_family": startup_diagnostics.get("startup_source_waveform_family"),
+        "startup_source_cycle_count": startup_diagnostics.get("startup_source_cycle_count"),
+        "startup_data_quality_ok": bool(status in {"ok", "steady_like"}),
+        "startup_initial_field_offset_mT": startup_diagnostics.get("first_cycle_field_mean_mT"),
+        "startup_steady_field_offset_mT": startup_diagnostics.get("steady_field_mean_mT"),
+        "startup_field_offset_delta_mT": float(offset_delta) if np.isfinite(offset_delta) else float("nan"),
+        "startup_transient_transition_cycles": float(transition_cycles),
+        "startup_transient_reason": reason,
+        "startup_source_freq_hz": source_freq,
+        "startup_target_freq_hz": target_freq,
+        "startup_frequency_distance_hz": freq_distance,
+        "startup_frequency_fallback_used": bool(
+            startup_diagnostics.get("startup_frequency_fallback_used", False)
+            or (np.isfinite(freq_distance) and abs(float(freq_distance)) > 1e-9)
+        ),
+        "startup_status": status,
+    }
+
+
+def _apply_startup_command_correction(
+    command_profile: pd.DataFrame,
+    *,
+    startup_component: np.ndarray,
+    transient_weight: np.ndarray,
+) -> dict[str, Any]:
+    component = np.asarray(startup_component, dtype=float)
+    weight = np.asarray(transient_weight, dtype=float)
+    finite_component = component[np.isfinite(component)]
+    component_scale = max(float(np.nanmax(np.abs(finite_component))) if finite_component.size else 0.0, 1e-9)
+    correction_strength = np.clip(np.abs(component) / component_scale, 0.0, 1.0) * np.clip(weight, 0.0, 1.0)
+    attenuation = 1.0 - np.clip(0.25 * correction_strength, 0.0, 0.25)
+    baseline_column = "recommended_voltage_v" if "recommended_voltage_v" in command_profile.columns else None
+    if baseline_column is None:
+        return {
+            "startup_compensation_applied": False,
+            "startup_compensation_reject_reason": "candidate_forward_prediction_unavailable",
+            "startup_candidate_forward_prediction_available": False,
+        }
+    baseline = pd.to_numeric(command_profile[baseline_column], errors="coerce").to_numpy(dtype=float).copy()
+    valid = np.isfinite(baseline) & np.isfinite(attenuation)
+    compensated = baseline.copy()
+    compensated[valid] = compensated[valid] * attenuation[valid]
+    command_profile["baseline_recommended_voltage_v"] = baseline
+    command_profile["compensated_recommended_voltage_v"] = compensated
+    command_profile["startup_command_delta_v"] = compensated - baseline
+    command_profile["startup_compensation_command_delta_v"] = compensated - baseline
+    command_profile["recommended_voltage_v"] = compensated
+    if "limited_voltage_v" in command_profile.columns:
+        limited = pd.to_numeric(command_profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float).copy()
+        limited_valid = np.isfinite(limited) & np.isfinite(attenuation)
+        limited[limited_valid] = limited[limited_valid] * attenuation[limited_valid]
+        command_profile["limited_voltage_v"] = limited
+    command_profile["startup_command_correction_applied"] = True
+    command_profile["startup_command_attenuation"] = attenuation
+    command_profile["startup_candidate_forward_prediction_available"] = True
+    smoothness_before = _command_smoothness_score(baseline)
+    smoothness_after = _command_smoothness_score(compensated)
+    max_limit = _first_numeric(command_profile["limited_voltage_pp"]) if "limited_voltage_pp" in command_profile.columns else None
+    compensated_pp = _array_peak_to_peak(compensated)
+    limit_respected = True
+    if max_limit is not None and np.isfinite(max_limit):
+        limit_respected = bool(compensated_pp <= float(max_limit) + 1e-9)
+    return {
+        "startup_compensation_applied": True,
+        "startup_compensation_reject_reason": None,
+        "startup_candidate_forward_prediction_available": True,
+        "voltage_limit_respected": limit_respected,
+        "command_smoothness_before": smoothness_before,
+        "command_smoothness_after": smoothness_after,
+        "command_smoothness_score_before": smoothness_before,
+        "command_smoothness_score_after": smoothness_after,
+    }
+
+
+def _command_smoothness_score(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < 3:
+        return float("nan")
+    pp = max(float(np.nanmax(finite) - np.nanmin(finite)), 1e-9)
+    return float(np.nanmax(np.abs(np.diff(finite, n=2))) / pp)
+
+
+def _array_peak_to_peak(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("nan")
+    return float(np.nanmax(finite) - np.nanmin(finite))
+
+
+def _startup_before_after_metrics(command_profile: pd.DataFrame) -> dict[str, float]:
+    if command_profile.empty:
+        return _empty_startup_metrics()
+    target_column = "physical_target_output_mT" if "physical_target_output_mT" in command_profile.columns else "target_field_mT"
+    predicted_column = _resolve_predicted_field_column(command_profile) or "predicted_field_mT"
+    if target_column not in command_profile.columns or predicted_column not in command_profile.columns:
+        return _empty_startup_metrics()
+    time_values = pd.to_numeric(command_profile.get("time_s"), errors="coerce").to_numpy(dtype=float)
+    target = pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+    predicted = pd.to_numeric(command_profile[predicted_column], errors="coerce").to_numpy(dtype=float)
+    if "is_active_target" in command_profile.columns:
+        active = command_profile["is_active_target"].fillna(False).astype(bool).to_numpy(dtype=bool)
+    else:
+        active = np.isfinite(target) & np.isfinite(predicted)
+    valid_active = active & np.isfinite(target) & np.isfinite(predicted)
+    if valid_active.sum() < 3:
+        return _empty_startup_metrics()
+    target_active = target[valid_active]
+    predicted_active = predicted[valid_active]
+    target_centered = target_active - float(np.nanmean(target_active))
+    predicted_centered = predicted_active - float(np.nanmean(predicted_active))
+    target_scale = max(float(np.nanmax(target_centered) - np.nanmin(target_centered)) / 2.0, 1e-9)
+    active_nrmse = float(np.sqrt(np.nanmean(np.square(predicted_centered - target_centered))) / target_scale)
+    if np.nanstd(target_centered) <= 1e-12 or np.nanstd(predicted_centered) <= 1e-12:
+        active_corr = float("nan")
+    else:
+        active_corr = float(np.corrcoef(target_centered, predicted_centered)[0, 1])
+    finite_time = time_values[valid_active & np.isfinite(time_values)]
+    if finite_time.size:
+        active_start = float(np.nanmin(finite_time))
+        active_end = float(np.nanmax(finite_time))
+        early_end = active_start + max((active_end - active_start) * 0.25, 0.0)
+        early_mask = valid_active & np.isfinite(time_values) & (time_values <= early_end + 1e-12)
+    else:
+        early_mask = valid_active
+    residual = predicted - target
+    early_residual = float(np.nanmean(residual[early_mask])) if np.any(early_mask) else float("nan")
+    residual_active = residual[valid_active]
+    terminal_mask = _startup_terminal_mask(command_profile, valid_active, time_values)
+    tail_mask = _startup_tail_mask(command_profile, valid_active, time_values)
+    return {
+        "early_cycle_residual": early_residual,
+        "active_nrmse": active_nrmse,
+        "active_shape_corr": active_corr,
+        "startup_bias_mT": early_residual,
+        "startup_residual_rms_mT": float(np.sqrt(np.nanmean(np.square(residual_active)))),
+        "terminal_peak_error_mT": _startup_terminal_peak_error(target, predicted, terminal_mask),
+        "tail_residual": _startup_tail_residual_ratio(predicted, target, tail_mask),
+    }
+
+
+def _empty_startup_metrics() -> dict[str, float]:
+    return {
+        "early_cycle_residual": float("nan"),
+        "active_nrmse": float("nan"),
+        "active_shape_corr": float("nan"),
+        "startup_bias_mT": float("nan"),
+        "startup_residual_rms_mT": float("nan"),
+        "terminal_peak_error_mT": float("nan"),
+        "tail_residual": float("nan"),
+    }
+
+
+def _startup_metric_metadata(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
+    return {
+        "early_cycle_residual_before": before.get("early_cycle_residual", float("nan")),
+        "early_cycle_residual_after": after.get("early_cycle_residual", float("nan")),
+        "startup_residual_before_mT": before.get("early_cycle_residual", float("nan")),
+        "startup_residual_after_mT": after.get("early_cycle_residual", float("nan")),
+        "active_nrmse_before": before.get("active_nrmse", float("nan")),
+        "active_nrmse_after": after.get("active_nrmse", float("nan")),
+        "active_shape_corr_before": before.get("active_shape_corr", float("nan")),
+        "active_shape_corr_after": after.get("active_shape_corr", float("nan")),
+        "startup_bias_before_mT": before.get("startup_bias_mT", float("nan")),
+        "startup_bias_after_mT": after.get("startup_bias_mT", float("nan")),
+        "startup_residual_rms_before_mT": before.get("startup_residual_rms_mT", float("nan")),
+        "startup_residual_rms_after_mT": after.get("startup_residual_rms_mT", float("nan")),
+        "terminal_peak_error_before_mT": before.get("terminal_peak_error_mT", float("nan")),
+        "terminal_peak_error_after_mT": after.get("terminal_peak_error_mT", float("nan")),
+        "tail_residual_before": before.get("tail_residual", float("nan")),
+        "tail_residual_after": after.get("tail_residual", float("nan")),
+    }
+
+
+def _startup_metrics_worsened(before: dict[str, float], after: dict[str, float]) -> bool:
+    before_nrmse = before.get("active_nrmse")
+    after_nrmse = after.get("active_nrmse")
+    if before_nrmse is not None and after_nrmse is not None and np.isfinite(before_nrmse) and np.isfinite(after_nrmse):
+        if float(after_nrmse) > float(before_nrmse) + 0.075:
+            return True
+    before_corr = before.get("active_shape_corr")
+    after_corr = after.get("active_shape_corr")
+    if before_corr is not None and after_corr is not None and np.isfinite(before_corr) and np.isfinite(after_corr):
+        if float(after_corr) < float(before_corr) - 0.075:
+            return True
+    return False
+
+
+def _startup_terminal_mask(command_profile: pd.DataFrame, active_mask: np.ndarray, time_values: np.ndarray) -> np.ndarray:
+    mask = np.asarray(active_mask, dtype=bool).copy()
+    active_times = time_values[mask & np.isfinite(time_values)]
+    if active_times.size < 3:
+        return mask
+    active_start = float(np.nanmin(active_times))
+    active_end = float(np.nanmax(active_times))
+    cutoff = active_start + (active_end - active_start) * 0.8
+    return mask & np.isfinite(time_values) & (time_values >= cutoff)
+
+
+def _startup_tail_mask(command_profile: pd.DataFrame, active_mask: np.ndarray, time_values: np.ndarray) -> np.ndarray:
+    mask = np.asarray(active_mask, dtype=bool)
+    active_times = time_values[mask & np.isfinite(time_values)]
+    if active_times.size < 3:
+        return np.zeros_like(mask, dtype=bool)
+    active_end = float(np.nanmax(active_times))
+    return (~mask) & np.isfinite(time_values) & (time_values > active_end)
+
+
+def _startup_terminal_peak_error(target: np.ndarray, predicted: np.ndarray, mask: np.ndarray) -> float:
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(target) & np.isfinite(predicted)
+    if valid.sum() < 2:
+        return float("nan")
+    return float(np.nanmax(np.abs(predicted[valid])) - np.nanmax(np.abs(target[valid])))
+
+
+def _startup_tail_residual_ratio(predicted: np.ndarray, target: np.ndarray, mask: np.ndarray) -> float:
+    target_finite = target[np.isfinite(target)]
+    target_pp = float(np.nanmax(target_finite) - np.nanmin(target_finite)) if target_finite.size else float("nan")
+    if not np.isfinite(target_pp) or target_pp <= 1e-9:
+        return float("nan")
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(predicted)
+    if not np.any(valid):
+        return 0.0
+    return float(np.nanmax(np.abs(predicted[valid])) / max(target_pp / 2.0, 1e-9))
 
 
 def _finite_target_template(

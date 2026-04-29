@@ -24,15 +24,15 @@ def _sample_csv_bytes() -> bytes:
 
 def _new_lut_csv_bytes() -> bytes:
     return (
-        "# Frequency(Hz),1.000\n"
-        "# Amplitude(V),5.000\n"
-        "# Cycles,1.500\n"
-        "# HallSamples,26549\n"
-        "# CurrentSamples,1773491\n"
+        "# Frequency(Hz)=1.000\n"
+        "# Amplitude(V)=5.000\n"
+        "# Cycles=10.000\n"
+        "# PreDelay(s)=1.000\n"
+        "# PostDelay(s)=1.000\n"
         "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V\n"
-        "0,0.0,0.1,0.2,0.3,1.0,-1.0,0.0,0.0\n"
-        "1,2.5,0.2,0.3,0.4,1.1,-1.1,1.0,0.1\n"
-        "2,5.0,0.1,0.2,0.3,1.0,-1.0,0.0,0.0\n"
+        "0,0.000,0.1,0.2,1.0,0.5,-0.5,0.0,0.0\n"
+        "1,2.500,0.2,0.3,2.0,0.6,-0.6,1.0,-1.0\n"
+        "2,5.000,0.3,0.4,1.0,0.5,-0.5,0.0,0.0\n"
     ).encode("utf-8")
 
 
@@ -110,18 +110,27 @@ def test_parse_measurement_file_reads_finite_175_cycle_metadata() -> None:
     assert float(normalized["amp_gain_setting"].iloc[0]) == 100.0
 
 
-def test_new_lut_time_ms_is_converted_to_seconds() -> None:
+def test_new_lut_timems_and_hall_columns_are_mapped_without_temperature_false_match() -> None:
     schema = build_default_schema()
     parsed = parse_measurement_file(
-        file_name="finite_sine_1Hz_1.5cycle.csv",
+        file_name="continuous_sine_1Hz.csv",
         file_bytes=_new_lut_csv_bytes(),
         schema=schema,
     )[0]
 
+    mapping = parsed.mapping
     normalized = parsed.normalized_frame
-    assert parsed.mapping["timestamp"] == "TimeMs"
-    assert parsed.mapping["temperature_t1_c"] is None
-    assert parsed.mapping["temperature_t2_c"] is None
+
+    assert mapping["timestamp"] == "TimeMs"
+    assert mapping["daq_input_v"] == "Voltage1_V"
+    assert mapping["daq_input_v_secondary"] == "Voltage2_V"
+    assert mapping["coil1_current_a"] == "Current1_A"
+    assert mapping["coil2_current_a"] == "Current2_A"
+    assert mapping["bx_mT"] == "HallBx"
+    assert mapping["by_mT"] == "HallBy"
+    assert mapping["bz_mT"] == "HallBz"
+    assert mapping["temperature_t1_c"] is None
+    assert mapping["temperature_t2_c"] is None
     assert normalized["detected_format"].iloc[0] == "new_lut_csv"
     assert normalized["timebase_source"].iloc[0] == "explicit_time_column"
     assert normalized["time_unit"].iloc[0] == "milliseconds"
@@ -129,4 +138,4 @@ def test_new_lut_time_ms_is_converted_to_seconds() -> None:
     assert float(normalized["sample_rate_hz"].iloc[0]) == 400.0
     assert normalized["parse_quality_flags"].iloc[0] == ""
     assert float(normalized["bx_mT"].iloc[0]) == 0.1
-    assert float(normalized["bz_mT"].iloc[0]) == 0.3
+    assert float(normalized["bz_mT"].iloc[0]) == 1.0
