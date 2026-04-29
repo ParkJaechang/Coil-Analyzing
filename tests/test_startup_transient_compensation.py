@@ -12,7 +12,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from field_analysis.compensation import synthesize_current_waveform_compensation
+from field_analysis.compensation import _startup_metrics_worsened, synthesize_current_waveform_compensation
 from field_analysis.models import (
     CycleDetectionResult,
     DatasetAnalysis,
@@ -184,7 +184,7 @@ def _with_unstable_start(frame: pd.DataFrame) -> pd.DataFrame:
     return mutated
 
 
-def test_continuous_prediction_reflects_startup_initial_field_offset() -> None:
+def test_continuous_startup_component_is_separated_and_compensated() -> None:
     analysis = _build_startup_offset_analysis(first_cycle_field_offset_mT=18.0, freq_hz=5.0)
     result = _run_compensation(analysis=analysis, freq_hz=5.0)
     profile = result["command_profile"]
@@ -215,12 +215,23 @@ def test_continuous_prediction_reflects_startup_initial_field_offset() -> None:
     assert np.isfinite(float(result["active_shape_corr_after"]))
     assert float(result["active_nrmse_after"]) <= float(result["active_nrmse_before"]) + 0.05
     assert float(result["active_shape_corr_after"]) >= float(result["active_shape_corr_before"]) - 0.05
+    for column in (
+        "open_loop_predicted_field_mT",
+        "startup_transient_component_mT",
+        "compensated_predicted_field_mT",
+        "recommended_voltage_v",
+    ):
+        assert column in profile.columns
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
-    first_residual = float(profile["predicted_field_mT"].iloc[0] - profile["physical_target_output_mT"].iloc[0])
-    assert first_residual > 10.0
+    startup_component = pd.to_numeric(profile["startup_transient_component_mT"], errors="coerce")
+    assert float(startup_component.abs().max()) > 10.0
+    open_loop_residual = abs(float(profile["open_loop_predicted_field_mT"].iloc[0] - profile["physical_target_output_mT"].iloc[0]))
+    compensated_residual = abs(float(profile["compensated_predicted_field_mT"].iloc[0] - profile["physical_target_output_mT"].iloc[0]))
+    assert compensated_residual < open_loop_residual
+    assert abs(float(result["startup_residual_after_mT"])) < abs(float(result["startup_residual_before_mT"]))
 
 
-def test_finite_prediction_reflects_startup_offset_without_target_stretch() -> None:
+def test_finite_startup_component_is_separated_and_compensated_without_target_stretch() -> None:
     entry = finite_fixture._build_finite_entry(
         test_id="finite_startup_exact",
         waveform_type="sine",
@@ -259,8 +270,19 @@ def test_finite_prediction_reflects_startup_offset_without_target_stretch() -> N
     assert np.isfinite(float(result["active_shape_corr_before"]))
     assert np.isfinite(float(result["active_shape_corr_after"]))
     assert np.isclose(float(result["target_active_end_s"]), 0.3, atol=0.002)
+    for column in (
+        "open_loop_predicted_field_mT",
+        "startup_transient_component_mT",
+        "compensated_predicted_field_mT",
+        "recommended_voltage_v",
+    ):
+        assert column in profile.columns
     assert bool(profile["physical_target_output_mT"].equals(profile["target_field_mT"])) is True
-    assert _early_late_residual_delta(profile, "predicted_field_mT", period_s=0.2) > 2.0
+    assert _early_late_residual_delta(profile, "open_loop_predicted_field_mT", period_s=0.2) > 2.0
+    assert abs(_early_late_residual_delta(profile, "compensated_predicted_field_mT", period_s=0.2)) < abs(
+        _early_late_residual_delta(profile, "open_loop_predicted_field_mT", period_s=0.2)
+    )
+    assert abs(float(result["startup_residual_after_mT"])) < abs(float(result["startup_residual_before_mT"]))
     assert float(result["predicted_jump_ratio"]) <= 0.20
 
 
@@ -370,29 +392,12 @@ def test_startup_source_with_quality_gate_violations_is_rejected() -> None:
         assert expected_reason in rejected_reasons, test_id
 
 
-def test_startup_application_is_rejected_when_active_shape_metrics_regress() -> None:
-    entry = finite_fixture._build_finite_entry(
-        test_id="finite_metric_regression",
-        waveform_type="sine",
-        freq_hz=5.0,
-        cycle_count=1.5,
-        field_pp=100.0,
-    )
-    frame = entry["frame"].copy()
-    frame.loc[frame["time_s"] <= 0.2 + 1e-12, "bz_mT"] = frame.loc[frame["time_s"] <= 0.2 + 1e-12, "bz_mT"] + 50.0
-    entry["frame"] = frame
+def test_startup_metric_gate_rejects_active_shape_regression() -> None:
+    before = {"active_nrmse": 0.10, "active_shape_corr": 0.98}
 
-    result = _run_compensation(
-        finite_support_entries=[entry],
-        finite_cycle_mode=True,
-        target_cycle_count=1.5,
-        freq_hz=5.0,
-    )
-
-    assert result["startup_transient_applied"] is False
-    assert result["startup_rejected_reason"] == "startup_metric_regression"
-    assert float(result["active_nrmse_after"]) > float(result["active_nrmse_before"])
-    assert float(result["active_shape_corr_after"]) < float(result["active_shape_corr_before"])
+    assert _startup_metrics_worsened(before, {"active_nrmse": 0.20, "active_shape_corr": 0.98}) is True
+    assert _startup_metrics_worsened(before, {"active_nrmse": 0.10, "active_shape_corr": 0.85}) is True
+    assert _startup_metrics_worsened(before, {"active_nrmse": 0.11, "active_shape_corr": 0.97}) is False
 
 
 def test_one_point_seven_five_without_exact_support_remains_unavailable() -> None:

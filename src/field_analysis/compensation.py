@@ -1137,6 +1137,8 @@ def synthesize_current_waveform_compensation(
         "startup_frequency_fallback_used": startup_transient_metadata.get("startup_frequency_fallback_used"),
         "early_cycle_residual_before": startup_transient_metadata.get("early_cycle_residual_before"),
         "early_cycle_residual_after": startup_transient_metadata.get("early_cycle_residual_after"),
+        "startup_residual_before_mT": startup_transient_metadata.get("startup_residual_before_mT"),
+        "startup_residual_after_mT": startup_transient_metadata.get("startup_residual_after_mT"),
         "active_nrmse_before": startup_transient_metadata.get("active_nrmse_before"),
         "active_nrmse_after": startup_transient_metadata.get("active_nrmse_after"),
         "active_shape_corr_before": startup_transient_metadata.get("active_shape_corr_before"),
@@ -4917,7 +4919,6 @@ def _apply_startup_transient_prediction(
     )
     if status not in {"ok", "steady_like"}:
         return command_profile, base_metadata
-    before_metrics = _startup_before_after_metrics(command_profile)
     offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_unexplained_offset_delta_mT"))
     if offset_delta is None or not np.isfinite(offset_delta):
         offset_delta = _first_numeric(startup_diagnostics.get("first_cycle_field_offset_delta_mT"))
@@ -4952,29 +4953,37 @@ def _apply_startup_transient_prediction(
     ratio_envelope = 1.0 + (float(observed_ratio) - 1.0) * transient_weight
     offset_envelope = float(offset_delta) * transient_weight
 
-    for column in (
-        "expected_field_mT",
-        "predicted_field_mT",
-        "support_scaled_field_mT",
-        "support_reference_output_mT",
-        "modeled_field_mT",
-    ):
-        if column not in adjusted.columns:
-            continue
-        values = pd.to_numeric(adjusted[column], errors="coerce").to_numpy(dtype=float).copy()
-        valid = np.isfinite(values) & np.isfinite(transient_weight)
-        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
-        adjusted[column] = values
+    predicted_column = _resolve_predicted_field_column(adjusted) or "predicted_field_mT"
+    if predicted_column not in adjusted.columns:
+        return command_profile, {"startup_transient_applied": False}
+    compensated_values = pd.to_numeric(adjusted[predicted_column], errors="coerce").to_numpy(dtype=float).copy()
+    valid = np.isfinite(compensated_values) & np.isfinite(transient_weight)
+    startup_component = np.zeros_like(compensated_values, dtype=float)
+    startup_component[valid] = compensated_values[valid] * (ratio_envelope[valid] - 1.0) + offset_envelope[valid]
+    open_loop_values = compensated_values + startup_component
+    adjusted["open_loop_predicted_field_mT"] = open_loop_values
+    adjusted["startup_transient_component_mT"] = startup_component
+    adjusted["compensated_predicted_field_mT"] = compensated_values
+    adjusted["predicted_field_mT"] = compensated_values
+    if "expected_field_mT" in adjusted.columns:
+        adjusted["expected_field_mT"] = compensated_values
     if "expected_output" in adjusted.columns:
-        values = pd.to_numeric(adjusted["expected_output"], errors="coerce").to_numpy(dtype=float).copy()
-        valid = np.isfinite(values) & np.isfinite(transient_weight)
-        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
-        adjusted["expected_output"] = values
+        adjusted["expected_output"] = compensated_values
+    if "modeled_field_mT" in adjusted.columns:
+        adjusted["modeled_field_mT"] = compensated_values
     if "modeled_output" in adjusted.columns:
-        values = pd.to_numeric(adjusted["modeled_output"], errors="coerce").to_numpy(dtype=float).copy()
-        valid = np.isfinite(values) & np.isfinite(transient_weight)
-        values[valid] = values[valid] * ratio_envelope[valid] + offset_envelope[valid]
-        adjusted["modeled_output"] = values
+        adjusted["modeled_output"] = compensated_values
+    for support_column in ("support_scaled_field_mT", "support_reference_output_mT"):
+        if support_column in adjusted.columns:
+            support_values = pd.to_numeric(adjusted[support_column], errors="coerce").to_numpy(dtype=float).copy()
+            support_valid = np.isfinite(support_values) & np.isfinite(transient_weight)
+            support_values[support_valid] = support_values[support_valid] * ratio_envelope[support_valid] + offset_envelope[support_valid]
+            adjusted[support_column] = support_values
+    _apply_startup_command_correction(
+        adjusted,
+        startup_component=startup_component,
+        transient_weight=transient_weight,
+    )
     adjusted["startup_transient_applied"] = True
     metadata = _startup_transient_base_metadata(
         startup_diagnostics=startup_diagnostics,
@@ -4987,6 +4996,12 @@ def _apply_startup_transient_prediction(
         weight=transient_weight,
         offset_envelope=offset_envelope,
     )
+    before_profile = adjusted.copy()
+    before_profile["predicted_field_mT"] = adjusted["open_loop_predicted_field_mT"]
+    for column in ("expected_field_mT", "support_scaled_field_mT", "expected_output"):
+        if column in before_profile.columns:
+            before_profile[column] = adjusted["open_loop_predicted_field_mT"]
+    before_metrics = _startup_before_after_metrics(before_profile)
     after_metrics = _startup_before_after_metrics(adjusted)
     metric_metadata = _startup_metric_metadata(before_metrics, after_metrics)
     if _startup_metrics_worsened(before_metrics, after_metrics):
@@ -5072,7 +5087,31 @@ def _startup_transient_base_metadata(
             startup_diagnostics.get("startup_frequency_fallback_used", False)
             or (np.isfinite(freq_distance) and abs(float(freq_distance)) > 1e-9)
         ),
+        "startup_status": status,
     }
+
+
+def _apply_startup_command_correction(
+    command_profile: pd.DataFrame,
+    *,
+    startup_component: np.ndarray,
+    transient_weight: np.ndarray,
+) -> None:
+    component = np.asarray(startup_component, dtype=float)
+    weight = np.asarray(transient_weight, dtype=float)
+    finite_component = component[np.isfinite(component)]
+    component_scale = max(float(np.nanmax(np.abs(finite_component))) if finite_component.size else 0.0, 1e-9)
+    correction_strength = np.clip(np.abs(component) / component_scale, 0.0, 1.0) * np.clip(weight, 0.0, 1.0)
+    attenuation = 1.0 - np.clip(0.25 * correction_strength, 0.0, 0.25)
+    for column in ("recommended_voltage_v", "limited_voltage_v"):
+        if column not in command_profile.columns:
+            continue
+        values = pd.to_numeric(command_profile[column], errors="coerce").to_numpy(dtype=float).copy()
+        valid = np.isfinite(values) & np.isfinite(attenuation)
+        values[valid] = values[valid] * attenuation[valid]
+        command_profile[column] = values
+    command_profile["startup_command_correction_applied"] = True
+    command_profile["startup_command_attenuation"] = attenuation
 
 
 def _startup_before_after_metrics(command_profile: pd.DataFrame) -> dict[str, float]:
@@ -5136,6 +5175,8 @@ def _startup_metric_metadata(before: dict[str, float], after: dict[str, float]) 
     return {
         "early_cycle_residual_before": before.get("early_cycle_residual", float("nan")),
         "early_cycle_residual_after": after.get("early_cycle_residual", float("nan")),
+        "startup_residual_before_mT": before.get("early_cycle_residual", float("nan")),
+        "startup_residual_after_mT": after.get("early_cycle_residual", float("nan")),
         "active_nrmse_before": before.get("active_nrmse", float("nan")),
         "active_nrmse_after": after.get("active_nrmse", float("nan")),
         "active_shape_corr_before": before.get("active_shape_corr", float("nan")),
