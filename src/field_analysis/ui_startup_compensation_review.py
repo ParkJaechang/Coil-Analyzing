@@ -83,11 +83,11 @@ def render_startup_compensation_review(
         (
             ("baseline_recommended_voltage_v", "Baseline Recommended Voltage", "dash"),
             ("compensated_recommended_voltage_v", "Compensated Recommended Voltage", "solid"),
-            ("startup_compensation_command_delta_v", "Startup Command Delta", "dot"),
+            ("startup_compensation_command_delta_v", "Startup Compensation Command Delta", "dot"),
         ),
         title="Startup Command Comparison",
         yaxis_title="Voltage (V)",
-        secondary_trace_names=("Startup Command Delta",),
+        secondary_trace_names=("Startup Compensation Command Delta",),
     )
     with plot_right:
         if voltage_figure is None:
@@ -124,8 +124,8 @@ def render_startup_compensation_review(
         )
         _render_startup_metric_pair(
             "Tail residual",
-            _startup_payload_value(compensation, command_profile, "tail_residual_ratio_before", "tail_residual_before"),
-            _startup_payload_value(compensation, command_profile, "tail_residual_ratio_after", "tail_residual_after"),
+            _startup_payload_value(compensation, command_profile, "tail_residual_before"),
+            _startup_payload_value(compensation, command_profile, "tail_residual_after"),
         )
         st.write(
             "- Startup residual RMS: "

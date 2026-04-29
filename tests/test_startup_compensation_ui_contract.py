@@ -31,7 +31,7 @@ def test_startup_side_by_side_plot_labels_exist() -> None:
     assert "Compensated Predicted Field" in source
     assert "Baseline Recommended Voltage" in source
     assert "Compensated Recommended Voltage" in source
-    assert "Startup Command Delta" in source
+    assert "Startup Compensation Command Delta" in source
     assert "Startup Field Comparison" in source
     assert "Startup Command Comparison" in source
 
@@ -50,8 +50,8 @@ def test_startup_before_after_metrics_and_status_markers_exist() -> None:
         "active_shape_corr_after",
         "terminal_peak_error_before_mT",
         "terminal_peak_error_after_mT",
-        "tail_residual_ratio_before",
-        "tail_residual_ratio_after",
+        "tail_residual_before",
+        "tail_residual_after",
         "startup_transient_applied",
         "startup_status",
         "startup_source_type",
@@ -63,6 +63,8 @@ def test_startup_before_after_metrics_and_status_markers_exist() -> None:
     missing = [marker for marker in expected_markers if marker not in source]
 
     assert not missing, f"Missing startup UI markers: {missing}"
+    assert "tail_residual_ratio_before" not in source
+    assert "tail_residual_ratio_after" not in source
 
 
 def test_startup_review_is_connected_without_default_success_claim() -> None:
