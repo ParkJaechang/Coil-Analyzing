@@ -147,10 +147,17 @@ def render_raw_waveforms_tab(
         st.warning("No parsed tests are available for raw waveform inspection.")
         return
 
-    st.markdown("### Raw Waveforms Data Audit")
+    st.markdown("### Raw Waveforms 데이터 검수")
     st.caption(
-        "Use this screen to manually inspect LUT, transient, and raw waveform data. "
-        "Dropdown labels are metadata-based; internal IDs are shown separately."
+        "LUT continuous 데이터와 finite-cycle transient 데이터를 같은 화면에서 수동 검수합니다. "
+        "테스트 선택 이름은 metadata/source file 기반이며, internal ID는 보조 정보로만 표시합니다."
+    )
+    st.info(
+        "데이터 정책: 파일명 규칙은 `continuous_{waveform}_{freq}Hz.csv` 또는 "
+        "`finite_{waveform}_{freq}Hz_{cycle}cycle.csv`입니다. DAQ output은 ±5V, "
+        "DCAMP Gain은 100% 고정 조건으로 표시합니다. Raw Waveforms 검수 화면에서는 0.75 cycle "
+        "기존 데이터도 확인할 수 있지만, Quick LUT primary finite cycle은 1.0 / 1.25 / 1.5 / 1.75이며 "
+        "1.75는 exact finite-cycle support가 있을 때만 사용 가능합니다."
     )
 
     filtered_records = _render_raw_waveform_filters(records)
@@ -267,9 +274,9 @@ def _build_raw_waveform_test_record_from_frames(
 
 def _render_raw_waveform_filters(records: list[RawWaveformTestRecord]) -> list[RawWaveformTestRecord]:
     with st.container():
-        st.markdown("#### Find test data")
+        st.markdown("#### 데이터 찾기")
         search_text = st.text_input(
-            "Search metadata label / source file",
+            "Metadata label / source file 검색",
             key="raw_waveform_search",
             placeholder="waveform, frequency, current/App, source file, sheet, internal ID",
         ).strip()
@@ -277,7 +284,7 @@ def _render_raw_waveform_filters(records: list[RawWaveformTestRecord]) -> list[R
         if st.session_state.get("raw_filter_source_type") not in {"all", "continuous", "finite-cycle"}:
             st.session_state["raw_filter_source_type"] = "all"
         source_type_filter = filter_columns[0].selectbox(
-            "Source type",
+            "Source type / 데이터 종류",
             options=["all", "continuous", "finite-cycle"],
             key="raw_filter_source_type",
         )
@@ -301,7 +308,10 @@ def _render_raw_waveform_filters(records: list[RawWaveformTestRecord]) -> list[R
             options=_unique_number_labels(record.target_current_a for record in records),
             key="raw_filter_current",
         )
-        st.caption("Source type filter supports all, continuous, and finite-cycle inspection modes.")
+        st.caption(
+            "Source type filter는 all / continuous / finite-cycle 검수 모드를 지원합니다. "
+            "0.75 cycle 데이터는 모델 primary cycle이 아니더라도 Raw Waveforms 검수 대상이면 표시됩니다."
+        )
 
     filtered = records
     if search_text:
@@ -343,14 +353,15 @@ def _render_selected_test_summary(
     dataset_mode: str,
     display_frame: pd.DataFrame,
 ) -> None:
-    st.markdown("#### Selected Data Summary")
+    st.markdown("#### Selected Data Summary / 선택 데이터 요약")
     st.caption(f"Internal ID: `{record.test_id}`")
 
-    metric_columns = st.columns(4)
+    metric_columns = st.columns(5)
     metric_columns[0].metric("Source file", record.source_file_label or "unknown")
     metric_columns[1].metric("Waveform family", _display_value(record.waveform_type))
     metric_columns[2].metric("Frequency", _format_number_with_unit(record.freq_hz, "Hz"))
-    metric_columns[3].metric("Current/App", _format_number_with_unit(record.target_current_a, "App"))
+    metric_columns[3].metric("Current/App", _format_current_or_fixed_condition(record.target_current_a))
+    metric_columns[4].metric("Fixed drive", f"{FIXED_DAQ_OUTPUT_LABEL} / {FIXED_GAIN_LABEL}")
 
     detail_columns = st.columns(5)
     detail_columns[0].metric("Cycle count", _format_number_with_unit(record.cycle_count, "cycle"))
@@ -366,9 +377,9 @@ def _render_selected_test_summary(
         st.warning(f"Parser quality flags: {record.quality_flags}")
 
     st.info(
-        "Viewing corrected/preprocessed waveform data."
+        "Viewing corrected/preprocessed waveform data. 전처리 보정 후 파형을 검수 중입니다."
         if dataset_mode == "corrected"
-        else "Viewing raw normalized parse data before preprocessing correction."
+        else "Viewing raw normalized parse data before preprocessing correction. 원본 normalized parse 파형을 검수 중입니다."
     )
     with st.expander("Internal/debug identifiers", expanded=False):
         st.write(f"- source_file: `{record.source_file}`")
@@ -410,7 +421,7 @@ def _render_raw_waveform_plot(
         key="raw_channels_audit",
     )
     st.caption(
-        f"Plot view: {dataset_mode} · source={record.source_file_label or 'unknown'} · "
+        f"Plot view: {dataset_mode} | source={record.source_file_label or 'unknown'} | "
         f"signals={', '.join(selected_channels) if selected_channels else 'none selected'}"
     )
     if not selected_channels:
@@ -433,7 +444,6 @@ def _render_raw_waveform_plot(
         cycle_count=record.cycle_count,
     )
     st.dataframe(display_frame.head(200), use_container_width=True)
-
 def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     parts = [
         _display_value(record.source_type),
@@ -448,6 +458,12 @@ def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     if record.source_file_label:
         parts.append(record.source_file_label)
     return " | ".join(part for part in parts if part and part != "unknown")
+
+
+def _format_current_or_fixed_condition(value: float) -> str:
+    if np.isfinite(value) and value > 0:
+        return _format_number_with_unit(value, "App")
+    return "not provided"
 
 
 def _unique_labels_by_id(records: list[RawWaveformTestRecord]) -> dict[str, str]:

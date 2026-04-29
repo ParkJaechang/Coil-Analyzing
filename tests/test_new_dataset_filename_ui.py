@@ -62,3 +62,9 @@ def test_new_finite_filename_labels_include_cycle_and_fixed_conditions() -> None
     assert _label_for("finite_triangle_2Hz_1.75cycle.csv") == (
         "finite-cycle | Triangle | 2 Hz | 1.75 cycle | ±5V | Gain 100% | finite_triangle_2Hz_1.75cycle.csv"
     )
+
+
+def test_raw_audit_can_label_legacy_0p75_finite_data() -> None:
+    assert _label_for("finite_triangle_2Hz_0.75cycle.csv") == (
+        "finite-cycle | Triangle | 2 Hz | 0.75 cycle | ±5V | Gain 100% | finite_triangle_2Hz_0.75cycle.csv"
+    )

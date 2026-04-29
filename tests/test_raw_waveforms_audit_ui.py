@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -58,8 +58,15 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
     records = build_raw_waveform_test_records(list(lookup), lookup)
 
     assert len(records) == 1
-    assert records[0].label == "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±5V | Gain 100% | continuous/tri_1hz_1.25cycle_10pp.csv"
+    assert records[0].label == (
+        "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±5V | Gain 100% | "
+        "continuous/tri_1hz_1.25cycle_10pp.csv"
+    )
     assert "0123456789abcdef" not in records[0].label
+    assert records[0].timebase_source == "explicit_time_column"
+    assert records[0].time_unit == "seconds"
+    assert records[0].detected_format == "legacy_csv"
+    assert records[0].parser_version == "parser_timebase_v2"
     assert format_reference_test_label("0123456789abcdef_internal_id", lookup) == records[0].label
     label_by_id, id_by_label = build_raw_waveform_label_lookup(list(lookup), lookup)
     assert label_by_id["0123456789abcdef_internal_id"] == records[0].label
@@ -76,13 +83,13 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     assert "transient_measurements=transient_measurements" in snapshot_source
     assert "raw_test_simple" not in snapshot_source
     assert "테스트 선택 (metadata label)" in raw_ui_source
-    assert "Search metadata label / source file" in raw_ui_source
+    assert "Metadata label / source file 검색" in raw_ui_source
     assert "Waveform family" in raw_ui_source
     assert "Frequency (Hz)" in raw_ui_source
     assert "Cycle count" in raw_ui_source
     assert "Current/App" in raw_ui_source
-    assert "Source type" in raw_ui_source
-    assert "Selected Data Summary" in raw_ui_source
+    assert "Source type / 데이터 종류" in raw_ui_source
+    assert "Selected Data Summary / 선택 데이터 요약" in raw_ui_source
     assert "render_channel_timebase_summary" in raw_ui_source
     assert "Channel timebase summary" in quality_source
     assert "Parser quality flags" in raw_ui_source
@@ -92,3 +99,4 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     assert "Raw normalized parse" in raw_ui_source
     assert "비교 기준 테스트 (선택)" in snapshot_source
     assert "선택한 파형과 겹쳐 비교할 기준 테스트입니다" in snapshot_source
+    assert "0.75 cycle 데이터는 모델 primary cycle이 아니더라도 Raw Waveforms 검수 대상이면 표시됩니다." in raw_ui_source
