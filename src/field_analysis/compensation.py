@@ -1122,6 +1122,11 @@ def synthesize_current_waveform_compensation(
         command_profile["displayed_predicted_field_mT"] = np.nan
     for key, value in command_prediction_consistency.items():
         command_profile[key] = value
+    steady_state_metadata = _attach_continuous_steady_state_metrics(
+        command_profile=command_profile,
+        finite_cycle_mode=finite_cycle_mode,
+        representative_cycle_selection=nearest_cycle_selection,
+    )
 
     return {
         "mode": mode,
@@ -1222,6 +1227,20 @@ def synthesize_current_waveform_compensation(
             if "displayed_predicted_field_mT" in command_profile.columns
             else None
         ),
+        "steady_state_start_s": steady_state_metadata.get("steady_state_start_s"),
+        "steady_state_end_s": steady_state_metadata.get("steady_state_end_s"),
+        "startup_excluded": steady_state_metadata.get("startup_excluded"),
+        "continuous_evaluation_window": steady_state_metadata.get("continuous_evaluation_window"),
+        "startup_window_end_s": steady_state_metadata.get("startup_window_end_s"),
+        "steady_state_duration_s": steady_state_metadata.get("steady_state_duration_s"),
+        "steady_state_nrmse": steady_state_metadata.get("steady_state_nrmse"),
+        "steady_state_shape_corr": steady_state_metadata.get("steady_state_shape_corr"),
+        "steady_state_peak_error": steady_state_metadata.get("steady_state_peak_error"),
+        "steady_state_peak_error_mT": steady_state_metadata.get("steady_state_peak_error_mT"),
+        "whole_window_metrics_debug_only": steady_state_metadata.get("whole_window_metrics_debug_only"),
+        "whole_window_nrmse_debug": steady_state_metadata.get("whole_window_nrmse_debug"),
+        "whole_window_shape_corr_debug": steady_state_metadata.get("whole_window_shape_corr_debug"),
+        "whole_window_peak_error_debug": steady_state_metadata.get("whole_window_peak_error_debug"),
         "predicted_output_column": "predicted_field_mT" if field_only_route else "predicted_output",
         "support_family_used": selected_support_waveform,
         "support_family_requested": user_requested_support_family,
@@ -5489,6 +5508,106 @@ def _attach_field_prediction_metrics(
     if "terminal_trim_window_fraction" not in command_profile.columns:
         command_profile["terminal_trim_window_fraction"] = float("nan")
     return _sync_modeled_alias_columns(command_profile)
+
+
+def _attach_continuous_steady_state_metrics(
+    *,
+    command_profile: pd.DataFrame,
+    finite_cycle_mode: bool,
+    representative_cycle_selection: dict[str, Any],
+) -> dict[str, Any]:
+    unavailable = {
+        "steady_state_start_s": float("nan"),
+        "steady_state_end_s": float("nan"),
+        "startup_excluded": False,
+        "continuous_evaluation_window": "not_applicable" if finite_cycle_mode else "unavailable",
+        "startup_window_end_s": float("nan"),
+        "steady_state_duration_s": float("nan"),
+        "steady_state_nrmse": float("nan"),
+        "steady_state_shape_corr": float("nan"),
+        "steady_state_peak_error": float("nan"),
+        "steady_state_peak_error_mT": float("nan"),
+        "whole_window_metrics_debug_only": False,
+        "whole_window_nrmse_debug": float("nan"),
+        "whole_window_shape_corr_debug": float("nan"),
+        "whole_window_peak_error_debug": float("nan"),
+    }
+    if finite_cycle_mode or command_profile.empty or "time_s" not in command_profile.columns:
+        for key, value in unavailable.items():
+            command_profile[key] = value
+        return unavailable
+
+    target_column = "physical_target_output_mT" if "physical_target_output_mT" in command_profile.columns else "target_field_mT"
+    predicted_column = (
+        "displayed_predicted_field_mT"
+        if "displayed_predicted_field_mT" in command_profile.columns
+        else ("predicted_field_mT" if "predicted_field_mT" in command_profile.columns else None)
+    )
+    if target_column not in command_profile.columns or predicted_column is None:
+        for key, value in unavailable.items():
+            command_profile[key] = value
+        return unavailable
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    target_values = pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+    predicted_values = pd.to_numeric(command_profile[predicted_column], errors="coerce").to_numpy(dtype=float)
+    finite_time = time_values[np.isfinite(time_values)]
+    if finite_time.size < 2:
+        for key, value in unavailable.items():
+            command_profile[key] = value
+        return unavailable
+
+    steady_start_s = float(np.nanmin(finite_time))
+    steady_end_s = float(np.nanmax(finite_time))
+    steady_duration_s = max(steady_end_s - steady_start_s, 0.0)
+    selected_indices = representative_cycle_selection.get("selected_cycle_indices", []) or []
+    available_cycle_count = int(representative_cycle_selection.get("available_cycle_count", 0) or 0)
+    selected_cycle_count = int(representative_cycle_selection.get("selected_cycle_count", 0) or 0)
+    min_selected = min(selected_indices) if selected_indices else 0
+    startup_excluded = bool(available_cycle_count > selected_cycle_count and min_selected > 0)
+    sample_period_s = steady_duration_s if steady_duration_s > 0 else float("nan")
+    startup_window_end_s = float(min_selected * sample_period_s) if startup_excluded and np.isfinite(sample_period_s) else steady_start_s
+
+    finite_mask = np.isfinite(time_values) & (time_values >= steady_start_s - 1e-12) & (time_values <= steady_end_s + 1e-12)
+    steady_corr, steady_nrmse = _shape_corr_and_nrmse(target_values[finite_mask], predicted_values[finite_mask])
+    target_pp = (
+        float(np.nanmax(target_values[finite_mask]) - np.nanmin(target_values[finite_mask]))
+        if finite_mask.any()
+        else float("nan")
+    )
+    predicted_pp = (
+        float(np.nanmax(predicted_values[finite_mask]) - np.nanmin(predicted_values[finite_mask]))
+        if finite_mask.any()
+        else float("nan")
+    )
+    peak_error = float(predicted_pp - target_pp) if np.isfinite(predicted_pp) and np.isfinite(target_pp) else float("nan")
+    whole_corr, whole_nrmse = _shape_corr_and_nrmse(target_values, predicted_values)
+    whole_target_pp = float(np.nanmax(target_values) - np.nanmin(target_values)) if np.isfinite(target_values).any() else float("nan")
+    whole_predicted_pp = float(np.nanmax(predicted_values) - np.nanmin(predicted_values)) if np.isfinite(predicted_values).any() else float("nan")
+    whole_peak_error = (
+        float(whole_predicted_pp - whole_target_pp)
+        if np.isfinite(whole_predicted_pp) and np.isfinite(whole_target_pp)
+        else float("nan")
+    )
+    metadata = {
+        "steady_state_start_s": steady_start_s,
+        "steady_state_end_s": steady_end_s,
+        "startup_excluded": startup_excluded,
+        "continuous_evaluation_window": "steady_state_representative_cycle",
+        "startup_window_end_s": startup_window_end_s,
+        "steady_state_duration_s": steady_duration_s,
+        "steady_state_nrmse": steady_nrmse,
+        "steady_state_shape_corr": steady_corr,
+        "steady_state_peak_error": peak_error,
+        "steady_state_peak_error_mT": peak_error,
+        "whole_window_metrics_debug_only": True,
+        "whole_window_nrmse_debug": whole_nrmse,
+        "whole_window_shape_corr_debug": whole_corr,
+        "whole_window_peak_error_debug": whole_peak_error,
+    }
+    for key, value in metadata.items():
+        command_profile[key] = value
+    return metadata
 
 
 def _phase_register_command_profile(
