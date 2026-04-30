@@ -1654,6 +1654,87 @@ def _render_support_reference_provenance_panel(
     st.write(f"- Cycle match reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
 
 
+def _render_command_prediction_consistency_card(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+) -> None:
+    metadata_keys = (
+        "command_generation_target",
+        "support_reference_used_for_command",
+        "support_reference_role",
+        "forward_prediction_source",
+        "predicted_from_plotted_command",
+        "command_prediction_consistency_status",
+        "support_reference_shape_mismatch",
+        "support_reference_target_corr",
+        "support_reference_target_nrmse",
+        "command_nonzero_start_s",
+        "target_nonzero_start_s",
+        "command_covers_target_active_start",
+        "command_covers_target_active_end",
+    )
+    has_metadata = any(_support_provenance_value(compensation, command_profile, key) is not None for key in metadata_keys)
+
+    st.markdown("#### Command Prediction Consistency")
+    st.caption(
+        "Support Reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다. "
+        "추천 전압은 Physical Target을 기준으로 계산됩니다. "
+        "Predicted Output은 표시된 추천 전압 command 기준 forward prediction입니다."
+    )
+    if not has_metadata:
+        st.info("Command/prediction consistency metadata unavailable")
+        return
+
+    generation_target = _format_optional_text(
+        _support_provenance_value(compensation, command_profile, "command_generation_target")
+    )
+    support_role = _format_optional_text(
+        _support_provenance_value(compensation, command_profile, "support_reference_role")
+    )
+    used_for_command = _format_optional_bool(
+        _support_provenance_value(compensation, command_profile, "support_reference_used_for_command")
+    )
+    prediction_source = _format_optional_text(
+        _support_provenance_value(compensation, command_profile, "forward_prediction_source")
+    )
+    predicted_from_command = _format_optional_bool(
+        _support_provenance_value(compensation, command_profile, "predicted_from_plotted_command")
+    )
+    consistency_status = _format_optional_text(
+        _support_provenance_value(compensation, command_profile, "command_prediction_consistency_status")
+    )
+    shape_mismatch = _coerce_boolish(
+        _support_provenance_value(compensation, command_profile, "support_reference_shape_mismatch")
+    )
+
+    st.write(f"- Command target: Physical Target (`{generation_target}`)")
+    st.write(f"- Support Reference role: Diagnostic only (`{support_role}`)")
+    st.write(f"- Support Reference used for command: `{used_for_command}`")
+    st.write(f"- Predicted output source: `{prediction_source}`")
+    st.write(f"- Predicted from plotted command: `{predicted_from_command}`")
+    st.write(f"- Command prediction consistency: `{consistency_status}`")
+    st.write(f"- Support Reference shape mismatch: `{_format_optional_bool(shape_mismatch)}`")
+    st.write(
+        f"- Support/target corr: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_corr'))}`"
+    )
+    st.write(
+        f"- Support/target NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_nrmse'))}`"
+    )
+    st.caption(
+        "Command coverage: "
+        f"command_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'command_nonzero_start_s'), 's')} | "
+        f"target_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'target_nonzero_start_s'), 's')} | "
+        f"command_covers_target_active_start={_format_optional_bool(_support_provenance_value(compensation, command_profile, 'command_covers_target_active_start'))} | "
+        f"command_covers_target_active_end={_format_optional_bool(_support_provenance_value(compensation, command_profile, 'command_covers_target_active_end'))}"
+    )
+
+    if shape_mismatch is True:
+        st.warning(
+            "Support Reference shape mismatch: treat this trace as Support Reference (diagnostic), not as the command "
+            "target or command objective."
+        )
+
+
 def _render_finite_prediction_availability(compensation: dict[str, object]) -> None:
     prediction_available = _coerce_boolish(compensation.get("finite_prediction_available"))
     unavailable_reason = _normalize_optional_text(
@@ -2119,6 +2200,7 @@ def _render_quick_lut_tab_v2(
                     )
                 _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
                 _render_support_reference_provenance_panel(compensation, command_profile)
+                _render_command_prediction_consistency_card(compensation, command_profile)
                 _render_finite_prediction_availability(compensation)
                 _render_end_marker_summary(compensation, command_profile)
                 _render_finite_signal_consistency_summary(compensation, command_profile)
