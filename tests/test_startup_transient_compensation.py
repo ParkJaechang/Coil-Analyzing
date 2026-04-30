@@ -328,10 +328,12 @@ def test_finite_startup_component_is_separated_and_compensated_without_target_st
     assert result["predicted_from_plotted_command"] is True
     assert result["displayed_predicted_valid"] is True
     support_reference = pd.to_numeric(profile["support_reference_output_mT"], errors="coerce")
-    support_scaled = pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce")
+    target_aligned_support = pd.to_numeric(profile["target_aligned_support_reference_mT"], errors="coerce")
     open_loop = pd.to_numeric(profile["open_loop_predicted_field_mT"], errors="coerce")
     compensated = pd.to_numeric(profile["compensated_predicted_field_mT"], errors="coerce")
-    assert np.allclose(support_reference, support_scaled, equal_nan=True)
+    finite_reference = np.isfinite(support_reference)
+    assert finite_reference.any()
+    assert np.allclose(support_reference, target_aligned_support, equal_nan=True)
     assert not np.allclose(support_reference, open_loop, equal_nan=True)
     assert not np.allclose(support_reference, compensated, equal_nan=True)
     baseline_command = pd.to_numeric(profile["baseline_recommended_voltage_v"], errors="coerce")
