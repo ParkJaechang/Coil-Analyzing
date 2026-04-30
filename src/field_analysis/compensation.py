@@ -1175,6 +1175,19 @@ def synthesize_current_waveform_compensation(
         "source_field_active_end_s": _first_numeric(command_profile.get("source_field_active_end_s")),
         "source_active_duration_s": _first_numeric(command_profile.get("source_active_duration_s")),
         "target_active_start_s": command_prediction_consistency.get("target_nonzero_start_s"),
+        "support_reference_anchor_mode": _first_text(command_profile.get("support_reference_anchor_mode")),
+        "support_reference_source_window_start_s": _first_numeric(command_profile.get("support_reference_source_window_start_s")),
+        "support_reference_source_window_end_s": _first_numeric(command_profile.get("support_reference_source_window_end_s")),
+        "support_reference_source_window_duration_s": _first_numeric(command_profile.get("support_reference_source_window_duration_s")),
+        "support_reference_expected_duration_s": _first_numeric(command_profile.get("support_reference_expected_duration_s")),
+        "support_reference_source_window_reason": _first_text(command_profile.get("support_reference_source_window_reason")),
+        "source_motion_start_s": _first_numeric(command_profile.get("source_motion_start_s")),
+        "source_command_nonzero_start_s": _first_numeric(command_profile.get("source_command_nonzero_start_s")),
+        "source_field_motion_start_s": _first_numeric(command_profile.get("source_field_motion_start_s")),
+        "source_declared_active_duration_s": _first_numeric(command_profile.get("source_declared_active_duration_s")),
+        "source_tail_start_s": _first_numeric(command_profile.get("source_tail_start_s")),
+        "source_tail_excluded_from_reference": bool(_first_boolish(command_profile.get("source_tail_excluded_from_reference"))),
+        "source_pre_baseline_excluded_from_reference": bool(_first_boolish(command_profile.get("source_pre_baseline_excluded_from_reference"))),
         "support_reference_alignment_window": _first_text(command_profile.get("support_reference_alignment_window")),
         "support_reference_timebase_mapping_mode": _first_text(command_profile.get("support_reference_timebase_mapping_mode")),
         "support_reference_time_s": command_profile["time_s"].to_numpy(dtype=float).tolist() if "time_s" in command_profile.columns else None,
@@ -1821,24 +1834,52 @@ def _resample_finite_support_record(
     entry_cycle_count = float(entry.get("approx_cycle_span", np.nan))
     if np.isfinite(entry_freq_hz) and entry_freq_hz > 0 and np.isfinite(entry_cycle_count) and entry_cycle_count > 0:
         expected_support_active_duration_s = float(entry_cycle_count / entry_freq_hz)
-    if active_source != "explicit_active_frame" and np.isfinite(command_start_s) and np.isfinite(command_end_s):
+    expected_reference_duration_s = float(active_duration_s) if np.isfinite(active_duration_s) and active_duration_s > 0 else expected_support_active_duration_s
+    reference_start_s = float("nan")
+    reference_window_reason = "active_window_missing"
+    anchor_mode = "fallback"
+    if np.isfinite(command_start_s):
+        reference_start_s = command_start_s
+        reference_window_reason = "command_nonzero_start"
+        anchor_mode = "command_start_plus_declared_duration"
+    elif np.isfinite(field_start_s):
+        reference_start_s = field_start_s
+        reference_window_reason = "field_motion_start"
+        anchor_mode = "motion_start_plus_declared_duration"
+        alignment_window = "field_active_window"
+    elif not active_frame.empty:
+        reference_start_s = float(active_frame["time_s"].min())
+        reference_window_reason = "explicit_active_frame_start"
+        anchor_mode = "metadata_active_window"
+    reference_end_s = (
+        reference_start_s + expected_reference_duration_s
+        if np.isfinite(reference_start_s) and np.isfinite(expected_reference_duration_s) and expected_reference_duration_s > 0
+        else float("nan")
+    )
+    source_motion_start_s = reference_start_s
+    source_tail_start_s = reference_end_s
+    source_pre_baseline_excluded_from_reference = bool(np.isfinite(reference_start_s) and np.isfinite(full_time).any() and reference_start_s > float(np.nanmin(full_time)) + 1e-9)
+    source_tail_excluded_from_reference = bool(np.isfinite(reference_end_s) and np.isfinite(full_time).any() and reference_end_s < float(np.nanmax(full_time)) - 1e-9)
+    mapping_mode = "active_segment_to_target_window" if np.isfinite(reference_start_s) and np.isfinite(reference_end_s) else "raw_source_debug_only"
+    if np.isfinite(command_start_s) and np.isfinite(command_end_s):
         command_crop_end_s = (
-            min(command_start_s + expected_support_active_duration_s, float(np.nanmax(full_time)))
-            if np.isfinite(expected_support_active_duration_s) and expected_support_active_duration_s > 0
+            min(reference_end_s, float(np.nanmax(full_time)))
+            if np.isfinite(reference_end_s)
             else command_end_s
         )
         active_frame = _prepare_finite_time_frame(
             full_frame[
-                (pd.to_numeric(full_frame["time_s"], errors="coerce") >= command_start_s - 1e-9)
+                (pd.to_numeric(full_frame["time_s"], errors="coerce") >= reference_start_s - 1e-9)
                 & (pd.to_numeric(full_frame["time_s"], errors="coerce") <= command_crop_end_s + 1e-9)
             ].copy()
         )
-    elif active_source != "explicit_active_frame" and np.isfinite(field_start_s) and np.isfinite(field_end_s):
+    elif np.isfinite(field_start_s) and np.isfinite(field_end_s):
         alignment_window = "field_active_window"
+        field_crop_end_s = min(reference_end_s, float(np.nanmax(full_time))) if np.isfinite(reference_end_s) else field_end_s
         active_frame = _prepare_finite_time_frame(
             full_frame[
-                (pd.to_numeric(full_frame["time_s"], errors="coerce") >= field_start_s - 1e-9)
-                & (pd.to_numeric(full_frame["time_s"], errors="coerce") <= field_end_s + 1e-9)
+                (pd.to_numeric(full_frame["time_s"], errors="coerce") >= reference_start_s - 1e-9)
+                & (pd.to_numeric(full_frame["time_s"], errors="coerce") <= field_crop_end_s + 1e-9)
             ].copy()
         )
     elif active_source != "explicit_active_frame":
@@ -1860,6 +1901,11 @@ def _resample_finite_support_record(
 
     active_end_s = float(active_frame["time_s"].max())
     active_support_duration_s = max(active_end_s - active_start_s, 1e-9)
+    reference_window_duration_s = (
+        max(reference_end_s - reference_start_s, 0.0)
+        if np.isfinite(reference_start_s) and np.isfinite(reference_end_s)
+        else float("nan")
+    )
     source_pre_baseline_s = max(float(active_start_s - np.nanmin(full_time)), 0.0) if np.isfinite(full_time).any() else float("nan")
     source_post_tail_s = max(float(np.nanmax(full_time) - active_end_s), 0.0) if np.isfinite(full_time).any() else float("nan")
     support_observed_coverage_ratio = 1.0
@@ -2009,6 +2055,19 @@ def _resample_finite_support_record(
         "source_field_active_start_s": field_start_s,
         "source_field_active_end_s": field_end_s,
         "source_active_duration_s": active_support_duration_s,
+        "support_reference_anchor_mode": anchor_mode,
+        "support_reference_source_window_start_s": reference_start_s,
+        "support_reference_source_window_end_s": reference_end_s,
+        "support_reference_source_window_duration_s": reference_window_duration_s,
+        "support_reference_expected_duration_s": expected_reference_duration_s,
+        "support_reference_source_window_reason": reference_window_reason,
+        "source_motion_start_s": source_motion_start_s,
+        "source_command_nonzero_start_s": command_start_s,
+        "source_field_motion_start_s": field_start_s,
+        "source_declared_active_duration_s": expected_reference_duration_s,
+        "source_tail_start_s": source_tail_start_s,
+        "source_tail_excluded_from_reference": source_tail_excluded_from_reference,
+        "source_pre_baseline_excluded_from_reference": source_pre_baseline_excluded_from_reference,
         "support_reference_alignment_window": alignment_window,
         "support_reference_timebase_mapping_mode": mapping_mode,
         "support_reference_alignment_status": alignment_status,
@@ -2102,6 +2161,19 @@ def _build_finite_modeled_profile(
         "source_field_active_start_s",
         "source_field_active_end_s",
         "source_active_duration_s",
+        "support_reference_anchor_mode",
+        "support_reference_source_window_start_s",
+        "support_reference_source_window_end_s",
+        "support_reference_source_window_duration_s",
+        "support_reference_expected_duration_s",
+        "support_reference_source_window_reason",
+        "source_motion_start_s",
+        "source_command_nonzero_start_s",
+        "source_field_motion_start_s",
+        "source_declared_active_duration_s",
+        "source_tail_start_s",
+        "source_tail_excluded_from_reference",
+        "source_pre_baseline_excluded_from_reference",
         "support_reference_alignment_window",
         "support_reference_timebase_mapping_mode",
     ):
@@ -2337,6 +2409,19 @@ def synthesize_finite_empirical_compensation(
     selected_source_field_active_start_s = float("nan")
     selected_source_field_active_end_s = float("nan")
     selected_source_active_duration_s = float("nan")
+    selected_support_reference_anchor_mode = "fallback"
+    selected_support_reference_source_window_start_s = float("nan")
+    selected_support_reference_source_window_end_s = float("nan")
+    selected_support_reference_source_window_duration_s = float("nan")
+    selected_support_reference_expected_duration_s = float("nan")
+    selected_support_reference_source_window_reason = "active_window_missing"
+    selected_source_motion_start_s = float("nan")
+    selected_source_command_nonzero_start_s = float("nan")
+    selected_source_field_motion_start_s = float("nan")
+    selected_source_declared_active_duration_s = float("nan")
+    selected_source_tail_start_s = float("nan")
+    selected_source_tail_excluded_from_reference = False
+    selected_source_pre_baseline_excluded_from_reference = False
     selected_support_reference_alignment_window = "unavailable"
     selected_support_reference_timebase_mapping_mode = "raw_source_debug_only"
     selected_support_reference_alignment_status = "active_window_missing"
@@ -2376,6 +2461,19 @@ def synthesize_finite_empirical_compensation(
             selected_source_field_active_start_s = float(support_payload.get("source_field_active_start_s", np.nan))
             selected_source_field_active_end_s = float(support_payload.get("source_field_active_end_s", np.nan))
             selected_source_active_duration_s = float(support_payload.get("source_active_duration_s", np.nan))
+            selected_support_reference_anchor_mode = str(support_payload.get("support_reference_anchor_mode", "fallback"))
+            selected_support_reference_source_window_start_s = float(support_payload.get("support_reference_source_window_start_s", np.nan))
+            selected_support_reference_source_window_end_s = float(support_payload.get("support_reference_source_window_end_s", np.nan))
+            selected_support_reference_source_window_duration_s = float(support_payload.get("support_reference_source_window_duration_s", np.nan))
+            selected_support_reference_expected_duration_s = float(support_payload.get("support_reference_expected_duration_s", np.nan))
+            selected_support_reference_source_window_reason = str(support_payload.get("support_reference_source_window_reason", "active_window_missing"))
+            selected_source_motion_start_s = float(support_payload.get("source_motion_start_s", np.nan))
+            selected_source_command_nonzero_start_s = float(support_payload.get("source_command_nonzero_start_s", np.nan))
+            selected_source_field_motion_start_s = float(support_payload.get("source_field_motion_start_s", np.nan))
+            selected_source_declared_active_duration_s = float(support_payload.get("source_declared_active_duration_s", np.nan))
+            selected_source_tail_start_s = float(support_payload.get("source_tail_start_s", np.nan))
+            selected_source_tail_excluded_from_reference = bool(support_payload.get("source_tail_excluded_from_reference", False))
+            selected_source_pre_baseline_excluded_from_reference = bool(support_payload.get("source_pre_baseline_excluded_from_reference", False))
             selected_support_reference_alignment_window = str(support_payload.get("support_reference_alignment_window", "unavailable"))
             selected_support_reference_timebase_mapping_mode = str(
                 support_payload.get("support_reference_timebase_mapping_mode", "raw_source_debug_only")
@@ -2458,6 +2556,19 @@ def synthesize_finite_empirical_compensation(
                 "source_field_active_start_s": selected_source_field_active_start_s,
                 "source_field_active_end_s": selected_source_field_active_end_s,
                 "source_active_duration_s": selected_source_active_duration_s,
+                "support_reference_anchor_mode": selected_support_reference_anchor_mode,
+                "support_reference_source_window_start_s": selected_support_reference_source_window_start_s,
+                "support_reference_source_window_end_s": selected_support_reference_source_window_end_s,
+                "support_reference_source_window_duration_s": selected_support_reference_source_window_duration_s,
+                "support_reference_expected_duration_s": selected_support_reference_expected_duration_s,
+                "support_reference_source_window_reason": selected_support_reference_source_window_reason,
+                "source_motion_start_s": selected_source_motion_start_s,
+                "source_command_nonzero_start_s": selected_source_command_nonzero_start_s,
+                "source_field_motion_start_s": selected_source_field_motion_start_s,
+                "source_declared_active_duration_s": selected_source_declared_active_duration_s,
+                "source_tail_start_s": selected_source_tail_start_s,
+                "source_tail_excluded_from_reference": selected_source_tail_excluded_from_reference,
+                "source_pre_baseline_excluded_from_reference": selected_source_pre_baseline_excluded_from_reference,
                 "support_reference_alignment_window": selected_support_reference_alignment_window,
                 "support_reference_timebase_mapping_mode": selected_support_reference_timebase_mapping_mode,
                 "support_reference_alignment_status": selected_support_reference_alignment_status,
