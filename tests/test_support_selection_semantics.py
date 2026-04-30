@@ -13,6 +13,7 @@ if str(TEST_ROOT) not in sys.path:
     sys.path.insert(0, str(TEST_ROOT))
 
 import test_finite_empirical_field_route as finite_fixture
+from field_analysis.parser import infer_dataset_filename_metadata
 
 
 def test_selected_support_family_is_explicit_for_cross_family_selection() -> None:
@@ -44,6 +45,8 @@ def test_selected_support_family_is_explicit_for_cross_family_selection() -> Non
     assert str(profile["selected_support_family"].iloc[0]) == "triangle"
     assert str(profile["selected_support_waveform_family"].iloc[0]) == "triangle"
     assert str(profile["selected_support_family"].iloc[0]).lower() not in {"", "n/a", "nan", "none"}
+    assert result["requested_support_family_normalized"] == "sine"
+    assert result["selected_support_family_normalized"] == "triangle"
 
 
 def test_cycle_mismatch_reports_match_type_and_reason() -> None:
@@ -70,6 +73,45 @@ def test_cycle_mismatch_reports_match_type_and_reason() -> None:
     assert result["support_cycle_override_reason"]
     assert str(profile["support_cycle_match_type"].iloc[0]) == result["support_cycle_match_type"]
     assert str(profile["support_cycle_override_reason"].iloc[0]) == result["support_cycle_override_reason"]
+
+
+def test_tri_alias_and_declared_cycle_are_preserved_separately_from_measured_duration() -> None:
+    inferred = infer_dataset_filename_metadata("finite_tri_1Hz_1cycle.csv")
+    entry = finite_fixture._build_finite_entry(
+        test_id="finite_tri_1hz_1cycle",
+        waveform_type="triangle",
+        freq_hz=1.0,
+        cycle_count=1.0,
+        field_pp=88.0,
+    )
+    entry["source_file"] = "finite_tri_1Hz_1cycle.csv"
+    entry["approx_cycle_span"] = 3.036
+    entry["estimated_cycle_span"] = 3.036
+    entry.pop("requested_cycle_count", None)
+    entry.pop("declared_cycle_count", None)
+
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[entry],
+        waveform_type="sine",
+        freq_hz=1.0,
+        target_cycle_count=1.0,
+    )
+    profile = result["command_profile"]
+
+    assert inferred["waveform"] == "triangle"
+    assert inferred["cycle"] == 1.0
+    assert result["selected_support_family"] == "triangle"
+    assert result["selected_support_family_normalized"] == "triangle"
+    assert result["support_family_override_applied"] is True
+    assert result["support_family_override_reason"] not in {"", None, "n/a"}
+    assert result["selected_support_declared_cycle_count"] == 1.0
+    assert result["selected_support_measured_active_cycle_count"] == 3.036
+    assert result["selected_support_target_aligned_cycle_count"] == 1.0
+    assert result["selected_support_cycle_count"] == 1.0
+    assert result["support_cycle_match_type"] == "exact"
+    assert result["support_cycle_override_applied"] is False
+    assert float(profile["selected_support_declared_cycle_count"].iloc[0]) == 1.0
+    assert float(profile["selected_support_measured_active_cycle_count"].iloc[0]) == 3.036
 
 
 def test_support_reference_is_target_aligned_and_separate_from_raw_source() -> None:
