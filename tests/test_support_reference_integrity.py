@@ -60,11 +60,16 @@ def test_support_reference_contract_matches_plotted_selected_support_trace() -> 
 
     assert result["support_reference_trace_status"] == "ok"
     assert result["support_reference_source_label"] == "selected_support_trace"
+    assert result["support_reference_timebase"] == "target_aligned"
+    assert result["support_reference_plotted_source"] == "target_aligned_support_reference"
+    assert result["support_reference_alignment_status"] == "ok"
     assert result["support_reference_plotted_column"] == "support_reference_output_mT"
     assert result["support_reference_selected_support_id"] == result["selected_support_id"]
     assert "support_reference_trace_status" in profile.columns
     assert str(profile["support_reference_plotted_column"].iloc[0]) == "support_reference_output_mT"
+    assert "target_aligned_support_reference_mT" in profile.columns
     assert np.allclose(profile["support_reference_output_mT"], profile["support_scaled_field_mT"], equal_nan=True)
+    assert np.allclose(profile["support_reference_output_mT"], profile["target_aligned_support_reference_mT"], equal_nan=True)
     assert not np.allclose(
         profile["support_reference_output_mT"],
         profile["predicted_field_mT"],
