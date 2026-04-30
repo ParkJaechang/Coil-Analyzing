@@ -99,8 +99,10 @@ def test_support_reference_is_separate_from_physical_target() -> None:
     assert result["physical_target_output_column"] == "physical_target_output_mT"
     assert result["support_reference_output_column"] == "support_reference_output_mT"
     assert result["predicted_output_column"] == "predicted_field_mT"
+    finite_reference = np.isfinite(pd.to_numeric(profile["support_reference_output_mT"], errors="coerce"))
+    assert finite_reference.any()
     assert not np.allclose(
-        _normalized(profile["support_reference_output_mT"]),
-        _normalized(profile["physical_target_output_mT"]),
+        _normalized(profile.loc[finite_reference, "support_reference_output_mT"]),
+        _normalized(profile.loc[finite_reference, "physical_target_output_mT"]),
         atol=1e-6,
     )
