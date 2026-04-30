@@ -142,6 +142,78 @@ def test_tri_alias_and_declared_cycle_are_preserved_separately_from_measured_dur
     assert float(profile["selected_support_measured_active_cycle_count"].iloc[0]) == 3.036
 
 
+def test_finite_tri_id_without_waveform_metadata_resolves_family_and_declared_cycle() -> None:
+    entry = finite_fixture._build_finite_entry(
+        test_id="finite_tri_1Hz_1cycle_runtime_alias",
+        waveform_type="triangle",
+        freq_hz=1.0,
+        cycle_count=1.0,
+        field_pp=88.0,
+    )
+    entry.pop("waveform_type", None)
+    entry["source_file"] = "finite_tri_1Hz_1cycle_runtime_alias.csv"
+    entry["approx_cycle_span"] = 1.772
+    entry["estimated_cycle_span"] = 1.772
+    entry.pop("declared_cycle_count", None)
+    entry.pop("requested_cycle_count", None)
+
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[entry],
+        waveform_type="sine",
+        freq_hz=1.0,
+        target_cycle_count=1.0,
+    )
+    profile = result["command_profile"]
+
+    assert result["selected_support_id"] == "finite_tri_1Hz_1cycle_runtime_alias"
+    assert result["selected_support_family"] == "triangle"
+    assert result["selected_support_family_normalized"] == "triangle"
+    assert result["selected_support_family_source"] in {"explicit_metadata", "source_file_alias", "support_id_alias"}
+    assert result["selected_support_family_unknown_reason"] in {None, ""}
+    assert result["support_family_override_applied"] is True
+    assert result["support_family_override_reason"] not in {"", None, "n/a"}
+    assert result["selected_support_cycle_count"] == 1.0
+    assert result["selected_support_declared_cycle_count"] == 1.0
+    assert result["selected_support_measured_active_cycle_count"] == 1.772
+    assert result["selected_support_cycle_source"] == "filename"
+    assert float(profile["selected_support_cycle_count"].iloc[0]) == 1.0
+    assert float(profile["selected_support_declared_cycle_count"].iloc[0]) == 1.0
+    assert float(profile["selected_support_measured_active_cycle_count"].iloc[0]) == 1.772
+    assert str(profile["selected_support_family"].iloc[0]) == "triangle"
+
+
+def test_weighted_blend_runtime_alias_keeps_declared_cycle_user_facing() -> None:
+    entry = finite_fixture._build_finite_entry(
+        test_id="finite_tri_3Hz_1cycle_runtime_alias",
+        waveform_type="triangle",
+        freq_hz=3.0,
+        cycle_count=1.0,
+        field_pp=88.0,
+    )
+    entry.pop("waveform_type", None)
+    entry["source_file"] = "finite_tri_3Hz_1cycle_runtime_alias.csv"
+    entry["approx_cycle_span"] = 7.082
+    entry["estimated_cycle_span"] = 7.082
+    entry.pop("declared_cycle_count", None)
+    entry.pop("requested_cycle_count", None)
+
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[entry],
+        waveform_type="sine",
+        freq_hz=3.0,
+        target_cycle_count=1.25,
+    )
+
+    assert result["selected_support_family"] == "triangle"
+    assert result["support_family_override_applied"] is True
+    assert result["support_family_override_reason"] not in {"", None, "n/a"}
+    assert result["selected_support_cycle_count"] == 1.0
+    assert result["selected_support_declared_cycle_count"] == 1.0
+    assert result["selected_support_measured_active_cycle_count"] == 7.082
+    assert result["support_cycle_match_type"] in {"nearest", "representative", "weighted_blend", "fallback"}
+    assert result["support_cycle_override_reason"] not in {"", None, "n/a"}
+
+
 def test_support_reference_is_target_aligned_and_separate_from_raw_source() -> None:
     result = finite_fixture._run_field_compensation(
         finite_support_entries=[
