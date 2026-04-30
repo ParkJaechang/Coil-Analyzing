@@ -4128,8 +4128,8 @@ def _ensure_plotted_command_covers_target_window(command_profile: pd.DataFrame) 
     if target_column not in command_profile.columns:
         return command_profile
     adjusted = command_profile.copy()
-    time_values = pd.to_numeric(adjusted["time_s"], errors="coerce").to_numpy(dtype=float)
-    target_values = pd.to_numeric(adjusted[target_column], errors="coerce").to_numpy(dtype=float)
+    time_values = np.array(pd.to_numeric(adjusted["time_s"], errors="coerce"), dtype=float, copy=True)
+    target_values = np.array(pd.to_numeric(adjusted[target_column], errors="coerce"), dtype=float, copy=True)
     target_start, target_end = _nonzero_window(time_values, target_values)
     if not np.isfinite(target_start) or not np.isfinite(target_end):
         return command_profile
@@ -4146,7 +4146,7 @@ def _ensure_plotted_command_covers_target_window(command_profile: pd.DataFrame) 
     ]
     extension_applied = False
     for column in command_columns:
-        values = pd.to_numeric(adjusted[column], errors="coerce").to_numpy(dtype=float)
+        values = np.array(pd.to_numeric(adjusted[column], errors="coerce"), dtype=float, copy=True)
         command_start, command_end = _nonzero_window(time_values, values)
         finite_values = np.isfinite(values)
         finite_signal = values[finite_values]

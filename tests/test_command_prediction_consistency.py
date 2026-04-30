@@ -182,3 +182,41 @@ def test_command_coverage_extension_removes_target_window_hard_zero_gap() -> Non
     assert after["command_covers_target_active_start"] is True
     assert bool(adjusted["command_coverage_extension_applied"].iloc[0]) is True
     assert after["predicted_from_plotted_command"] is True
+
+
+def test_command_coverage_extension_handles_read_only_numpy_views(monkeypatch) -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[
+            finite_fixture._build_finite_entry(
+                test_id="finite_read_only_coverage_fix",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=1.0,
+                field_pp=90.0,
+                zero_after_fraction=None,
+            )
+        ],
+        waveform_type="sine",
+        freq_hz=1.0,
+        target_cycle_count=1.0,
+    )
+    profile = result["command_profile"].copy()
+    time_s = pd.to_numeric(profile["time_s"], errors="coerce")
+    target_start = float(result["target_nonzero_start_s"])
+    profile.loc[time_s < target_start + 0.08, "recommended_voltage_v"] = 0.0
+
+    original_to_numpy = pd.Series.to_numpy
+
+    def read_only_to_numpy(self, *args, **kwargs):
+        values = original_to_numpy(self, *args, **kwargs)
+        if isinstance(values, np.ndarray):
+            values.setflags(write=False)
+        return values
+
+    monkeypatch.setattr(pd.Series, "to_numpy", read_only_to_numpy)
+
+    adjusted = _ensure_plotted_command_covers_target_window(profile)
+    after = _build_command_prediction_consistency_contract(adjusted)
+
+    assert after["command_covers_target_active_start"] is True
+    assert bool(adjusted["command_coverage_extension_applied"].iloc[0]) is True
