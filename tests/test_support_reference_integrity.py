@@ -63,6 +63,8 @@ def test_support_reference_contract_matches_plotted_selected_support_trace() -> 
     assert result["support_reference_timebase"] == "target_aligned"
     assert result["support_reference_plotted_source"] == "target_aligned_support_reference"
     assert result["support_reference_alignment_status"] == "ok"
+    assert result["support_reference_role"] == "diagnostic_reference"
+    assert result["support_reference_used_for_command"] is False
     assert result["support_reference_plotted_column"] == "support_reference_output_mT"
     assert result["support_reference_selected_support_id"] == result["selected_support_id"]
     assert "support_reference_trace_status" in profile.columns

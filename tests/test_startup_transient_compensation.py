@@ -250,6 +250,9 @@ def test_continuous_startup_component_is_separated_and_compensated() -> None:
     assert not np.allclose(baseline_command, compensated_command)
     assert np.allclose(profile["recommended_voltage_v"], compensated_command)
     assert bool(profile["startup_candidate_forward_prediction_available"].all()) is True
+    assert result["forward_prediction_source"] == "compensated_recommended_voltage_v"
+    assert result["predicted_from_plotted_command"] is True
+    assert result["command_prediction_consistency_status"] == "ok"
 
 
 def test_finite_startup_component_is_separated_and_compensated_without_target_stretch() -> None:
@@ -311,6 +314,10 @@ def test_finite_startup_component_is_separated_and_compensated_without_target_st
     assert result["support_reference_plotted_column"] == "support_reference_output_mT"
     assert result["support_reference_source_label"] == "selected_support_trace"
     assert result["support_reference_selected_support_id"] == "finite_startup_exact"
+    assert result["support_reference_used_for_command"] is False
+    assert result["command_generation_target"] == "physical_target"
+    assert result["forward_prediction_source"] == "compensated_recommended_voltage_v"
+    assert result["predicted_from_plotted_command"] is True
     support_reference = pd.to_numeric(profile["support_reference_output_mT"], errors="coerce")
     support_scaled = pd.to_numeric(profile["support_scaled_field_mT"], errors="coerce")
     open_loop = pd.to_numeric(profile["open_loop_predicted_field_mT"], errors="coerce")

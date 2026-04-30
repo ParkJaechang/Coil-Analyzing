@@ -1073,6 +1073,9 @@ def synthesize_current_waveform_compensation(
         startup_correction_factor=startup_correction_factor,
         startup_transition_cycles=startup_transition_cycles,
     )
+    command_prediction_consistency = _build_command_prediction_consistency_contract(command_profile)
+    for key, value in command_prediction_consistency.items():
+        command_profile[key] = value
 
     return {
         "mode": mode,
@@ -1121,6 +1124,20 @@ def synthesize_current_waveform_compensation(
         "support_reference_duration_s": support_reference_contract.get("support_reference_duration_s"),
         "support_reference_nonzero_start_s": support_reference_contract.get("support_reference_nonzero_start_s"),
         "support_reference_nonzero_end_s": support_reference_contract.get("support_reference_nonzero_end_s"),
+        "command_generation_target": command_prediction_consistency.get("command_generation_target"),
+        "support_reference_role": command_prediction_consistency.get("support_reference_role"),
+        "support_reference_used_for_command": command_prediction_consistency.get("support_reference_used_for_command"),
+        "forward_prediction_source": command_prediction_consistency.get("forward_prediction_source"),
+        "predicted_from_plotted_command": command_prediction_consistency.get("predicted_from_plotted_command"),
+        "command_prediction_consistency_status": command_prediction_consistency.get("command_prediction_consistency_status"),
+        "command_nonzero_start_s": command_prediction_consistency.get("command_nonzero_start_s"),
+        "target_nonzero_start_s": command_prediction_consistency.get("target_nonzero_start_s"),
+        "command_target_start_delta_s": command_prediction_consistency.get("command_target_start_delta_s"),
+        "command_covers_target_active_start": command_prediction_consistency.get("command_covers_target_active_start"),
+        "command_covers_target_active_end": command_prediction_consistency.get("command_covers_target_active_end"),
+        "support_reference_shape_mismatch": command_prediction_consistency.get("support_reference_shape_mismatch"),
+        "support_reference_target_corr": command_prediction_consistency.get("support_reference_target_corr"),
+        "support_reference_target_nrmse": command_prediction_consistency.get("support_reference_target_nrmse"),
         "predicted_output_column": "predicted_field_mT" if field_only_route else "predicted_output",
         "support_family_used": selected_support_waveform,
         "support_family_requested": user_requested_support_family,
@@ -4039,6 +4056,158 @@ def _build_support_reference_trace_contract(
         "support_reference_duration_s": duration_s,
         "support_reference_nonzero_start_s": float(np.nanmin(nonzero_times)) if nonzero_times.size else float("nan"),
         "support_reference_nonzero_end_s": float(np.nanmax(nonzero_times)) if nonzero_times.size else float("nan"),
+    }
+
+
+def _nonzero_window(
+    time_values: np.ndarray,
+    signal_values: np.ndarray,
+    *,
+    threshold_pp_fraction: float = 0.01,
+) -> tuple[float, float]:
+    time = np.asarray(time_values, dtype=float)
+    signal = np.asarray(signal_values, dtype=float)
+    finite = np.isfinite(time) & np.isfinite(signal)
+    if not finite.any():
+        return float("nan"), float("nan")
+    finite_signal = signal[finite]
+    pp = float(np.nanmax(finite_signal) - np.nanmin(finite_signal)) if finite_signal.size else float("nan")
+    threshold = max(abs(pp) * float(threshold_pp_fraction), 1e-6) if np.isfinite(pp) else 1e-6
+    nonzero = finite & (np.abs(signal) > threshold)
+    if not nonzero.any():
+        return float("nan"), float("nan")
+    nonzero_time = time[nonzero]
+    return float(np.nanmin(nonzero_time)), float(np.nanmax(nonzero_time))
+
+
+def _shape_corr_and_nrmse(left: np.ndarray, right: np.ndarray) -> tuple[float, float]:
+    left_values = np.asarray(left, dtype=float)
+    right_values = np.asarray(right, dtype=float)
+    finite = np.isfinite(left_values) & np.isfinite(right_values)
+    if finite.sum() < 3:
+        return float("nan"), float("nan")
+    left_finite = left_values[finite]
+    right_finite = right_values[finite]
+    left_centered = left_finite - float(np.nanmean(left_finite))
+    right_centered = right_finite - float(np.nanmean(right_finite))
+    denominator = float(np.linalg.norm(left_centered) * np.linalg.norm(right_centered))
+    corr = float(np.dot(left_centered, right_centered) / denominator) if denominator > 1e-12 else float("nan")
+    rmse = float(np.sqrt(np.nanmean(np.square(right_finite - left_finite))))
+    pp = float(np.nanmax(left_finite) - np.nanmin(left_finite))
+    nrmse = float(rmse / max(abs(pp) * 0.5, 1e-9)) if np.isfinite(pp) else float("nan")
+    return corr, nrmse
+
+
+def _build_command_prediction_consistency_contract(command_profile: pd.DataFrame) -> dict[str, Any]:
+    if command_profile.empty or "time_s" not in command_profile.columns:
+        return {
+            "command_generation_target": "physical_target",
+            "support_reference_role": "diagnostic_reference",
+            "support_reference_used_for_command": False,
+            "forward_prediction_source": "unavailable",
+            "predicted_from_plotted_command": False,
+            "command_prediction_consistency_status": "forward_prediction_unavailable",
+            "command_nonzero_start_s": float("nan"),
+            "target_nonzero_start_s": float("nan"),
+            "command_target_start_delta_s": float("nan"),
+            "command_covers_target_active_start": False,
+            "command_covers_target_active_end": False,
+            "support_reference_shape_mismatch": False,
+            "support_reference_target_corr": float("nan"),
+            "support_reference_target_nrmse": float("nan"),
+        }
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    target_column = "physical_target_output_mT" if "physical_target_output_mT" in command_profile.columns else "target_field_mT"
+    predicted_column = "compensated_predicted_field_mT" if "compensated_predicted_field_mT" in command_profile.columns else "predicted_field_mT"
+    plotted_command_column = "recommended_voltage_v"
+    forward_source = "unavailable"
+    if (
+        "compensated_recommended_voltage_v" in command_profile.columns
+        and plotted_command_column in command_profile.columns
+        and np.allclose(
+            pd.to_numeric(command_profile[plotted_command_column], errors="coerce").to_numpy(dtype=float),
+            pd.to_numeric(command_profile["compensated_recommended_voltage_v"], errors="coerce").to_numpy(dtype=float),
+            equal_nan=True,
+        )
+    ):
+        forward_source = "compensated_recommended_voltage_v"
+    elif plotted_command_column in command_profile.columns:
+        forward_source = "recommended_voltage_v"
+
+    command_values = (
+        pd.to_numeric(command_profile[plotted_command_column], errors="coerce").to_numpy(dtype=float)
+        if plotted_command_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    target_values = (
+        pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+        if target_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    predicted_values = (
+        pd.to_numeric(command_profile[predicted_column], errors="coerce").to_numpy(dtype=float)
+        if predicted_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    support_values = (
+        pd.to_numeric(command_profile["support_reference_output_mT"], errors="coerce").to_numpy(dtype=float)
+        if "support_reference_output_mT" in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    command_start, command_end = _nonzero_window(time_values, command_values)
+    target_start, target_end = _nonzero_window(time_values, target_values)
+    sample_dt = float(np.nanmedian(np.diff(time_values[np.isfinite(time_values)]))) if np.isfinite(time_values).sum() > 1 else 1e-6
+    tolerance_s = max(abs(sample_dt) * 2.0, 1e-6)
+    covers_start = bool(
+        np.isfinite(command_start)
+        and np.isfinite(target_start)
+        and command_start <= target_start + tolerance_s
+    )
+    covers_end = bool(
+        np.isfinite(command_end)
+        and np.isfinite(target_end)
+        and command_end >= target_end - tolerance_s
+    )
+    corr, nrmse = _shape_corr_and_nrmse(target_values, support_values)
+    support_shape_mismatch = bool(
+        (np.isfinite(corr) and corr < 0.5)
+        or (np.isfinite(nrmse) and nrmse > 0.75)
+    )
+    prediction_available = bool(np.isfinite(predicted_values).any() and forward_source != "unavailable")
+    support_contamination = bool(
+        "support_reference_output_mT" in command_profile.columns
+        and predicted_column in command_profile.columns
+        and np.allclose(support_values, predicted_values, equal_nan=True)
+    )
+    predicted_from_command = bool(prediction_available and covers_start and covers_end and not support_contamination)
+    status_parts: list[str] = []
+    if not prediction_available:
+        status_parts.append("forward_prediction_unavailable")
+    if not covers_start or not covers_end:
+        status_parts.append("command_coverage_insufficient")
+    if support_contamination:
+        status_parts.append("support_reference_contamination")
+    if prediction_available and not predicted_from_command:
+        status_parts.append("command_not_forward_predicted")
+    if not status_parts:
+        status_parts.append("ok")
+
+    return {
+        "command_generation_target": "physical_target",
+        "support_reference_role": "diagnostic_reference",
+        "support_reference_used_for_command": False,
+        "forward_prediction_source": forward_source,
+        "predicted_from_plotted_command": predicted_from_command,
+        "command_prediction_consistency_status": "|".join(status_parts),
+        "command_nonzero_start_s": command_start,
+        "target_nonzero_start_s": target_start,
+        "command_target_start_delta_s": float(command_start - target_start) if np.isfinite(command_start) and np.isfinite(target_start) else float("nan"),
+        "command_covers_target_active_start": covers_start,
+        "command_covers_target_active_end": covers_end,
+        "support_reference_shape_mismatch": support_shape_mismatch,
+        "support_reference_target_corr": corr,
+        "support_reference_target_nrmse": nrmse,
     }
 
 
