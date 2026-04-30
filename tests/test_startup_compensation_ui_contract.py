@@ -19,7 +19,10 @@ def test_startup_compensation_review_section_markers_exist() -> None:
     assert "startup-aware compensation의 실사용자 검토용" in source
     assert "모델링 품질은 사용자 그래프 검수로 판단합니다" in source
     assert "Physical Target은 변경되지 않습니다" in source
-    assert "startup compensation data unavailable" in source
+    assert "Startup compensation data unavailable for this route." in source
+    assert "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다" in source
+    assert "finite-cycle field compensation에서 사용할 수 있습니다" in source
+    assert "Missing backend fields:" in source
 
 
 def test_startup_side_by_side_plot_labels_exist() -> None:
@@ -73,6 +76,25 @@ def test_startup_review_is_connected_without_default_success_claim() -> None:
 
     assert "from .ui_startup_compensation_review import render_startup_compensation_review" in app_source
     assert "render_startup_compensation_review(compensation, command_profile)" in app_source
+    assert 'render_startup_compensation_review({}, recommendation["command_waveform"])' in app_source
+    assert app_source.count("render_startup_compensation_review(") >= 4
     assert "startup compensation candidate is applied in this payload; inspect plots and before/after metrics." in source
     assert "startup compensation status is unavailable; this is not a quality failure by itself." in source
     assert "st.success(\"startup compensation" not in source
+
+
+def test_startup_unavailable_panel_lists_missing_backend_fields() -> None:
+    source = _source()
+
+    expected_missing_fields = [
+        "open_loop_predicted_field_mT",
+        "compensated_predicted_field_mT",
+        "startup_transient_component_mT",
+        "baseline_recommended_voltage_v",
+        "compensated_recommended_voltage_v",
+        "startup_compensation_command_delta_v",
+    ]
+    missing = [field for field in expected_missing_fields if field not in source]
+
+    assert not missing, f"Missing unavailable startup field markers: {missing}"
+    assert "_render_startup_unavailable_panel(command_profile)" in source

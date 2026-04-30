@@ -19,7 +19,7 @@ def render_startup_compensation_review(
     )
 
     if not _has_startup_review_payload(compensation, command_profile):
-        st.caption("startup compensation data unavailable")
+        _render_startup_unavailable_panel(command_profile)
         return
 
     applied = _coerce_boolish(
@@ -144,6 +144,24 @@ def _startup_payload_value(
         if key in command_profile.columns:
             return command_profile[key].iloc[0] if not command_profile.empty else None
     return None
+
+
+def _render_startup_unavailable_panel(command_profile: pd.DataFrame) -> None:
+    required_fields = (
+        "open_loop_predicted_field_mT",
+        "compensated_predicted_field_mT",
+        "startup_transient_component_mT",
+        "baseline_recommended_voltage_v",
+        "compensated_recommended_voltage_v",
+        "startup_compensation_command_delta_v",
+    )
+    missing = [field for field in required_fields if field not in command_profile.columns]
+    st.info("Startup compensation data unavailable for this route.")
+    st.caption(
+        "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다. "
+        "finite-cycle field compensation에서 사용할 수 있습니다."
+    )
+    st.caption(f"Missing backend fields: {', '.join(missing) if missing else 'startup status payload'}")
 
 
 def _has_startup_review_payload(compensation: dict[str, object], command_profile: pd.DataFrame) -> bool:

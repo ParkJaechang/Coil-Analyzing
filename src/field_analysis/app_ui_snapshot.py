@@ -963,6 +963,7 @@ def _render_quick_lut_tab(
             plot_command_waveform(recommendation["command_waveform"]),
             use_container_width=True,
         )
+    render_startup_compensation_review({}, recommendation["command_waveform"])
 
     st.markdown("#### 계산 근거")
     st.write(f"- template test: `{recommendation['template_test_id']}`")
@@ -2125,6 +2126,7 @@ def _render_quick_lut_tab_v2(
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
+                render_startup_compensation_review(compensation, command_profile)
 
             st.write(f"- mode: `{compensation['mode']}`")
             st.write(f"- current axis: `{current_channel}`")
@@ -2395,6 +2397,7 @@ def _render_quick_lut_tab_v2(
                 plot_command_waveform(recommendation["command_waveform"], value_column="limited_voltage_v"),
                 use_container_width=True,
             )
+        render_startup_compensation_review({}, recommendation["command_waveform"])
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
         st.write(f"- support waveform family: `{recommendation['support_waveform_type']}` (`{recommendation['support_waveform_role']}`)")
