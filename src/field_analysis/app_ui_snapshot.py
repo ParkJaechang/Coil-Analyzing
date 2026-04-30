@@ -1589,6 +1589,70 @@ def _render_support_family_selection_marker(
         )
 
 
+def _support_provenance_value(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+    *keys: str,
+) -> object | None:
+    for key in keys:
+        if key in compensation and compensation.get(key) is not None:
+            return compensation.get(key)
+        if key in command_profile.columns:
+            return _first_frame_value(command_profile, key)
+    return None
+
+
+def _format_optional_text(value: object) -> str:
+    return _normalize_optional_text(value) or "n/a"
+
+
+def _format_optional_bool(value: object) -> str:
+    normalized = _coerce_boolish(value)
+    if normalized is None:
+        return "n/a"
+    return "yes" if normalized else "no"
+
+
+def _render_support_reference_provenance_panel(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+) -> None:
+    st.markdown("#### Support Reference Provenance")
+    st.caption(
+        "Raw selected support is the original uploaded/support record. "
+        "Target-aligned support reference is the plotted support trace aligned to the target timebase. "
+        "The support reference is not the physical target."
+    )
+
+    raw_left, raw_right = st.columns(2)
+    with raw_left:
+        st.markdown("**Raw Selected Support Source**")
+        st.write(f"- selected_support_id: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_id', 'support_reference_selected_support_id', 'nearest_test_id'))}`")
+        st.write(f"- selected_support_family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
+        st.write(f"- source file: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_source_file'))}`")
+        st.write(f"- original freq: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_freq_hz'), 'Hz')}`")
+        st.write(f"- original cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
+        st.write(f"- original duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_duration_s'), 's')}`")
+        st.write(f"- original PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_pp_mT'), 'mT')}`")
+    with raw_right:
+        st.markdown("**Target-aligned Support Reference**")
+        st.write(f"- plotted column: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_plotted_column'))}`")
+        st.write(f"- target-aligned status: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_alignment_status', 'support_reference_trace_status'))}`")
+        st.write(f"- plotted PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_pp'), 'mT')}`")
+        st.write(f"- plotted duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_duration_s'), 's')}`")
+        st.write(f"- support_reference_timebase: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_timebase'))}`")
+
+    st.markdown("**Override / Match Reason**")
+    st.write(f"- Requested support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'requested_support_family', 'support_family_requested', 'user_requested_support_family'))}`")
+    st.write(f"- Selected support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
+    st.write(f"- Override applied: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_family_override_applied'))}`")
+    st.write(f"- Override reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_family_override_reason'))}`")
+    st.write(f"- Requested cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'requested_cycle_count', 'target_cycle_count'), 'cycle')}`")
+    st.write(f"- Selected support cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
+    st.write(f"- Cycle match type: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_type'))}`")
+    st.write(f"- Cycle match reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
+
+
 def _render_finite_prediction_availability(compensation: dict[str, object]) -> None:
     prediction_available = _coerce_boolish(compensation.get("finite_prediction_available"))
     unavailable_reason = _normalize_optional_text(
@@ -2053,6 +2117,7 @@ def _render_quick_lut_tab_v2(
                         "backend provides an internal lag/support-conditioned reference. It is not the physical target."
                     )
                 _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
+                _render_support_reference_provenance_panel(compensation, command_profile)
                 _render_finite_prediction_availability(compensation)
                 _render_end_marker_summary(compensation, command_profile)
                 _render_finite_signal_consistency_summary(compensation, command_profile)
