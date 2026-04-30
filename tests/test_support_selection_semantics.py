@@ -75,6 +75,34 @@ def test_cycle_mismatch_reports_match_type_and_reason() -> None:
     assert str(profile["support_cycle_override_reason"].iloc[0]) == result["support_cycle_override_reason"]
 
 
+def test_weighted_blend_reports_representative_reason_even_without_cycle_override() -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[
+            finite_fixture._build_finite_entry(
+                test_id="finite_exact_a",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=1.0,
+                field_pp=84.0,
+            ),
+            finite_fixture._build_finite_entry(
+                test_id="finite_exact_b",
+                waveform_type="sine",
+                freq_hz=1.0,
+                cycle_count=1.0,
+                field_pp=86.0,
+            ),
+        ],
+        waveform_type="sine",
+        freq_hz=1.0,
+        target_cycle_count=1.0,
+    )
+
+    assert result["support_cycle_match_type"] == "weighted_blend"
+    assert result["support_cycle_override_applied"] is False
+    assert result["support_cycle_override_reason"] == "weighted_support_blend_uses_multiple_candidates"
+
+
 def test_tri_alias_and_declared_cycle_are_preserved_separately_from_measured_duration() -> None:
     inferred = infer_dataset_filename_metadata("finite_tri_1Hz_1cycle.csv")
     entry = finite_fixture._build_finite_entry(

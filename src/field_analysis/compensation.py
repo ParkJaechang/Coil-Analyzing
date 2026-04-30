@@ -3972,6 +3972,8 @@ def _support_cycle_selection_contract(
             reason = "cycle_match_fallback"
         else:
             reason = "cycle_count_mismatch"
+    elif match_type == "weighted_blend":
+        reason = "weighted_support_blend_uses_multiple_candidates"
     return {
         "support_cycle_match_type": match_type,
         "support_cycle_override_applied": override,
