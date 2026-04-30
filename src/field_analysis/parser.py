@@ -12,6 +12,7 @@ import pandas as pd
 from .models import FilePreview, ParsedMeasurement, SchemaConfig, SheetPreview
 from .utils import (
     choose_best_match,
+    canonicalize_waveform_type,
     coerce_float,
     column_stats,
     combine_temperature_columns,
@@ -29,11 +30,11 @@ from .utils import (
 SUPPORTED_FILE_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm", ".xls"}
 PARSER_VERSION = "parser_timebase_v2"
 CONTINUOUS_FILENAME_PATTERN = re.compile(
-    r"^continuous_(?P<waveform>sine|triangle)_(?P<freq>\d+(?:[._p]\d+)?)hz$",
+    r"^continuous_(?P<waveform>sine|sin|triangle|tri)_(?P<freq>\d+(?:[._p]\d+)?)hz$",
     flags=re.IGNORECASE,
 )
 FINITE_FILENAME_PATTERN = re.compile(
-    r"^finite_(?P<waveform>sine|triangle)_(?P<freq>\d+(?:[._p]\d+)?)hz_(?P<cycle>\d+(?:[._p]\d+)?)cycle$",
+    r"^finite_(?P<waveform>sine|sin|triangle|tri)_(?P<freq>\d+(?:[._p]\d+)?)hz_(?P<cycle>\d+(?:[._p]\d+)?)cycle$",
     flags=re.IGNORECASE,
 )
 
@@ -53,7 +54,7 @@ def infer_dataset_filename_metadata(file_name: str) -> dict[str, Any]:
     stem = Path(file_name).stem
     finite_match = FINITE_FILENAME_PATTERN.match(stem)
     if finite_match is not None:
-        waveform_type = str(finite_match.group("waveform")).lower()
+        waveform_type = canonicalize_waveform_type(finite_match.group("waveform")) or str(finite_match.group("waveform")).lower()
         freq_hz = _parse_filename_decimal(finite_match.group("freq"))
         cycle_count = _parse_filename_decimal(finite_match.group("cycle"))
         return {
@@ -74,7 +75,7 @@ def infer_dataset_filename_metadata(file_name: str) -> dict[str, Any]:
 
     continuous_match = CONTINUOUS_FILENAME_PATTERN.match(stem)
     if continuous_match is not None:
-        waveform_type = str(continuous_match.group("waveform")).lower()
+        waveform_type = canonicalize_waveform_type(continuous_match.group("waveform")) or str(continuous_match.group("waveform")).lower()
         freq_hz = _parse_filename_decimal(continuous_match.group("freq"))
         return {
             "source_type": "continuous",

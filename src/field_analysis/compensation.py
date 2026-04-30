@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -15,6 +16,7 @@ from .hardware import apply_command_hardware_model
 from .lcr import build_lcr_harmonic_prior, build_lcr_impedance_table
 from .lut import _theoretical_template
 from .models import DatasetAnalysis, ParsedMeasurement, PreprocessResult
+from .parser import infer_dataset_filename_metadata
 from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
 from .utils import canonicalize_waveform_type
 
@@ -22,6 +24,10 @@ FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
 FIELD_ROUTE_ALLOWED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES = ("current", "gain", "hardware", "lcr")
 FINITE_SIGNAL_JUMP_RATIO_LIMIT = 0.20
+SUPPORT_DECLARED_CYCLE_PATTERN = re.compile(
+    r"(?:^|[_\-\s])(?P<cycle>\d+(?:[._p]\d+)?)cycle(?:$|[_\-\s.])",
+    flags=re.IGNORECASE,
+)
 
 
 def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
@@ -691,6 +697,63 @@ def synthesize_current_waveform_compensation(
     finite_prediction_source = finite_empirical_model.get("finite_prediction_source") if use_finite_empirical_route else None
     predicted_cover_reason = finite_empirical_model.get("predicted_cover_reason") if use_finite_empirical_route else None
     support_cover_reason = finite_empirical_model.get("support_cover_reason") if use_finite_empirical_route else None
+    selected_support_waveform_family = finite_empirical_model.get("selected_support_waveform_family") if use_finite_empirical_route else None
+    selected_support_source_file = finite_empirical_model.get("selected_support_source_file") if use_finite_empirical_route else None
+    selected_support_freq_hz = finite_empirical_model.get("selected_support_freq_hz") if use_finite_empirical_route else support_freq_hz
+    selected_support_original_duration_s = (
+        finite_empirical_model.get("selected_support_original_duration_s") if use_finite_empirical_route else None
+    )
+    selected_support_original_pp_mT = finite_empirical_model.get("selected_support_original_pp_mT") if use_finite_empirical_route else None
+    selected_support_original_nonzero_end_s = (
+        finite_empirical_model.get("selected_support_original_nonzero_end_s") if use_finite_empirical_route else None
+    )
+    selected_support_declared_cycle_count = (
+        finite_empirical_model.get("selected_support_declared_cycle_count") if use_finite_empirical_route else support_cycle_count
+    )
+    if selected_support_declared_cycle_count is not None and np.isfinite(float(selected_support_declared_cycle_count)):
+        support_cycle_count = float(selected_support_declared_cycle_count)
+    selected_support_measured_active_cycle_count = (
+        finite_empirical_model.get("selected_support_measured_active_cycle_count") if use_finite_empirical_route else None
+    )
+    selected_support_target_aligned_cycle_count = (
+        finite_empirical_model.get("selected_support_target_aligned_cycle_count") if use_finite_empirical_route else target_cycle_count
+    )
+    selected_support_source_available = (
+        finite_empirical_model.get("selected_support_source_available") if use_finite_empirical_route else False
+    )
+    selected_support_source_time_s = finite_empirical_model.get("selected_support_source_time_s") if use_finite_empirical_route else None
+    selected_support_source_mT = finite_empirical_model.get("selected_support_source_mT") if use_finite_empirical_route else None
+    requested_support_family = finite_empirical_model.get("requested_support_family") if use_finite_empirical_route else user_requested_support_family
+    requested_support_family_normalized = canonicalize_waveform_type(requested_support_family) or "unknown"
+    selected_support_id_for_provenance = str(finite_empirical_model.get("selected_support_id") or "") if use_finite_empirical_route else ""
+    selected_support_family_contract = _infer_selected_support_family_contract(
+        {
+            "selected_support_family": finite_empirical_model.get("selected_support_family") if use_finite_empirical_route else None,
+            "selected_support_waveform_family": selected_support_waveform_family,
+            "selected_support_waveform": selected_support_waveform,
+            "waveform_type": finite_empirical_model.get("selected_support_waveform_family") if use_finite_empirical_route else None,
+            "source_file": selected_support_source_file,
+            "test_id": selected_support_id_for_provenance,
+        }
+    )
+    selected_support_family_normalized = selected_support_family_contract["selected_support_family_normalized"]
+    selected_support_family_unknown_reason = selected_support_family_contract["selected_support_family_unknown_reason"]
+    selected_support_family_source = selected_support_family_contract["selected_support_family_source"]
+    selected_support_family_value = selected_support_family_contract["selected_support_family"]
+    selected_support_waveform_family = selected_support_family_value
+    selected_support_waveform = selected_support_family_value
+    if (
+        requested_support_family_normalized != "unknown"
+        and selected_support_family_normalized != "unknown"
+        and requested_support_family_normalized != selected_support_family_normalized
+        and not support_family_override_reason
+    ):
+        support_family_override_applied = True
+        support_family_override_reason = "cross_family_candidate_scored_better"
+    support_family_score_summary = finite_empirical_model.get("support_family_score_summary") if use_finite_empirical_route else None
+    support_cycle_match_type = finite_empirical_model.get("support_cycle_match_type") if use_finite_empirical_route else None
+    support_cycle_override_applied = finite_empirical_model.get("support_cycle_override_applied") if use_finite_empirical_route else False
+    support_cycle_override_reason = finite_empirical_model.get("support_cycle_override_reason") if use_finite_empirical_route else None
     finite_cycle_decomposition = _finite_cycle_decomposition_metadata(
         target_cycle_count,
         finite_support_used=use_finite_empirical_route,
@@ -757,6 +820,8 @@ def synthesize_current_waveform_compensation(
         support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
     if field_only_route and "support_scaled_field_mT" in command_profile.columns:
         command_profile["support_reference_output_mT"] = command_profile["support_scaled_field_mT"]
+    if field_only_route and "support_reference_output_mT" in command_profile.columns:
+        command_profile["target_aligned_support_reference_mT"] = command_profile["support_reference_output_mT"]
     startup_diagnostics = dict(
         finite_empirical_model.get("startup_diagnostics", {})
         if use_finite_empirical_route
@@ -883,13 +948,33 @@ def synthesize_current_waveform_compensation(
         command_profile["requested_cycle_count"] = target_cycle_count
         command_profile["support_cycle_count"] = support_cycle_count
         command_profile["selected_support_cycle_count"] = support_cycle_count
+        command_profile["selected_support_declared_cycle_count"] = selected_support_declared_cycle_count
+        command_profile["selected_support_measured_active_cycle_count"] = selected_support_measured_active_cycle_count
+        command_profile["selected_support_target_aligned_cycle_count"] = selected_support_target_aligned_cycle_count
         command_profile["support_freq_hz"] = support_freq_hz
         command_profile["selected_support_waveform"] = selected_support_waveform
+        command_profile["requested_support_family"] = requested_support_family
+        command_profile["requested_support_family_normalized"] = requested_support_family_normalized
+        command_profile["selected_support_family"] = selected_support_family_value
+        command_profile["selected_support_family_normalized"] = selected_support_family_normalized
+        command_profile["selected_support_waveform_family"] = selected_support_family_value
+        command_profile["selected_support_family_source"] = selected_support_family_source
+        command_profile["selected_support_family_unknown_reason"] = selected_support_family_unknown_reason
+        command_profile["selected_support_source_file"] = selected_support_source_file
+        command_profile["selected_support_freq_hz"] = selected_support_freq_hz
+        command_profile["selected_support_original_duration_s"] = selected_support_original_duration_s
+        command_profile["selected_support_original_pp_mT"] = selected_support_original_pp_mT
+        command_profile["selected_support_original_nonzero_end_s"] = selected_support_original_nonzero_end_s
+        command_profile["selected_support_source_available"] = bool(selected_support_source_available)
         command_profile["exact_cycle_support_used"] = bool(
             use_finite_empirical_route and support_cycle_count is not None and np.isfinite(float(support_cycle_count))
             and target_cycle_count is not None and np.isfinite(float(target_cycle_count))
             and abs(float(support_cycle_count) - float(target_cycle_count)) <= 0.05
         )
+        command_profile["support_cycle_match_type"] = support_cycle_match_type
+        command_profile["support_cycle_override_applied"] = bool(support_cycle_override_applied)
+        command_profile["support_cycle_override_reason"] = support_cycle_override_reason
+        command_profile["selected_support_cycle_source"] = finite_empirical_model.get("selected_support_cycle_source") if use_finite_empirical_route else None
         command_profile["support_family_selection_mode"] = support_family_selection_mode
         command_profile["user_requested_support_family"] = user_requested_support_family
         command_profile["candidate_support_families"] = "|".join(str(item) for item in candidate_support_families)
@@ -897,6 +982,7 @@ def synthesize_current_waveform_compensation(
         command_profile["support_family_sensitivity_level"] = support_family_sensitivity_level
         command_profile["support_family_override_applied"] = bool(support_family_override_applied)
         command_profile["support_family_override_reason"] = support_family_override_reason
+        command_profile["support_family_score_summary"] = support_family_score_summary
         command_profile["zero_padded_fraction"] = zero_padded_fraction
         command_profile["support_blended_output_nonzero"] = support_blended_output_nonzero
         command_profile["support_blended_zero_guard_applied"] = bool(support_blended_zero_guard_applied)
@@ -1021,6 +1107,19 @@ def synthesize_current_waveform_compensation(
         startup_correction_factor=startup_correction_factor,
         startup_transition_cycles=startup_transition_cycles,
     )
+    if field_only_route:
+        command_profile = _ensure_plotted_command_covers_target_window(command_profile)
+    command_prediction_consistency = _build_command_prediction_consistency_contract(command_profile)
+    displayed_source = command_prediction_consistency.get("plotted_predicted_source")
+    if isinstance(displayed_source, str) and displayed_source in command_profile.columns:
+        command_profile["displayed_predicted_field_mT"] = pd.to_numeric(
+            command_profile[displayed_source],
+            errors="coerce",
+        )
+    else:
+        command_profile["displayed_predicted_field_mT"] = np.nan
+    for key, value in command_prediction_consistency.items():
+        command_profile[key] = value
 
     return {
         "mode": mode,
@@ -1060,15 +1159,47 @@ def synthesize_current_waveform_compensation(
         "support_reference_trace_status": support_reference_contract.get("support_reference_trace_status"),
         "support_reference_plotted_column": support_reference_contract.get("support_reference_plotted_column"),
         "support_reference_source_label": support_reference_contract.get("support_reference_source_label"),
+        "support_reference_timebase": support_reference_contract.get("support_reference_timebase"),
+        "support_reference_plotted_source": support_reference_contract.get("support_reference_plotted_source"),
+        "support_reference_alignment_status": support_reference_contract.get("support_reference_alignment_status"),
         "support_reference_selected_support_id": support_reference_contract.get("support_reference_selected_support_id"),
         "support_reference_route_mode": support_reference_contract.get("support_reference_route_mode"),
         "support_reference_pp": support_reference_contract.get("support_reference_pp"),
         "support_reference_duration_s": support_reference_contract.get("support_reference_duration_s"),
         "support_reference_nonzero_start_s": support_reference_contract.get("support_reference_nonzero_start_s"),
         "support_reference_nonzero_end_s": support_reference_contract.get("support_reference_nonzero_end_s"),
+        "command_generation_target": command_prediction_consistency.get("command_generation_target"),
+        "support_reference_role": command_prediction_consistency.get("support_reference_role"),
+        "support_reference_used_for_command": command_prediction_consistency.get("support_reference_used_for_command"),
+        "forward_prediction_source": command_prediction_consistency.get("forward_prediction_source"),
+        "predicted_from_plotted_command": command_prediction_consistency.get("predicted_from_plotted_command"),
+        "command_prediction_consistency_status": command_prediction_consistency.get("command_prediction_consistency_status"),
+        "command_nonzero_start_s": command_prediction_consistency.get("command_nonzero_start_s"),
+        "target_nonzero_start_s": command_prediction_consistency.get("target_nonzero_start_s"),
+        "command_target_start_delta_s": command_prediction_consistency.get("command_target_start_delta_s"),
+        "command_covers_target_active_start": command_prediction_consistency.get("command_covers_target_active_start"),
+        "command_covers_target_active_end": command_prediction_consistency.get("command_covers_target_active_end"),
+        "support_reference_shape_mismatch": command_prediction_consistency.get("support_reference_shape_mismatch"),
+        "support_reference_target_corr": command_prediction_consistency.get("support_reference_target_corr"),
+        "support_reference_target_nrmse": command_prediction_consistency.get("support_reference_target_nrmse"),
+        "plotted_command_source": command_prediction_consistency.get("plotted_command_source"),
+        "plotted_predicted_source": command_prediction_consistency.get("plotted_predicted_source"),
+        "forward_prediction_available": command_prediction_consistency.get("forward_prediction_available"),
+        "command_prediction_consistency_reason": command_prediction_consistency.get("command_prediction_consistency_reason"),
+        "command_nonzero_end_s": command_prediction_consistency.get("command_nonzero_end_s"),
+        "target_active_end_s": command_prediction_consistency.get("target_active_end_s"),
+        "command_target_end_delta_s": command_prediction_consistency.get("command_target_end_delta_s"),
+        "displayed_predicted_valid": command_prediction_consistency.get("displayed_predicted_valid"),
+        "displayed_predicted_field_mT": (
+            command_profile["displayed_predicted_field_mT"].to_numpy(dtype=float).tolist()
+            if "displayed_predicted_field_mT" in command_profile.columns
+            else None
+        ),
         "predicted_output_column": "predicted_field_mT" if field_only_route else "predicted_output",
         "support_family_used": selected_support_waveform,
         "support_family_requested": user_requested_support_family,
+        "requested_support_family": requested_support_family,
+        "requested_support_family_normalized": requested_support_family_normalized,
         "target_shape_locked": bool(field_only_route),
         "target_pp_locked": bool(field_only_route),
         "shape_selection_excludes": list(FIELD_ROUTE_SHAPE_SELECTION_EXCLUDES) if field_only_route else [],
@@ -1078,10 +1209,31 @@ def synthesize_current_waveform_compensation(
         "support_point_count": int(finite_empirical_model.get("support_count_used", len(support_profiles))) if use_finite_empirical_route else int(len(support_profiles)),
         "nearest_test_id": nearest_test_id,
         "selected_support_id": support_selection_meta.get("selected_support_id") or nearest_test_id,
-        "selected_support_family": support_selection_meta.get("selected_support_family"),
+        "selected_support_family": selected_support_family_value,
+        "selected_support_family_normalized": selected_support_family_normalized,
+        "selected_support_waveform_family": selected_support_family_value,
+        "selected_support_family_source": selected_support_family_source,
+        "selected_support_family_unknown_reason": selected_support_family_unknown_reason,
+        "selected_support_source_file": selected_support_source_file,
+        "selected_support_freq_hz": selected_support_freq_hz,
+        "selected_support_cycle_count": support_cycle_count,
+        "selected_support_declared_cycle_count": selected_support_declared_cycle_count,
+        "selected_support_measured_active_cycle_count": selected_support_measured_active_cycle_count,
+        "selected_support_target_aligned_cycle_count": selected_support_target_aligned_cycle_count,
+        "selected_support_cycle_source": finite_empirical_model.get("selected_support_cycle_source") if use_finite_empirical_route else None,
+        "selected_support_original_duration_s": selected_support_original_duration_s,
+        "selected_support_original_pp_mT": selected_support_original_pp_mT,
+        "selected_support_original_nonzero_end_s": selected_support_original_nonzero_end_s,
+        "selected_support_source_available": bool(selected_support_source_available),
+        "selected_support_source_time_s": selected_support_source_time_s,
+        "selected_support_source_mT": selected_support_source_mT,
         "support_selection_reason": support_selection_meta.get("support_selection_reason"),
         "support_family_metric": support_selection_meta.get("support_family_metric"),
         "support_family_value": support_selection_meta.get("support_family_value"),
+        "support_family_score_summary": support_family_score_summary,
+        "support_cycle_match_type": support_cycle_match_type,
+        "support_cycle_override_applied": bool(support_cycle_override_applied),
+        "support_cycle_override_reason": support_cycle_override_reason,
         "estimated_family_level": support_selection_meta.get("estimated_family_level"),
         "support_family_lock_applied": bool(support_selection_meta.get("support_family_lock_applied", False)),
         "support_bz_to_current_ratio": support_selection_meta.get("support_bz_to_current_ratio"),
@@ -1321,6 +1473,7 @@ def build_finite_support_entries(
     for parsed, preprocess in zip(transient_measurements, transient_preprocess_results, strict=False):
         corrected = preprocess.corrected_frame.copy()
         normalized = parsed.normalized_frame
+        filename_metadata = infer_dataset_filename_metadata(parsed.source_file)
         test_id = (
             str(normalized["test_id"].iloc[0])
             if "test_id" in normalized.columns and not normalized.empty
@@ -1334,23 +1487,36 @@ def build_finite_support_entries(
             else float("nan")
         )
         estimated_cycle_span = duration_s * freq_hz if np.isfinite(duration_s) and np.isfinite(freq_hz) else float("nan")
-        requested_cycle_count = _first_numeric(parsed.metadata.get("cycle") or parsed.metadata.get("cycle_count"))
+        requested_cycle_count = _first_numeric(
+            parsed.metadata.get("cycle")
+            or parsed.metadata.get("cycle_count")
+            or filename_metadata.get("cycle")
+            or filename_metadata.get("cycle_count")
+        )
         approx_cycle_span = (
             float(requested_cycle_count)
             if requested_cycle_count is not None and np.isfinite(requested_cycle_count)
             else estimated_cycle_span
+        )
+        waveform_type = canonicalize_waveform_type(
+            parsed.metadata.get("waveform")
+            or parsed.metadata.get("waveform_type")
+            or filename_metadata.get("waveform")
+            or filename_metadata.get("waveform_type")
         )
         entries.append(
             {
                 "test_id": test_id,
                 "source_file": parsed.source_file,
                 "sheet_name": parsed.sheet_name,
-                "waveform_type": canonicalize_waveform_type(parsed.metadata.get("waveform") or parsed.metadata.get("waveform_type")),
+                "waveform_type": waveform_type,
                 "freq_hz": freq_hz,
                 "duration_s": duration_s,
                 "approx_cycle_span": approx_cycle_span,
                 "estimated_cycle_span": estimated_cycle_span,
                 "requested_cycle_count": requested_cycle_count,
+                "declared_cycle_count": requested_cycle_count,
+                "measured_active_cycle_count": estimated_cycle_span,
                 "target_current_a": _first_numeric(parsed.metadata.get("Target Current(A)") or parsed.metadata.get("target_current_a")),
                 "notes": parsed.metadata.get("notes", ""),
                 "current_pp": _signal_peak_to_peak(corrected, current_channel),
@@ -1898,8 +2064,8 @@ def synthesize_finite_empirical_compensation(
     exact_cycle_matches = [
         entry
         for entry in frequency_candidates
-        if np.isfinite(entry.get("approx_cycle_span", np.nan))
-        and abs(float(entry.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) <= float(cycle_match_tolerance)
+        if np.isfinite(_selected_support_declared_cycle_count(entry))
+        and abs(float(_selected_support_declared_cycle_count(entry)) - float(target_cycle_count)) <= float(cycle_match_tolerance)
     ]
     if float(target_cycle_count) >= 1.75 - 1e-9 and not exact_cycle_matches:
         return None
@@ -1924,7 +2090,11 @@ def synthesize_finite_empirical_compensation(
     plot_source = "exact_prediction" if exact_output_matches else "support_blended_preview"
 
     freq_values = [float(entry["freq_hz"]) for entry in candidate_entries if np.isfinite(entry.get("freq_hz", np.nan))]
-    cycle_values = [float(entry["approx_cycle_span"]) for entry in candidate_entries if np.isfinite(entry.get("approx_cycle_span", np.nan))]
+    cycle_values = [
+        float(_selected_support_declared_cycle_count(entry))
+        for entry in candidate_entries
+        if np.isfinite(_selected_support_declared_cycle_count(entry))
+    ]
     output_values = [
         _exact_support_level(entry)
         for entry in candidate_entries
@@ -1941,12 +2111,13 @@ def synthesize_finite_empirical_compensation(
         if not np.isfinite(support_output) or support_output <= 0:
             continue
         freq_distance = abs(float(entry.get("freq_hz", np.nan)) - float(freq_hz)) if np.isfinite(entry.get("freq_hz", np.nan)) else 1e6
-        cycle_distance = abs(float(entry.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) if np.isfinite(entry.get("approx_cycle_span", np.nan)) else 1e6
+        entry_declared_cycle = _selected_support_declared_cycle_count(entry)
+        cycle_distance = abs(float(entry_declared_cycle) - float(target_cycle_count)) if np.isfinite(entry_declared_cycle) else 1e6
         output_distance = abs(support_output - float(target_output_pp))
         waveform_distance = 0.0 if canonicalize_waveform_type(entry.get("waveform_type")) == waveform_type else 0.05
         coverage_penalty = _finite_support_active_coverage_penalty(entry)
         cycle_semantics_penalty = _finite_support_cycle_semantics_penalty(
-            support_cycle_count=float(entry.get("approx_cycle_span", np.nan)),
+            support_cycle_count=float(entry_declared_cycle),
             target_cycle_count=float(target_cycle_count),
         )
         shape_mismatch = _finite_shape_mismatch_score(
@@ -2012,9 +2183,9 @@ def synthesize_finite_empirical_compensation(
 
     support_count_used = int(len(selected_records))
     selected_support_cycle_values = [
-        float(record[1].get("approx_cycle_span", np.nan))
+        float(_selected_support_declared_cycle_count(record[1]))
         for record in selected_records
-        if np.isfinite(float(record[1].get("approx_cycle_span", np.nan)))
+        if np.isfinite(float(_selected_support_declared_cycle_count(record[1])))
     ]
     if (
         np.isfinite(float(target_cycle_count))
@@ -2100,7 +2271,9 @@ def synthesize_finite_empirical_compensation(
                 "test_id": entry["test_id"],
                 "waveform_type": entry.get("waveform_type"),
                 "freq_hz": entry.get("freq_hz"),
-                "approx_cycle_span": entry.get("approx_cycle_span"),
+                "approx_cycle_span": _selected_support_declared_cycle_count(entry),
+                "declared_cycle_count": _selected_support_declared_cycle_count(entry),
+                "measured_active_cycle_count": entry.get("measured_active_cycle_count", entry.get("estimated_cycle_span")),
                 "support_output_pp": support_output,
                 "daq_voltage_pp": entry.get("daq_voltage_pp"),
                 "freq_distance_hz": freq_distance,
@@ -2151,7 +2324,7 @@ def synthesize_finite_empirical_compensation(
         preview_tail_cycles=float(max(preview_tail_cycles, 0.0)),
         request_route=request_route,
         plot_source=plot_source,
-        selected_support_waveform=str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or ""),
+        selected_support_waveform=str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or "unknown"),
         harmonic_weights_used=harmonic_weights,
     )
     modeled, active_extension_metadata = _extend_finite_active_window_signals(
@@ -2236,10 +2409,11 @@ def synthesize_finite_empirical_compensation(
     modeled["support_cover_reason"] = active_extension_metadata["support_cover_reason"]
     support_table = pd.DataFrame(support_rows)
     support_tests_used = [str(row["test_id"]) for row in support_rows]
-    selected_support_waveform = str(canonicalize_waveform_type(support.get("waveform_type")) or support.get("waveform_type") or "")
+    selected_support_family_contract = _infer_selected_support_family_contract(support)
+    selected_support_waveform = str(selected_support_family_contract["selected_support_family"])
     candidate_waveform_types = sorted(
         {
-            str(canonicalize_waveform_type(entry.get("waveform_type")) or entry.get("waveform_type") or "")
+            str(_infer_selected_support_family_contract(entry)["selected_support_family_normalized"] or "")
             for entry in candidate_entries
         }
     )
@@ -2250,10 +2424,17 @@ def synthesize_finite_empirical_compensation(
     support_family_sensitivity_level = "medium" if support_family_sensitivity_flag else "low"
     user_requested_support_family = waveform_type
     support_family_override_applied = bool(selected_support_waveform and selected_support_waveform != waveform_type)
-    support_family_override_reason = (
-        "cross_family_candidate_scored_better"
-        if support_family_override_applied
-        else None
+    support_family_override_reason = None
+    if support_family_override_applied:
+        support_family_override_reason = (
+            "requested_family_unavailable"
+            if user_requested_support_family not in candidate_waveform_types
+            else "cross_family_candidate_scored_better"
+        )
+    support_family_score_summary = (
+        f"mode={support_family_selection_mode};requested={user_requested_support_family};"
+        f"selected={selected_support_waveform or 'unknown'};"
+        f"candidates={','.join(candidate_waveform_types) if candidate_waveform_types else 'none'}"
     )
     command_voltage = pd.to_numeric(modeled["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
     nonzero_mask = np.isfinite(command_voltage) & (np.abs(command_voltage) > 1e-6)
@@ -2285,7 +2466,12 @@ def synthesize_finite_empirical_compensation(
         if not axis_in_range
     ]
     selected_support_id = str(support["test_id"])
-    selected_support_family = selected_support_waveform or None
+    selected_support_family = selected_support_waveform or "unknown"
+    selected_support_source_contract = _build_selected_support_source_contract(
+        support,
+        field_channel=field_channel,
+        target_aligned_cycle_count=float(target_cycle_count),
+    )
     startup_diagnostics = _build_finite_support_startup_diagnostics(
         support,
         field_channel=field_channel,
@@ -2296,7 +2482,17 @@ def synthesize_finite_empirical_compensation(
         target_cycle_count,
         finite_support_used=True,
         selected_support_id=selected_support_id,
-        selected_support_cycle_count=float(support.get("approx_cycle_span", np.nan)),
+        selected_support_cycle_count=float(selected_support_source_contract["selected_support_declared_cycle_count"]),
+    )
+    exact_cycle_support_used = bool(
+        abs(float(selected_support_source_contract["selected_support_declared_cycle_count"]) - float(target_cycle_count)) <= float(cycle_match_tolerance)
+    )
+    cycle_selection_contract = _support_cycle_selection_contract(
+        requested_cycle_count=float(target_cycle_count),
+        selected_support_cycle_count=float(selected_support_source_contract["selected_support_declared_cycle_count"]),
+        support_count_used=support_count_used,
+        exact_cycle_support_used=exact_cycle_support_used,
+        tolerance=float(cycle_match_tolerance),
     )
     support_selection_reason = "finite_exact_level_match" if request_route == "exact" else (
         "finite_weighted_support_blend" if support_count_used > 1 else "finite_nearest_support_preview"
@@ -2327,9 +2523,9 @@ def synthesize_finite_empirical_compensation(
         "support_tests_used": support_tests_used,
         "requested_cycle_count": float(target_cycle_count),
         "support_freq_hz": float(support.get("freq_hz", np.nan)),
-        "support_cycle_count": float(support.get("approx_cycle_span", np.nan)),
-        "selected_support_cycle_count": float(support.get("approx_cycle_span", np.nan)),
-        "exact_cycle_support_used": bool(abs(float(support.get("approx_cycle_span", np.nan)) - float(target_cycle_count)) <= float(cycle_match_tolerance)),
+        "support_cycle_count": float(selected_support_source_contract["selected_support_declared_cycle_count"]),
+        "selected_support_cycle_count": float(selected_support_source_contract["selected_support_declared_cycle_count"]),
+        "exact_cycle_support_used": exact_cycle_support_used,
         "support_output_pp": support_output_pp,
         "scale_ratio": scale_ratio,
         "distance_score": nearest_distance_score,
@@ -2337,6 +2533,9 @@ def synthesize_finite_empirical_compensation(
         "request_route": request_route,
         "plot_source": plot_source,
         "selected_support_waveform": selected_support_waveform,
+        "selected_support_waveform_family": selected_support_waveform,
+        "selected_support_family_source": selected_support_family_contract["selected_support_family_source"],
+        "selected_support_family_unknown_reason": selected_support_family_contract["selected_support_family_unknown_reason"],
         "support_waveform_role": "input_support_family",
         "support_family_sensitivity_flag": support_family_sensitivity_flag,
         "support_family_sensitivity_reason": support_family_sensitivity_reason,
@@ -2347,13 +2546,17 @@ def synthesize_finite_empirical_compensation(
         "support_family_sensitivity_level": support_family_sensitivity_level,
         "support_family_override_applied": support_family_override_applied,
         "support_family_override_reason": support_family_override_reason,
+        "support_family_score_summary": support_family_score_summary,
         "selected_support_id": selected_support_id,
         "selected_support_family": selected_support_family,
+        "requested_support_family": user_requested_support_family,
         "support_selection_reason": support_selection_reason,
         "support_family_metric": output_column,
         "support_family_value": float(support_output_pp) if np.isfinite(support_output_pp) else None,
         "support_family_lock_applied": request_route == "exact",
         "support_bz_to_current_ratio": float(support_bz_to_current_ratio) if np.isfinite(support_bz_to_current_ratio) else None,
+        **selected_support_source_contract,
+        **cycle_selection_contract,
         "active_window_start_s": selected_active_window_start_s,
         "active_window_end_s": selected_active_window_end_s,
         "active_duration_s": float(active_duration_s),
@@ -3710,6 +3913,263 @@ def _signal_peak_to_peak(frame: pd.DataFrame, column: str) -> float:
     return float(np.nanmax(finite) - np.nanmin(finite))
 
 
+def _support_source_file(entry: dict[str, Any]) -> str | None:
+    for key in ("source_file", "source_original_path", "path", "file_path", "filename", "test_id"):
+        value = entry.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    return None
+
+
+def _parse_declared_cycle_from_support_text(*values: object) -> float | None:
+    for value in values:
+        if value is None:
+            continue
+        match = SUPPORT_DECLARED_CYCLE_PATTERN.search(str(value))
+        if match is None:
+            continue
+        token = match.group("cycle").replace("_", ".").replace("p", ".").replace("P", ".")
+        try:
+            return float(token)
+        except ValueError:
+            continue
+    return None
+
+
+def _infer_selected_support_family_contract(entry: dict[str, Any]) -> dict[str, str | None]:
+    explicit_keys = (
+        "selected_support_family",
+        "selected_support_waveform_family",
+        "selected_support_waveform",
+        "waveform_type",
+        "waveform",
+    )
+    for key in explicit_keys:
+        value = entry.get(key)
+        family = canonicalize_waveform_type(value)
+        if family is not None:
+            return {
+                "selected_support_family": family,
+                "selected_support_family_normalized": family,
+                "selected_support_family_source": "explicit_metadata" if key in {"selected_support_family", "selected_support_waveform_family"} else "normalized_waveform_type",
+                "selected_support_family_unknown_reason": None,
+            }
+    source_file = _support_source_file(entry)
+    filename_family = canonicalize_waveform_type(infer_dataset_filename_metadata(source_file or "").get("waveform")) if source_file else None
+    if filename_family is not None:
+        return {
+            "selected_support_family": filename_family,
+            "selected_support_family_normalized": filename_family,
+            "selected_support_family_source": "source_file_alias",
+            "selected_support_family_unknown_reason": None,
+        }
+    for key, source in (("source_file", "source_file_alias"), ("test_id", "support_id_alias"), ("selected_support_id", "support_id_alias")):
+        text = str(entry.get(key) or "")
+        tokens = {token for token in re.split(r"[^a-zA-Z0-9]+", text.lower()) if token}
+        if tokens & {"tri", "triangle"}:
+            return {
+                "selected_support_family": "triangle",
+                "selected_support_family_normalized": "triangle",
+                "selected_support_family_source": source,
+                "selected_support_family_unknown_reason": None,
+            }
+        if tokens & {"sin", "sine"}:
+            return {
+                "selected_support_family": "sine",
+                "selected_support_family_normalized": "sine",
+                "selected_support_family_source": source,
+                "selected_support_family_unknown_reason": None,
+            }
+    return {
+        "selected_support_family": "unknown",
+        "selected_support_family_normalized": "unknown",
+        "selected_support_family_source": "unknown",
+        "selected_support_family_unknown_reason": "missing_family_metadata_and_alias",
+    }
+
+
+def _selected_support_declared_cycle_count(entry: dict[str, Any]) -> float:
+    for key in ("declared_cycle_count", "requested_cycle_count", "cycle_count", "target_cycle_count"):
+        value = _first_numeric(entry.get(key))
+        if value is not None and np.isfinite(value):
+            return float(value)
+    source_file = _support_source_file(entry)
+    if source_file:
+        value = _first_numeric(infer_dataset_filename_metadata(source_file).get("cycle"))
+        if value is not None and np.isfinite(value):
+            return float(value)
+    value = _parse_declared_cycle_from_support_text(
+        entry.get("source_file"),
+        entry.get("source_original_path"),
+        entry.get("path"),
+        entry.get("file_path"),
+        entry.get("filename"),
+        entry.get("test_id"),
+    )
+    if value is not None and np.isfinite(value):
+        return float(value)
+    value = _first_numeric(entry.get("approx_cycle_span"))
+    if value is not None and np.isfinite(value):
+        return float(value)
+    return float("nan")
+
+
+def _selected_support_cycle_source(entry: dict[str, Any]) -> str:
+    for key, source in (
+        ("declared_cycle_count", "metadata"),
+        ("requested_cycle_count", "metadata"),
+        ("cycle_count", "metadata"),
+        ("target_cycle_count", "metadata"),
+    ):
+        value = _first_numeric(entry.get(key))
+        if value is not None and np.isfinite(value):
+            return source
+    source_file = _support_source_file(entry)
+    if source_file:
+        value = _first_numeric(infer_dataset_filename_metadata(source_file).get("cycle"))
+        if value is not None and np.isfinite(value):
+            return "filename"
+    if _parse_declared_cycle_from_support_text(
+        entry.get("source_file"),
+        entry.get("source_original_path"),
+        entry.get("path"),
+        entry.get("file_path"),
+        entry.get("filename"),
+        entry.get("test_id"),
+    ) is not None:
+        return "filename"
+    if _first_numeric(entry.get("approx_cycle_span")) is not None:
+        return "measured_active_window"
+    return "unknown"
+
+
+def _selected_support_measured_active_cycle_count(
+    entry: dict[str, Any],
+    *,
+    original_nonzero_end_s: float,
+    original_duration_s: float,
+) -> float:
+    for key in ("measured_active_cycle_count", "estimated_cycle_span"):
+        value = _first_numeric(entry.get(key))
+        if value is not None and np.isfinite(value):
+            return float(value)
+    freq_hz = _first_numeric(entry.get("freq_hz"))
+    if freq_hz is None or not np.isfinite(freq_hz):
+        return float("nan")
+    basis_s = original_nonzero_end_s if np.isfinite(original_nonzero_end_s) else original_duration_s
+    return float(basis_s * freq_hz) if np.isfinite(basis_s) else float("nan")
+
+
+def _build_selected_support_source_contract(
+    entry: dict[str, Any] | None,
+    *,
+    field_channel: str,
+    target_aligned_cycle_count: float | None = None,
+) -> dict[str, Any]:
+    if not entry:
+        return {
+            "selected_support_source_available": False,
+            "selected_support_source_file": None,
+            "selected_support_freq_hz": float("nan"),
+            "selected_support_declared_cycle_count": float("nan"),
+            "selected_support_measured_active_cycle_count": float("nan"),
+            "selected_support_target_aligned_cycle_count": target_aligned_cycle_count,
+            "selected_support_cycle_source": "unknown",
+            "selected_support_original_duration_s": float("nan"),
+            "selected_support_original_pp_mT": float("nan"),
+            "selected_support_original_nonzero_end_s": float("nan"),
+            "selected_support_source_time_s": None,
+            "selected_support_source_mT": None,
+        }
+    frame = _prepare_finite_time_frame(entry.get("frame"))
+    if frame.empty or "time_s" not in frame.columns or field_channel not in frame.columns:
+        return {
+            "selected_support_source_available": False,
+            "selected_support_source_file": _support_source_file(entry),
+            "selected_support_freq_hz": float(entry.get("freq_hz", np.nan)),
+            "selected_support_declared_cycle_count": _selected_support_declared_cycle_count(entry),
+            "selected_support_measured_active_cycle_count": float("nan"),
+            "selected_support_target_aligned_cycle_count": target_aligned_cycle_count,
+            "selected_support_cycle_source": _selected_support_cycle_source(entry),
+            "selected_support_original_duration_s": float("nan"),
+            "selected_support_original_pp_mT": float(entry.get("field_pp", np.nan)),
+            "selected_support_original_nonzero_end_s": float("nan"),
+            "selected_support_source_time_s": None,
+            "selected_support_source_mT": None,
+        }
+    time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    field_values = pd.to_numeric(frame[field_channel], errors="coerce").to_numpy(dtype=float)
+    finite_mask = np.isfinite(time_values) & np.isfinite(field_values)
+    finite_time = time_values[finite_mask]
+    finite_field = field_values[finite_mask]
+    pp = float(np.nanmax(finite_field) - np.nanmin(finite_field)) if finite_field.size else float("nan")
+    threshold = max(abs(pp) * 0.01, 1e-6) if np.isfinite(pp) else 1e-6
+    nonzero_time = time_values[finite_mask & (np.abs(field_values) > threshold)]
+    duration_s = float(np.nanmax(finite_time) - np.nanmin(finite_time)) if finite_time.size else float("nan")
+    nonzero_end_s = float(np.nanmax(nonzero_time)) if nonzero_time.size else float("nan")
+    measured_cycle_count = _selected_support_measured_active_cycle_count(
+        entry,
+        original_nonzero_end_s=nonzero_end_s,
+        original_duration_s=duration_s,
+    )
+    return {
+        "selected_support_source_available": bool(finite_field.size),
+        "selected_support_source_file": _support_source_file(entry),
+        "selected_support_freq_hz": float(entry.get("freq_hz", np.nan)),
+        "selected_support_declared_cycle_count": _selected_support_declared_cycle_count(entry),
+        "selected_support_measured_active_cycle_count": measured_cycle_count,
+        "selected_support_target_aligned_cycle_count": target_aligned_cycle_count,
+        "selected_support_cycle_source": _selected_support_cycle_source(entry),
+        "selected_support_original_duration_s": duration_s,
+        "selected_support_original_pp_mT": pp,
+        "selected_support_original_nonzero_end_s": nonzero_end_s,
+        "selected_support_source_time_s": time_values.tolist(),
+        "selected_support_source_mT": field_values.tolist(),
+    }
+
+
+def _support_cycle_selection_contract(
+    *,
+    requested_cycle_count: float | None,
+    selected_support_cycle_count: float | None,
+    support_count_used: int,
+    exact_cycle_support_used: bool,
+    tolerance: float = 0.05,
+) -> dict[str, Any]:
+    requested = float(requested_cycle_count) if requested_cycle_count is not None and np.isfinite(float(requested_cycle_count)) else float("nan")
+    selected = (
+        float(selected_support_cycle_count)
+        if selected_support_cycle_count is not None and np.isfinite(float(selected_support_cycle_count))
+        else float("nan")
+    )
+    if int(support_count_used) > 1:
+        match_type = "weighted_blend"
+    elif bool(exact_cycle_support_used):
+        match_type = "exact"
+    elif np.isfinite(requested) and np.isfinite(selected):
+        match_type = "nearest"
+    else:
+        match_type = "fallback"
+    override = bool(np.isfinite(requested) and np.isfinite(selected) and abs(requested - selected) > float(tolerance))
+    reason = None
+    if override:
+        if match_type == "weighted_blend":
+            reason = "weighted_support_blend_uses_representative_cycle_candidates"
+        elif match_type == "nearest":
+            reason = "nearest_cycle_candidate_selected"
+        elif match_type == "fallback":
+            reason = "cycle_match_fallback"
+        else:
+            reason = "cycle_count_mismatch"
+    elif match_type == "weighted_blend":
+        reason = "weighted_support_blend_uses_multiple_candidates"
+    return {
+        "support_cycle_match_type": match_type,
+        "support_cycle_override_applied": override,
+        "support_cycle_override_reason": reason,
+    }
+
+
 def _build_support_reference_trace_contract(
     *,
     command_profile: pd.DataFrame,
@@ -3728,6 +4188,9 @@ def _build_support_reference_trace_contract(
             "support_reference_trace_status": "unavailable",
             "support_reference_plotted_column": column,
             "support_reference_source_label": "unavailable",
+            "support_reference_timebase": "target_aligned",
+            "support_reference_plotted_source": "target_aligned_support_reference",
+            "support_reference_alignment_status": "unavailable",
             "support_reference_selected_support_id": selected_support_id or None,
             "support_reference_route_mode": route_mode,
             "support_reference_pp": float("nan"),
@@ -3756,12 +4219,250 @@ def _build_support_reference_trace_contract(
         "support_reference_trace_status": status,
         "support_reference_plotted_column": column,
         "support_reference_source_label": "selected_support_trace" if finite_support_used else "nearest_support_preview",
+        "support_reference_timebase": "target_aligned",
+        "support_reference_plotted_source": "target_aligned_support_reference",
+        "support_reference_alignment_status": "ok" if status == "ok" else "near_zero_or_unavailable",
         "support_reference_selected_support_id": selected_support_id or None,
         "support_reference_route_mode": route_mode,
         "support_reference_pp": pp,
         "support_reference_duration_s": duration_s,
         "support_reference_nonzero_start_s": float(np.nanmin(nonzero_times)) if nonzero_times.size else float("nan"),
         "support_reference_nonzero_end_s": float(np.nanmax(nonzero_times)) if nonzero_times.size else float("nan"),
+    }
+
+
+def _nonzero_window(
+    time_values: np.ndarray,
+    signal_values: np.ndarray,
+    *,
+    threshold_pp_fraction: float = 0.01,
+) -> tuple[float, float]:
+    time = np.asarray(time_values, dtype=float)
+    signal = np.asarray(signal_values, dtype=float)
+    finite = np.isfinite(time) & np.isfinite(signal)
+    if not finite.any():
+        return float("nan"), float("nan")
+    finite_signal = signal[finite]
+    pp = float(np.nanmax(finite_signal) - np.nanmin(finite_signal)) if finite_signal.size else float("nan")
+    threshold = max(abs(pp) * float(threshold_pp_fraction), 1e-6) if np.isfinite(pp) else 1e-6
+    nonzero = finite & (np.abs(signal) > threshold)
+    if not nonzero.any():
+        return float("nan"), float("nan")
+    nonzero_time = time[nonzero]
+    return float(np.nanmin(nonzero_time)), float(np.nanmax(nonzero_time))
+
+
+def _shape_corr_and_nrmse(left: np.ndarray, right: np.ndarray) -> tuple[float, float]:
+    left_values = np.asarray(left, dtype=float)
+    right_values = np.asarray(right, dtype=float)
+    finite = np.isfinite(left_values) & np.isfinite(right_values)
+    if finite.sum() < 3:
+        return float("nan"), float("nan")
+    left_finite = left_values[finite]
+    right_finite = right_values[finite]
+    left_centered = left_finite - float(np.nanmean(left_finite))
+    right_centered = right_finite - float(np.nanmean(right_finite))
+    denominator = float(np.linalg.norm(left_centered) * np.linalg.norm(right_centered))
+    corr = float(np.dot(left_centered, right_centered) / denominator) if denominator > 1e-12 else float("nan")
+    rmse = float(np.sqrt(np.nanmean(np.square(right_finite - left_finite))))
+    pp = float(np.nanmax(left_finite) - np.nanmin(left_finite))
+    nrmse = float(rmse / max(abs(pp) * 0.5, 1e-9)) if np.isfinite(pp) else float("nan")
+    return corr, nrmse
+
+
+def _ensure_plotted_command_covers_target_window(command_profile: pd.DataFrame) -> pd.DataFrame:
+    if command_profile.empty or "time_s" not in command_profile.columns or "recommended_voltage_v" not in command_profile.columns:
+        return command_profile
+    target_column = "physical_target_output_mT" if "physical_target_output_mT" in command_profile.columns else "target_field_mT"
+    if target_column not in command_profile.columns:
+        return command_profile
+    adjusted = command_profile.copy()
+    time_values = np.array(pd.to_numeric(adjusted["time_s"], errors="coerce"), dtype=float, copy=True)
+    target_values = np.array(pd.to_numeric(adjusted[target_column], errors="coerce"), dtype=float, copy=True)
+    target_start, target_end = _nonzero_window(time_values, target_values)
+    if not np.isfinite(target_start) or not np.isfinite(target_end):
+        return command_profile
+    sample_dt = float(np.nanmedian(np.diff(time_values[np.isfinite(time_values)]))) if np.isfinite(time_values).sum() > 1 else 1e-6
+    tolerance_s = max(abs(sample_dt) * 2.0, 1e-6)
+    command_columns = [
+        column
+        for column in (
+            "recommended_voltage_v",
+            "limited_voltage_v",
+            "compensated_recommended_voltage_v",
+        )
+        if column in adjusted.columns
+    ]
+    extension_applied = False
+    for column in command_columns:
+        values = np.array(pd.to_numeric(adjusted[column], errors="coerce"), dtype=float, copy=True)
+        command_start, command_end = _nonzero_window(time_values, values)
+        finite_values = np.isfinite(values)
+        finite_signal = values[finite_values]
+        signal_pp = float(np.nanmax(finite_signal) - np.nanmin(finite_signal)) if finite_signal.size else float("nan")
+        threshold = max(abs(signal_pp) * 0.01, 1e-6) if np.isfinite(signal_pp) else 1e-6
+        nonzero_values = finite_values & (np.abs(values) > threshold)
+        if np.isfinite(command_start) and command_start > target_start + tolerance_s:
+            fill_candidates = np.where(nonzero_values & (time_values >= command_start - tolerance_s))[0]
+            fill_value = values[int(fill_candidates[0])] if fill_candidates.size else float("nan")
+            mask = np.isfinite(time_values) & (time_values >= target_start - tolerance_s) & (time_values < command_start)
+            if np.isfinite(fill_value) and mask.any():
+                values[mask] = fill_value
+                extension_applied = True
+        if np.isfinite(command_end) and command_end < target_end - tolerance_s:
+            fill_candidates = np.where(nonzero_values & (time_values <= command_end + tolerance_s))[0]
+            fill_value = values[int(fill_candidates[-1])] if fill_candidates.size else float("nan")
+            mask = np.isfinite(time_values) & (time_values > command_end) & (time_values <= target_end + tolerance_s)
+            if np.isfinite(fill_value) and mask.any():
+                values[mask] = fill_value
+                extension_applied = True
+        adjusted[column] = values
+    adjusted["command_coverage_extension_applied"] = bool(extension_applied)
+    adjusted["command_coverage_extension_reason"] = (
+        "target_active_window_hard_zero_gap_filled" if extension_applied else None
+    )
+    return adjusted
+
+
+def _build_command_prediction_consistency_contract(command_profile: pd.DataFrame) -> dict[str, Any]:
+    if command_profile.empty or "time_s" not in command_profile.columns:
+        return {
+            "command_generation_target": "physical_target",
+            "support_reference_role": "diagnostic_reference",
+            "support_reference_used_for_command": False,
+            "plotted_command_source": "unavailable",
+            "plotted_predicted_source": "unavailable",
+            "forward_prediction_source": "unavailable",
+            "forward_prediction_available": False,
+            "predicted_from_plotted_command": False,
+            "command_prediction_consistency_status": "forward_prediction_unavailable",
+            "command_prediction_consistency_reason": "forward_prediction_unavailable",
+            "command_nonzero_start_s": float("nan"),
+            "command_nonzero_end_s": float("nan"),
+            "target_nonzero_start_s": float("nan"),
+            "target_active_end_s": float("nan"),
+            "command_target_start_delta_s": float("nan"),
+            "command_target_end_delta_s": float("nan"),
+            "command_covers_target_active_start": False,
+            "command_covers_target_active_end": False,
+            "displayed_predicted_valid": False,
+            "support_reference_shape_mismatch": False,
+            "support_reference_target_corr": float("nan"),
+            "support_reference_target_nrmse": float("nan"),
+        }
+
+    time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    target_column = "physical_target_output_mT" if "physical_target_output_mT" in command_profile.columns else "target_field_mT"
+    predicted_column = "compensated_predicted_field_mT" if "compensated_predicted_field_mT" in command_profile.columns else "predicted_field_mT"
+    plotted_command_column = "recommended_voltage_v"
+    plotted_command_source = "recommended_voltage_v" if plotted_command_column in command_profile.columns else "unavailable"
+    forward_source = "unavailable"
+    plotted_predicted_source = "unavailable"
+    if (
+        "compensated_recommended_voltage_v" in command_profile.columns
+        and plotted_command_column in command_profile.columns
+        and np.allclose(
+            pd.to_numeric(command_profile[plotted_command_column], errors="coerce").to_numpy(dtype=float),
+            pd.to_numeric(command_profile["compensated_recommended_voltage_v"], errors="coerce").to_numpy(dtype=float),
+            equal_nan=True,
+        )
+    ):
+        forward_source = "compensated_recommended_voltage_v"
+        plotted_command_source = "compensated_recommended_voltage_v"
+        plotted_predicted_source = "compensated_predicted_field_mT" if "compensated_predicted_field_mT" in command_profile.columns else "unavailable"
+    elif plotted_command_column in command_profile.columns:
+        forward_source = "recommended_voltage_v"
+        plotted_predicted_source = (
+            "open_loop_predicted_field_mT"
+            if "open_loop_predicted_field_mT" in command_profile.columns
+            else ("predicted_field_mT" if "predicted_field_mT" in command_profile.columns else "unavailable")
+        )
+    if plotted_predicted_source != "unavailable":
+        predicted_column = plotted_predicted_source
+
+    command_values = (
+        pd.to_numeric(command_profile[plotted_command_column], errors="coerce").to_numpy(dtype=float)
+        if plotted_command_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    target_values = (
+        pd.to_numeric(command_profile[target_column], errors="coerce").to_numpy(dtype=float)
+        if target_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    predicted_values = (
+        pd.to_numeric(command_profile[predicted_column], errors="coerce").to_numpy(dtype=float)
+        if predicted_column in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    support_values = (
+        pd.to_numeric(command_profile["support_reference_output_mT"], errors="coerce").to_numpy(dtype=float)
+        if "support_reference_output_mT" in command_profile.columns
+        else np.full(len(command_profile), np.nan)
+    )
+    command_start, command_end = _nonzero_window(time_values, command_values)
+    target_start, target_end = _nonzero_window(time_values, target_values)
+    sample_dt = float(np.nanmedian(np.diff(time_values[np.isfinite(time_values)]))) if np.isfinite(time_values).sum() > 1 else 1e-6
+    tolerance_s = max(abs(sample_dt) * 2.0, 1e-6)
+    covers_start = bool(
+        np.isfinite(command_start)
+        and np.isfinite(target_start)
+        and command_start <= target_start + tolerance_s
+    )
+    covers_end = bool(
+        np.isfinite(command_end)
+        and np.isfinite(target_end)
+        and command_end >= target_end - tolerance_s
+    )
+    corr, nrmse = _shape_corr_and_nrmse(target_values, support_values)
+    support_shape_mismatch = bool(
+        (np.isfinite(corr) and corr < 0.5)
+        or (np.isfinite(nrmse) and nrmse > 0.75)
+    )
+    prediction_available = bool(np.isfinite(predicted_values).any() and forward_source != "unavailable" and plotted_predicted_source != "unavailable")
+    support_contamination = bool(
+        "support_reference_output_mT" in command_profile.columns
+        and predicted_column in command_profile.columns
+        and np.allclose(support_values, predicted_values, equal_nan=True)
+    )
+    predicted_from_command = bool(prediction_available and covers_start and covers_end and not support_contamination)
+    status_parts: list[str] = []
+    if not prediction_available:
+        status_parts.append("forward_prediction_unavailable")
+    if not covers_start or not covers_end:
+        status_parts.append("command_coverage_insufficient")
+    if support_contamination:
+        status_parts.append("support_reference_contamination")
+    if prediction_available and not predicted_from_command:
+        status_parts.append("command_not_forward_predicted")
+    if not status_parts:
+        status_parts.append("ok")
+    status = "|".join(status_parts)
+    reason = status
+
+    return {
+        "command_generation_target": "physical_target",
+        "support_reference_role": "diagnostic_reference",
+        "support_reference_used_for_command": False,
+        "plotted_command_source": plotted_command_source,
+        "plotted_predicted_source": plotted_predicted_source,
+        "forward_prediction_source": forward_source,
+        "forward_prediction_available": prediction_available,
+        "predicted_from_plotted_command": predicted_from_command,
+        "command_prediction_consistency_status": status,
+        "command_prediction_consistency_reason": reason,
+        "command_nonzero_start_s": command_start,
+        "command_nonzero_end_s": command_end,
+        "target_nonzero_start_s": target_start,
+        "target_active_end_s": target_end,
+        "command_target_start_delta_s": float(command_start - target_start) if np.isfinite(command_start) and np.isfinite(target_start) else float("nan"),
+        "command_target_end_delta_s": float(command_end - target_end) if np.isfinite(command_end) and np.isfinite(target_end) else float("nan"),
+        "command_covers_target_active_start": covers_start,
+        "command_covers_target_active_end": covers_end,
+        "displayed_predicted_valid": predicted_from_command,
+        "support_reference_shape_mismatch": support_shape_mismatch,
+        "support_reference_target_corr": corr,
+        "support_reference_target_nrmse": nrmse,
     }
 
 

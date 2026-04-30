@@ -54,6 +54,7 @@ def test_infer_finite_filename_metadata_with_decimal_variants() -> None:
     inferred = infer_dataset_filename_metadata("finite_sine_1Hz_1.25cycle.csv")
     inferred_p = infer_dataset_filename_metadata("finite_triangle_2Hz_1p75cycle.csv")
     inferred_underscore = infer_dataset_filename_metadata("finite_triangle_2Hz_1_75cycle.csv")
+    inferred_tri_alias = infer_dataset_filename_metadata("finite_tri_1Hz_1cycle.csv")
 
     assert inferred["source_type"] == "finite_cycle"
     assert inferred["waveform"] == "sine"
@@ -61,6 +62,9 @@ def test_infer_finite_filename_metadata_with_decimal_variants() -> None:
     assert inferred["cycle"] == 1.25
     assert inferred_p["cycle"] == 1.75
     assert inferred_underscore["cycle"] == 1.75
+    assert inferred_tri_alias["source_type"] == "finite_cycle"
+    assert inferred_tri_alias["waveform"] == "triangle"
+    assert inferred_tri_alias["cycle"] == 1.0
 
 
 def test_parse_measurement_file_applies_filename_defaults_without_current_token() -> None:
