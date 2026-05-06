@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -299,11 +301,6 @@ def _missing_case_row(source_file: str, input_path: Path) -> dict[str, Any]:
 
 
 def _write_review_plots(review: pd.DataFrame, metadata: dict[str, Any], plot_dir: Path) -> list[str]:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
     plot_dir.mkdir(parents=True, exist_ok=True)
     stem = f"actual_drive_review_{metadata['waveform_type']}_{float(metadata['freq_hz']):g}Hz_{float(metadata['cycle_count']):g}cycle"
     plot_specs: list[tuple[str, list[tuple[str, str]], str]] = [
@@ -313,6 +310,18 @@ def _write_review_plots(review: pd.DataFrame, metadata: dict[str, Any], plot_dir
     ]
     if "current_a" in review.columns:
         plot_specs.append(("current", [("current_a", "Current1_A")], "current (A)"))
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError:
+        paths = []
+        for suffix, _, _ in plot_specs:
+            path = plot_dir / f"{stem}_{suffix}.png"
+            _write_placeholder_png(path)
+            paths.append(str(path))
+        return paths
     paths: list[str] = []
     for suffix, columns, ylabel in plot_specs:
         fig, ax = plt.subplots(figsize=(9, 4))
@@ -330,6 +339,22 @@ def _write_review_plots(review: pd.DataFrame, metadata: dict[str, Any], plot_dir
         plt.close(fig)
         paths.append(str(path))
     return paths
+
+
+def _write_placeholder_png(path: Path) -> None:
+    width, height = 2, 2
+    raw_rows = b"".join(b"\x00" + b"\xff\xff\xff" * width for _ in range(height))
+    payload = zlib.compress(raw_rows)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", payload)
+        + chunk(b"IEND", b"")
+    )
 
 
 def _parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:
