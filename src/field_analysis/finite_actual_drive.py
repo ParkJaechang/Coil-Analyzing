@@ -13,14 +13,12 @@ import pandas as pd
 
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
 
-
 RESULT_FILENAME_RE = re.compile(
-    r"finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv$",
+    r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv)$",
     re.IGNORECASE,
 )
 EXPECTED_ACTUAL_DRIVE_FREQS_HZ = (0.5, 1.25, 2.0)
 EXPECTED_ACTUAL_DRIVE_CYCLES = (1.0, 1.25, 1.5, 1.75)
-
 
 @dataclass(frozen=True)
 class ActualDriveRecord:
@@ -32,14 +30,26 @@ class ActualDriveRecord:
     metadata: dict[str, Any]
     frame: pd.DataFrame
 
-
 def parse_actual_drive_filename(path: str | Path) -> dict[str, Any]:
+    return parse_finite_actual_drive_filename(path)
+
+
+def parse_finite_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     name = Path(path).name
-    match = RESULT_FILENAME_RE.match(name)
+    match = RESULT_FILENAME_RE.search(name)
     if match is None:
         raise ValueError(f"Unsupported finite actual-drive result filename: {name}")
+    prefix = name[: match.start("canonical")]
+    if prefix.endswith("_"):
+        prefix = prefix[:-1]
+    waveform = match.group("waveform").lower()
     return {
-        "waveform_type": match.group("waveform").lower(),
+        "source_type": "finite_actual_drive_result",
+        "source_file": name,
+        "canonical_source_filename": match.group("canonical"),
+        "upload_internal_id": prefix or None,
+        "waveform": waveform,
+        "waveform_type": waveform,
         "freq_hz": float(match.group("freq")),
         "cycle_count": float(match.group("cycle")),
     }
@@ -76,6 +86,9 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
     metadata: dict[str, Any] = {
         **filename_meta,
         "source_file": source_path.name,
+        "canonical_source_filename": filename_meta["canonical_source_filename"],
+        "upload_internal_id": filename_meta["upload_internal_id"],
+        "source_type": "finite_actual_drive_result",
         "source_path": str(source_path),
         "pre_delay_s": _numeric_metadata(preamble, "PreDelay(s)"),
         "post_delay_s": _numeric_metadata(preamble, "PostDelay(s)"),
@@ -95,6 +108,55 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
         metadata=metadata,
         frame=normalized,
     )
+
+
+def load_finite_actual_drive_result(path: str | Path) -> dict[str, Any]:
+    record = read_actual_drive_result(path)
+    review, metadata = build_actual_drive_review_case(record)
+    return _case_payload(record, review, metadata)
+
+
+def build_finite_actual_drive_review_dataset(files: list[str | Path]) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    summary_rows: list[dict[str, Any]] = []
+    for file in files:
+        source_file = Path(file).name
+        try:
+            case = load_finite_actual_drive_result(file)
+        except Exception as exc:  # noqa: BLE001 - UI payload must report parse errors, not raise.
+            error = {
+                "source_file": source_file,
+                "canonical_source_filename": None,
+                "upload_internal_id": None,
+                "parse_status": "error",
+                "parse_error": str(exc),
+            }
+            errors.append(error)
+            summary_rows.append(error)
+            continue
+        cases.append(case)
+        summary_rows.append(
+            {
+                "case_id": case["case_id"],
+                "display_label": case["display_label"],
+                "source_file": case["source_file"],
+                "canonical_source_filename": case["canonical_source_filename"],
+                "upload_internal_id": case["upload_internal_id"],
+                "waveform": case["waveform"],
+                "freq_hz": case["freq_hz"],
+                "cycle_count": case["cycle_count"],
+                "parse_status": case["parse_status"],
+                "parse_error": case["parse_error"],
+                **case["metrics"],
+                **case["status"],
+            }
+        )
+    return {
+        "cases": cases,
+        "summary": pd.DataFrame(summary_rows),
+        "errors": errors,
+    }
 
 
 def build_actual_drive_review_case(record: ActualDriveRecord) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -174,12 +236,63 @@ def build_actual_drive_review_case(record: ActualDriveRecord) -> tuple[pd.DataFr
         "target_pp_mT": float(FIELD_ROUTE_NORMALIZED_TARGET_PP),
         "target_pp_sampled_mT": sampled_target_pp,
         "possible_polarity_flip_suggested": possible_polarity_flip,
+        "baseline_ok": bool(pre_mask.any() and np.isfinite(baseline)),
+        "nonzero_start_ok": bool(np.isfinite(command_start_s) and command_start_s >= 0.0),
+        "clipping_or_spike_suspected": bool(_clipping_or_spike_suspected(first_voltage, raw_field)),
+        "truncation_suspected": bool(np.isfinite(command_end_s) and command_end_s < command_start_s + target_duration_s * 0.75),
+        "tail_present": bool(tail_mask.any() and np.isfinite(measured_tail_residual) and measured_tail_residual > 0.05),
+        "alignment_status": "ok",
         "correction_delta_generated": False,
         "second_voltage_generated": False,
         "second_lut_generated": False,
         "continuous_touched": False,
     }
     return review, metadata
+
+
+def _case_payload(record: ActualDriveRecord, review: pd.DataFrame, metadata: dict[str, Any]) -> dict[str, Any]:
+    freq = f"{record.freq_hz:g}"
+    cycle = f"{record.cycle_count:g}"
+    metrics = {
+        "measured_active_nrmse": metadata["measured_active_nrmse"],
+        "measured_shape_corr": metadata["measured_shape_corr"],
+        "measured_peak_error_mT": metadata["measured_peak_error_mT"],
+        "measured_phase_error_s": metadata["measured_phase_error_s"],
+        "measured_terminal_error_mT": metadata["measured_terminal_error_mT"],
+        "measured_tail_residual": metadata["measured_tail_residual"],
+        "measured_startup_residual_mT": metadata["measured_startup_residual_mT"],
+        "measured_pp": metadata["measured_pp_mT"],
+        "target_pp": metadata["target_pp_mT"],
+        "alignment_offset_s": metadata["alignment_offset_s"],
+        "alignment_confidence": metadata["alignment_confidence"],
+        "possible_polarity_flip_suggested": metadata["possible_polarity_flip_suggested"],
+    }
+    status = {
+        "baseline_ok": metadata["baseline_ok"],
+        "nonzero_start_ok": metadata["nonzero_start_ok"],
+        "clipping_or_spike_suspected": metadata["clipping_or_spike_suspected"],
+        "truncation_suspected": metadata["truncation_suspected"],
+        "tail_present": metadata["tail_present"],
+        "alignment_status": metadata["alignment_status"],
+    }
+    return {
+        "case_id": f"finite_actual_drive_result:{record.waveform_type}:{freq}Hz:{cycle}cycle",
+        "display_label": f"{record.waveform_type} {freq}Hz {cycle}cycle actual-drive result",
+        "source_file": record.source_file,
+        "canonical_source_filename": metadata["canonical_source_filename"],
+        "upload_internal_id": metadata["upload_internal_id"],
+        "waveform": record.waveform_type,
+        "waveform_type": record.waveform_type,
+        "freq_hz": record.freq_hz,
+        "cycle_count": record.cycle_count,
+        "source_type": "finite_actual_drive_result",
+        "parse_status": "parsed",
+        "parse_error": None,
+        "time_series": review,
+        "metrics": metrics,
+        "status": status,
+        "metadata": metadata,
+    }
 
 
 def review_csv_filename(metadata: dict[str, Any]) -> str:
@@ -193,7 +306,10 @@ def process_actual_drive_review_folder(input_dir: str | Path, output_dir: str | 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     expected_files = expected_actual_drive_result_filenames()
-    existing_paths = {path.name: path for path in sorted(input_path.glob("finite_recommended_voltage_lut_*_result.csv"))}
+    existing_paths = {
+        parse_finite_actual_drive_filename(path)["canonical_source_filename"]: path
+        for path in sorted(input_path.glob("*finite_recommended_voltage_lut_*_result.csv"))
+    }
     records = [read_actual_drive_result(existing_paths[name]) for name in expected_files if name in existing_paths]
     missing_files = [name for name in expected_files if name not in existing_paths]
     case_rows: list[dict[str, Any]] = []
@@ -411,6 +527,23 @@ def _field_motion_start(time_s: np.ndarray, field: np.ndarray, baseline: float) 
     residual = np.asarray(field, dtype=float) - float(baseline)
     start, _ = _nonzero_window(time_s, residual, threshold_fraction=0.02)
     return start
+
+
+def _clipping_or_spike_suspected(voltage: np.ndarray, field: np.ndarray) -> bool:
+    voltage_values = np.asarray(voltage, dtype=float)
+    field_values = np.asarray(field, dtype=float)
+    finite_voltage = voltage_values[np.isfinite(voltage_values)]
+    finite_field = field_values[np.isfinite(field_values)]
+    if finite_voltage.size and np.nanmax(np.abs(finite_voltage)) >= 4.99:
+        return True
+    if finite_field.size < 5:
+        return False
+    diffs = np.abs(np.diff(finite_field))
+    if diffs.size < 2:
+        return False
+    median_step = float(np.nanmedian(diffs))
+    max_step = float(np.nanmax(diffs))
+    return bool(median_step > 0.0 and max_step > median_step * 25.0)
 
 
 def _shape_corr_and_nrmse(target: np.ndarray, measured: np.ndarray) -> tuple[float, float]:
