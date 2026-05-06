@@ -41,47 +41,6 @@ def parse_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     }
 
 
-def _parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:
-    metadata: dict[str, Any] = {}
-    header_index = -1
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("Row,"):
-            header_index = index
-            break
-        if not stripped.startswith("#"):
-            continue
-        parts = [part.strip() for part in stripped[1:].split(",")]
-        if not parts or not parts[0]:
-            continue
-        key = parts[0]
-        if len(parts) == 2:
-            metadata[key] = parts[1]
-        elif len(parts) > 2:
-            metadata[key] = parts[1:]
-    if header_index < 0:
-        raise ValueError("Could not find actual-drive result table header")
-    return metadata, header_index
-
-
-def _numeric_metadata(metadata: dict[str, Any], key: str) -> float | None:
-    value = metadata.get(key)
-    if isinstance(value, list):
-        value = value[0] if value else None
-    if value is None:
-        return None
-    match = re.search(r"[-+]?[0-9]*\.?[0-9]+", str(value))
-    return float(match.group(0)) if match else None
-
-
-def _parse_auto_sync_lag_ms(metadata: dict[str, Any]) -> float | None:
-    value = metadata.get("AutoSyncHallLag")
-    if value is None:
-        return None
-    match = re.search(r"applied\s+([-+]?[0-9]*\.?[0-9]+)ms", str(value), flags=re.IGNORECASE)
-    return float(match.group(1)) if match else None
-
-
 def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
     source_path = Path(path)
     filename_meta = parse_actual_drive_filename(source_path)
@@ -101,7 +60,7 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
         }
     )
     if "Current1_A" in frame.columns:
-        normalized["measured_current_a"] = pd.to_numeric(frame["Current1_A"], errors="coerce")
+        normalized["current_a"] = pd.to_numeric(frame["Current1_A"], errors="coerce")
     metadata: dict[str, Any] = {
         **filename_meta,
         "source_file": source_path.name,
@@ -124,6 +83,178 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
         metadata=metadata,
         frame=normalized,
     )
+
+
+def build_actual_drive_review_case(record: ActualDriveRecord) -> tuple[pd.DataFrame, dict[str, Any]]:
+    frame = record.frame.copy()
+    time_abs = frame["time_s_abs"].to_numpy(dtype=float)
+    first_voltage = frame["first_voltage_v"].to_numpy(dtype=float)
+    raw_field = frame["measured_field_raw"].to_numpy(dtype=float)
+    command_start_s, command_end_s = _nonzero_window(time_abs, first_voltage)
+    if not np.isfinite(command_start_s):
+        command_start_s = float(np.nanmin(time_abs))
+    pre_mask = time_abs < command_start_s
+    baseline = float(np.nanmedian(raw_field[pre_mask])) if pre_mask.any() else float(np.nanmedian(raw_field))
+    measured_field = raw_field - baseline
+    field_start_s = _field_motion_start(time_abs, raw_field, baseline)
+    relative_time = time_abs - float(command_start_s)
+    target_duration_s = float(record.cycle_count / record.freq_hz)
+    active_mask = (relative_time >= 0.0) & (relative_time <= target_duration_s + 1e-12)
+    physical_target = _finite_target_template(
+        relative_time,
+        waveform_type=record.waveform_type,
+        freq_hz=record.freq_hz,
+        target_cycle_count=record.cycle_count,
+        target_output_pp=float(FIELD_ROUTE_NORMALIZED_TARGET_PP),
+        force_rounded_triangle=True,
+    )
+    residual = physical_target - measured_field
+    corr, nrmse = _shape_corr_and_nrmse(physical_target[active_mask], measured_field[active_mask])
+    sampled_target_pp = _pp(physical_target[active_mask])
+    measured_pp = _pp(measured_field[active_mask])
+    measured_peak_error = float(measured_pp - float(FIELD_ROUTE_NORMALIZED_TARGET_PP)) if np.isfinite(measured_pp) else float("nan")
+    phase_error_s = _estimate_phase_error(relative_time, physical_target, measured_field, active_mask)
+    terminal_mask = active_mask & (relative_time >= max(target_duration_s * 0.85, 0.0))
+    startup_mask = active_mask & (relative_time <= min(target_duration_s * 0.2, 0.25 / max(record.freq_hz, 1e-9)))
+    tail_mask = relative_time > target_duration_s
+    measured_terminal_error = float(np.nanmean(residual[terminal_mask])) if terminal_mask.any() else float("nan")
+    measured_startup_residual = float(np.nanmean(residual[startup_mask])) if startup_mask.any() else float("nan")
+    measured_tail_residual = (
+        float(np.nanmax(np.abs(measured_field[tail_mask]))) / max(abs(measured_pp), 1e-9)
+        if tail_mask.any() and np.isfinite(measured_pp)
+        else float("nan")
+    )
+    possible_polarity_flip = bool(np.isfinite(corr) and corr < -0.3)
+
+    review = pd.DataFrame(
+        {
+            "time_s": relative_time,
+            "first_voltage_v": first_voltage,
+            "physical_target_output_mT": physical_target,
+            "measured_field_mT": measured_field,
+            "measured_residual_mT": residual,
+        }
+    )
+    if "current_a" in frame.columns:
+        review["current_a"] = frame["current_a"].to_numpy(dtype=float)
+    metadata = {
+        **record.metadata,
+        "review_packet_type": "finite_actual_drive_phase1",
+        "target_active_start_s": 0.0,
+        "target_active_end_s": target_duration_s,
+        "target_duration_s": target_duration_s,
+        "command_start_s": command_start_s,
+        "command_end_s": command_end_s,
+        "alignment_offset_s": command_start_s,
+        "alignment_anchor": "Voltage1_V_command_nonzero_start",
+        "alignment_confidence": "medium",
+        "voltage_nonzero_start_s": command_start_s,
+        "field_motion_start_s": field_start_s,
+        "field_baseline_mT": baseline,
+        "measured_active_nrmse": nrmse,
+        "measured_shape_corr": corr,
+        "measured_peak_error_mT": measured_peak_error,
+        "measured_phase_error_s": phase_error_s,
+        "measured_terminal_error_mT": measured_terminal_error,
+        "measured_tail_residual": measured_tail_residual,
+        "measured_startup_residual_mT": measured_startup_residual,
+        "measured_pp_mT": measured_pp,
+        "target_pp_mT": float(FIELD_ROUTE_NORMALIZED_TARGET_PP),
+        "target_pp_sampled_mT": sampled_target_pp,
+        "possible_polarity_flip_suggested": possible_polarity_flip,
+        "correction_delta_generated": False,
+        "second_voltage_generated": False,
+        "second_lut_generated": False,
+        "continuous_touched": False,
+    }
+    return review, metadata
+
+
+def review_csv_filename(metadata: dict[str, Any]) -> str:
+    freq = f"{float(metadata['freq_hz']):g}"
+    cycle = f"{float(metadata['cycle_count']):g}"
+    return f"finite_actual_drive_review_{metadata['waveform_type']}_{freq}Hz_{cycle}cycle.csv"
+
+
+def process_actual_drive_review_folder(input_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    records = [read_actual_drive_result(path) for path in sorted(input_path.glob("finite_recommended_voltage_lut_*_result.csv"))]
+    case_rows: list[dict[str, Any]] = []
+    for record in records:
+        review_frame, metadata = build_actual_drive_review_case(record)
+        review_name = review_csv_filename(metadata)
+        review_path = output_path / review_name
+        review_frame.to_csv(review_path, index=False)
+        case_rows.append(
+            {
+                "source_file": record.source_file,
+                "review_csv_file": review_name,
+                "waveform_type": record.waveform_type,
+                "freq_hz": record.freq_hz,
+                "cycle_count": record.cycle_count,
+                "measured_active_nrmse": metadata["measured_active_nrmse"],
+                "measured_shape_corr": metadata["measured_shape_corr"],
+                "measured_peak_error_mT": metadata["measured_peak_error_mT"],
+                "measured_phase_error_s": metadata["measured_phase_error_s"],
+                "measured_terminal_error_mT": metadata["measured_terminal_error_mT"],
+                "measured_tail_residual": metadata["measured_tail_residual"],
+                "measured_startup_residual_mT": metadata["measured_startup_residual_mT"],
+                "possible_polarity_flip_suggested": metadata["possible_polarity_flip_suggested"],
+            }
+        )
+        (output_path / f"{review_name.removesuffix('.csv')}_metadata.json").write_text(
+            json.dumps(_json_safe(metadata), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    summary = pd.DataFrame(case_rows)
+    summary_path = output_path / "finite_actual_drive_review_summary.csv"
+    summary.to_csv(summary_path, index=False)
+    return {
+        "input_dir": str(input_path),
+        "output_dir": str(output_path),
+        "files_parsed": len(records),
+        "summary_path": str(summary_path),
+        "summary": summary,
+    }
+
+
+def _parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:
+    metadata: dict[str, Any] = {}
+    header_index = -1
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("Row,"):
+            header_index = index
+            break
+        if not stripped.startswith("#"):
+            continue
+        parts = [part.strip() for part in stripped[1:].split(",")]
+        if not parts or not parts[0]:
+            continue
+        metadata[parts[0]] = parts[1] if len(parts) == 2 else parts[1:]
+    if header_index < 0:
+        raise ValueError("Could not find actual-drive result table header")
+    return metadata, header_index
+
+
+def _numeric_metadata(metadata: dict[str, Any], key: str) -> float | None:
+    value = metadata.get(key)
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if value is None:
+        return None
+    match = re.search(r"[-+]?[0-9]*\.?[0-9]+", str(value))
+    return float(match.group(0)) if match else None
+
+
+def _parse_auto_sync_lag_ms(metadata: dict[str, Any]) -> float | None:
+    value = metadata.get("AutoSyncHallLag")
+    if value is None:
+        return None
+    match = re.search(r"applied\s+([-+]?[0-9]*\.?[0-9]+)ms", str(value), flags=re.IGNORECASE)
+    return float(match.group(1)) if match else None
 
 
 def _nonzero_window(time_s: np.ndarray, values: np.ndarray, threshold_fraction: float = 0.02) -> tuple[float, float]:
@@ -156,7 +287,7 @@ def _shape_corr_and_nrmse(target: np.ndarray, measured: np.ndarray) -> tuple[flo
     denom = float(np.linalg.norm(left_centered) * np.linalg.norm(right_centered))
     corr = float(np.dot(left_centered, right_centered) / denom) if denom > 1e-12 else float("nan")
     rmse = float(np.sqrt(np.nanmean(np.square(left - right))))
-    pp = float(np.nanmax(left) - np.nanmin(left))
+    pp = _pp(left)
     nrmse = float(rmse / max(abs(pp) * 0.5, 1e-9)) if np.isfinite(pp) else float("nan")
     return corr, nrmse
 
@@ -173,182 +304,12 @@ def _estimate_phase_error(time_s: np.ndarray, target: np.ndarray, measured: np.n
     return float(lag_index * dt) if np.isfinite(dt) else float("nan")
 
 
-def _smooth(values: np.ndarray, window: int = 9) -> np.ndarray:
-    if window <= 1 or len(values) < window:
-        return np.asarray(values, dtype=float)
-    kernel = np.ones(int(window), dtype=float) / float(window)
-    return np.convolve(np.asarray(values, dtype=float), kernel, mode="same")
-
-
-def build_second_correction_case(
-    record: ActualDriveRecord,
-    *,
-    voltage_limit_v: float = 5.0,
-    correction_gain: float = 0.25,
-    max_delta_fraction_of_limit: float = 0.2,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    frame = record.frame.copy()
-    time_abs = frame["time_s_abs"].to_numpy(dtype=float)
-    first_voltage = frame["first_voltage_v"].to_numpy(dtype=float)
-    raw_field = frame["measured_field_raw"].to_numpy(dtype=float)
-    command_start_s, command_end_s = _nonzero_window(time_abs, first_voltage)
-    if not np.isfinite(command_start_s):
-        command_start_s = float(np.nanmin(time_abs))
-    pre_mask = time_abs < command_start_s
-    baseline = float(np.nanmedian(raw_field[pre_mask])) if pre_mask.any() else float(np.nanmedian(raw_field))
-    measured_field = raw_field - baseline
-    field_start_s = _field_motion_start(time_abs, raw_field, baseline)
-    relative_time = time_abs - float(command_start_s)
-    target_duration_s = float(record.cycle_count / record.freq_hz)
-    active_mask = (relative_time >= 0.0) & (relative_time <= target_duration_s + 1e-12)
-    physical_target = _finite_target_template(
-        relative_time,
-        waveform_type=record.waveform_type,
-        freq_hz=record.freq_hz,
-        target_cycle_count=record.cycle_count,
-        target_output_pp=float(FIELD_ROUTE_NORMALIZED_TARGET_PP),
-        force_rounded_triangle=True,
-    )
-    measured_residual = physical_target - measured_field
-    corr, nrmse = _shape_corr_and_nrmse(physical_target[active_mask], measured_field[active_mask])
-    target_pp_sampled = float(np.nanmax(physical_target[active_mask]) - np.nanmin(physical_target[active_mask])) if active_mask.any() else float("nan")
-    target_pp = float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
-    measured_pp = float(np.nanmax(measured_field[active_mask]) - np.nanmin(measured_field[active_mask])) if active_mask.any() else float("nan")
-    measured_peak_error = float(measured_pp - target_pp) if np.isfinite(measured_pp) and np.isfinite(target_pp) else float("nan")
-    phase_error_s = _estimate_phase_error(relative_time, physical_target, measured_field, active_mask)
-    terminal_mask = active_mask & (relative_time >= max(target_duration_s * 0.85, 0.0))
-    measured_terminal_error = float(np.nanmean(measured_residual[terminal_mask])) if terminal_mask.any() else float("nan")
-    tail_mask = relative_time > target_duration_s
-    measured_tail_residual = float(np.nanmax(np.abs(measured_field[tail_mask]))) / max(abs(measured_pp), 1e-9) if tail_mask.any() and np.isfinite(measured_pp) else float("nan")
-    startup_mask = active_mask & (relative_time <= min(target_duration_s * 0.2, 0.25 / max(record.freq_hz, 1e-9)))
-    measured_startup_residual = float(np.nanmean(measured_residual[startup_mask])) if startup_mask.any() else float("nan")
-    polarity_corr, _ = _shape_corr_and_nrmse(physical_target[active_mask], measured_field[active_mask])
-    possible_polarity_flip = bool(np.isfinite(polarity_corr) and polarity_corr < -0.3)
-
-    voltage_to_field = float(np.nanmax(np.abs(first_voltage[active_mask])) / max(abs(measured_pp), 1e-9)) if active_mask.any() and np.isfinite(measured_pp) else 0.0
-    raw_delta = correction_gain * measured_residual * voltage_to_field
-    raw_delta[~active_mask] = 0.0
-    correction_delta = _smooth(raw_delta, window=9)
-    max_delta = float(voltage_limit_v) * float(max_delta_fraction_of_limit)
-    correction_delta = np.clip(correction_delta, -max_delta, max_delta)
-    second_voltage = np.clip(first_voltage + correction_delta, -float(voltage_limit_v), float(voltage_limit_v))
-    voltage_limit_respected = bool(np.nanmax(np.abs(second_voltage)) <= float(voltage_limit_v) + 1e-9)
-    first_smoothness = _smoothness_score(first_voltage)
-    second_smoothness = _smoothness_score(second_voltage)
-    smoothness_preserved = bool(not np.isfinite(first_smoothness) or second_smoothness <= first_smoothness * 1.5 + 1e-9)
-    correction_applied = bool(voltage_limit_respected and smoothness_preserved and np.nanmax(np.abs(correction_delta)) > 1e-9)
-    reject_reason = None if correction_applied else "voltage_limit_or_smoothness_guard"
-    result = pd.DataFrame(
-        {
-            "sample_index": frame["sample_index"].to_numpy(dtype=int),
-            "time_s": relative_time,
-            "first_voltage_v": first_voltage,
-            "correction_delta_v": correction_delta,
-            "second_voltage_v": second_voltage,
-            "physical_target_output": physical_target,
-            "measured_field": measured_field,
-            "measured_field_raw": raw_field,
-            "measured_residual": measured_residual,
-            "second_predicted_output": np.nan,
-        }
-    )
-    if "measured_current_a" in frame.columns:
-        result["measured_current_a"] = frame["measured_current_a"].to_numpy(dtype=float)
-    metadata = {
-        **record.metadata,
-        "target_active_start_s": 0.0,
-        "target_active_end_s": target_duration_s,
-        "target_duration_s": target_duration_s,
-        "command_start_s": command_start_s,
-        "command_end_s": command_end_s,
-        "alignment_offset_s": command_start_s,
-        "alignment_anchor": "Voltage1_V_command_nonzero_start",
-        "alignment_confidence": "medium",
-        "voltage_nonzero_start_s": command_start_s,
-        "field_motion_start_s": field_start_s,
-        "field_baseline_mT": baseline,
-        "measured_active_nrmse": nrmse,
-        "measured_shape_corr": corr,
-        "measured_peak_error": measured_peak_error,
-        "measured_peak_error_mT": measured_peak_error,
-        "measured_phase_error_s": phase_error_s,
-        "measured_terminal_error": measured_terminal_error,
-        "measured_tail_residual": measured_tail_residual,
-        "measured_startup_residual": measured_startup_residual,
-        "measured_pp": measured_pp,
-        "target_pp": target_pp,
-        "target_pp_sampled": target_pp_sampled,
-        "possible_polarity_flip_suggested": possible_polarity_flip,
-        "second_correction_method": "conservative_residual_proportional",
-        "second_correction_gain": float(correction_gain),
-        "voltage_limit_v": float(voltage_limit_v),
-        "voltage_limit_respected": voltage_limit_respected,
-        "smoothness_preserved": smoothness_preserved,
-        "command_smoothness_first": first_smoothness,
-        "command_smoothness_second": second_smoothness,
-        "correction_applied": correction_applied,
-        "correction_reject_reason": reject_reason,
-        "second_prediction_available": False,
-        "second_prediction_unavailable_reason": "no_forward_model_from_actual_drive_only",
-    }
-    return result, metadata
-
-
-def _smoothness_score(values: np.ndarray) -> float:
+def _pp(values: np.ndarray) -> float:
     finite = np.asarray(values, dtype=float)
-    if len(finite) < 3 or not np.isfinite(finite).any():
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
         return float("nan")
-    return float(np.sqrt(np.nanmean(np.square(np.diff(finite, n=2)))))
-
-
-def second_lut_filename(metadata: dict[str, Any]) -> str:
-    freq = f"{float(metadata['freq_hz']):g}"
-    cycle = f"{float(metadata['cycle_count']):g}"
-    return f"finite_second_correction_lut_{metadata['waveform_type']}_{freq}Hz_{cycle}cycle.csv"
-
-
-def process_actual_drive_folder(input_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
-    input_path = Path(input_dir)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    records = [read_actual_drive_result(path) for path in sorted(input_path.glob("finite_recommended_voltage_lut_*_result.csv"))]
-    case_rows: list[dict[str, Any]] = []
-    for record in records:
-        lut_frame, metadata = build_second_correction_case(record)
-        lut_name = second_lut_filename(metadata)
-        lut_path = output_path / lut_name
-        lut_frame.to_csv(lut_path, index=False)
-        case_rows.append(
-            {
-                "source_file": record.source_file,
-                "second_lut_file": lut_name,
-                "waveform_type": record.waveform_type,
-                "freq_hz": record.freq_hz,
-                "cycle_count": record.cycle_count,
-                "measured_active_nrmse": metadata["measured_active_nrmse"],
-                "measured_shape_corr": metadata["measured_shape_corr"],
-                "measured_peak_error_mT": metadata["measured_peak_error_mT"],
-                "measured_phase_error_s": metadata["measured_phase_error_s"],
-                "voltage_limit_respected": metadata["voltage_limit_respected"],
-                "smoothness_preserved": metadata["smoothness_preserved"],
-                "correction_applied": metadata["correction_applied"],
-                "possible_polarity_flip_suggested": metadata["possible_polarity_flip_suggested"],
-            }
-        )
-        (output_path / f"{lut_name.removesuffix('.csv')}_metadata.json").write_text(
-            json.dumps(_json_safe(metadata), indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    summary = pd.DataFrame(case_rows)
-    summary_path = output_path / "finite_second_correction_batch_summary.csv"
-    summary.to_csv(summary_path, index=False)
-    return {
-        "input_dir": str(input_path),
-        "output_dir": str(output_path),
-        "files_parsed": len(records),
-        "summary_path": str(summary_path),
-        "summary": summary,
-    }
+    return float(np.nanmax(finite) - np.nanmin(finite))
 
 
 def _json_safe(value: Any) -> Any:

@@ -12,7 +12,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.finite_actual_drive import (
-    build_second_correction_case,
+    build_actual_drive_review_case,
     parse_actual_drive_filename,
     read_actual_drive_result,
 )
@@ -60,28 +60,39 @@ def test_actual_drive_filename_and_preamble_parse(tmp_path: Path) -> None:
     assert record.metadata["time_unit"] == "ms"
     assert record.metadata["voltage_unit"] == "V"
     assert record.metadata["field_unit"] == "mT_inferred_from_HallBz"
-    assert {"time_s_abs", "first_voltage_v", "measured_field_raw", "measured_current_a"}.issubset(record.frame.columns)
+    assert {"time_s_abs", "first_voltage_v", "measured_field_raw", "current_a"}.issubset(record.frame.columns)
     assert np.isclose(float(record.frame["time_s_abs"].iloc[-1]), 1.4)
 
 
-def test_actual_drive_second_correction_metrics_and_alignment(tmp_path: Path) -> None:
+def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     path = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.25cycle_result.csv"
     _write_actual_drive_csv(path)
     record = read_actual_drive_result(path)
 
-    lut, metadata = build_second_correction_case(record)
+    review, metadata = build_actual_drive_review_case(record)
 
     assert np.isclose(metadata["target_active_end_s"], 1.0)
     assert np.isclose(metadata["command_start_s"], 0.2, atol=0.02)
     assert metadata["alignment_anchor"] == "Voltage1_V_command_nonzero_start"
-    assert "Voltage1_V" not in lut.columns
-    assert {"first_voltage_v", "measured_field", "physical_target_output", "measured_residual"}.issubset(lut.columns)
-    assert np.allclose(lut["second_voltage_v"], lut["first_voltage_v"] + lut["correction_delta_v"], atol=1e-12)
+    assert "Voltage1_V" not in review.columns
+    assert {
+        "time_s",
+        "first_voltage_v",
+        "physical_target_output_mT",
+        "measured_field_mT",
+        "measured_residual_mT",
+        "current_a",
+    }.issubset(review.columns)
+    assert np.allclose(
+        review["measured_residual_mT"],
+        review["physical_target_output_mT"] - review["measured_field_mT"],
+        atol=1e-12,
+    )
     assert np.isfinite(metadata["measured_active_nrmse"])
     assert np.isfinite(metadata["measured_shape_corr"])
     assert np.isfinite(metadata["measured_peak_error_mT"])
-    assert metadata["target_pp"] == 100.0
-    assert metadata["second_correction_method"] == "conservative_residual_proportional"
-    assert metadata["voltage_limit_respected"] is True
-    assert metadata["second_prediction_available"] is False
-    assert metadata["second_prediction_unavailable_reason"] == "no_forward_model_from_actual_drive_only"
+    assert metadata["target_pp_mT"] == 100.0
+    assert metadata["correction_delta_generated"] is False
+    assert metadata["second_voltage_generated"] is False
+    assert metadata["second_lut_generated"] is False
+    assert metadata["continuous_touched"] is False
