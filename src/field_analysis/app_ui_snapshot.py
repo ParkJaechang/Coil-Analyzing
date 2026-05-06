@@ -59,6 +59,7 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
+from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
@@ -2595,6 +2596,8 @@ def _render_raw_waveforms_tab(
     transient_measurements: list | None = None,
     transient_preprocess_results: list | None = None,
 ) -> None:
+    render_finite_actual_drive_review_section()
+    st.divider()
     render_raw_waveforms_tab(
         test_ids=test_ids,
         analysis_lookup=analysis_lookup,
