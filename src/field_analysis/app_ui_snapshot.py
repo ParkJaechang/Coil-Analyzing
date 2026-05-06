@@ -1069,6 +1069,85 @@ def _format_metric_transition(before: object, after: object, unit: str = "", dig
     return f"{_format_optional_metric(before, unit, digits)} -> {_format_optional_metric(after, unit, digits)}"
 
 
+def _build_final_voltage_lut_export_frame(command_profile: pd.DataFrame) -> pd.DataFrame | None:
+    if "time_s" not in command_profile.columns or "limited_voltage_v" not in command_profile.columns:
+        return None
+    export_frame = pd.DataFrame(
+        {
+            "sample_index": np.arange(len(command_profile), dtype=int),
+            "time_s": command_profile["time_s"].to_numpy(),
+            "voltage_v": command_profile["limited_voltage_v"].to_numpy(),
+        }
+    )
+    for column in (
+        "recommended_voltage_v",
+        "baseline_recommended_voltage_v",
+        "compensated_recommended_voltage_v",
+        "startup_compensation_command_delta_v",
+    ):
+        if column in command_profile.columns:
+            export_frame[column] = command_profile[column].to_numpy()
+    return export_frame
+
+
+def _format_lut_filename_number(value: object) -> str | None:
+    numeric = first_number(value)
+    if numeric is None or not np.isfinite(float(numeric)):
+        return None
+    return f"{float(numeric):g}"
+
+
+def _safe_lut_filename_token(value: object) -> str | None:
+    text = _normalize_optional_text(value)
+    if text is None:
+        return None
+    cleaned = "".join(char if char.isalnum() or char in {".", "-"} else "_" for char in text.strip().lower())
+    cleaned = cleaned.strip("._-")
+    return cleaned or None
+
+
+def _final_voltage_lut_file_name(waveform_type: object, freq_hz: object, cycle_count: object) -> str:
+    waveform_token = _safe_lut_filename_token(waveform_type)
+    freq_token = _format_lut_filename_number(freq_hz)
+    cycle_token = _format_lut_filename_number(cycle_count)
+    if waveform_token is None or freq_token is None or cycle_token is None:
+        return "finite_recommended_voltage_lut.csv"
+    return f"finite_recommended_voltage_lut_{waveform_token}_{freq_token}Hz_{cycle_token}cycle.csv"
+
+
+def _render_final_voltage_lut_export_panel(
+    command_profile: pd.DataFrame,
+    *,
+    finite_compensation_result: bool,
+    waveform_type: object,
+    freq_hz: object,
+    cycle_count: object,
+    key_suffix: str,
+) -> None:
+    st.markdown("#### Final Recommended Voltage LUT")
+    st.caption("이 CSV는 화면에 표시된 최종 추천 전압 파형을 그대로 저장합니다.")
+    st.caption("Fourier 재합성 파형이 아닙니다.")
+    st.caption("전압 컬럼은 현재 Command Waveform plot의 limited_voltage_v와 동일합니다.")
+    if not finite_compensation_result:
+        st.info("finite compensation 결과에서만 최종 추천 전압 LUT를 다운로드할 수 있습니다.")
+        return
+
+    export_frame = _build_final_voltage_lut_export_frame(command_profile)
+    if export_frame is None:
+        st.warning(
+            "최종 추천 전압 LUT를 만들 수 없습니다: command_profile에 time_s 또는 limited_voltage_v가 없습니다."
+        )
+        return
+
+    st.download_button(
+        label="최종 추천 전압 LUT CSV 다운로드",
+        data=export_frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=_final_voltage_lut_file_name(waveform_type, freq_hz, cycle_count),
+        mime="text/csv",
+        key=f"download_final_voltage_lut_v2_{key_suffix}",
+    )
+
+
 def _format_bool_transition(before: bool | None, after: bool | None) -> str:
     def _label(value: bool | None) -> str:
         if value is None:
@@ -2302,6 +2381,14 @@ def _render_quick_lut_tab_v2(
                 mime="text/csv",
                 key="download_compensation_waveform_v2",
             )
+            _render_final_voltage_lut_export_panel(
+                command_profile,
+                finite_compensation_result=finite_cycle_mode,
+                waveform_type=target_waveform,
+                freq_hz=target_freq,
+                cycle_count=target_cycle_count,
+                key_suffix="compensation",
+            )
 
             if finite_cycle_mode:
                 finite_model = _build_empirical_finite_model(
@@ -2479,6 +2566,14 @@ def _render_quick_lut_tab_v2(
                 plot_command_waveform(recommendation["command_waveform"], value_column="limited_voltage_v"),
                 use_container_width=True,
             )
+        _render_final_voltage_lut_export_panel(
+            recommendation["command_waveform"],
+            finite_compensation_result=False,
+            waveform_type=target_waveform,
+            freq_hz=target_freq,
+            cycle_count=target_cycle_count,
+            key_suffix="scalar",
+        )
         render_startup_compensation_review({}, recommendation["command_waveform"])
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
