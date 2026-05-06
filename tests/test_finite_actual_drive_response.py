@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from field_analysis.finite_actual_drive import (
     build_actual_drive_review_case,
+    expected_actual_drive_result_filenames,
     parse_actual_drive_filename,
     read_actual_drive_result,
 )
@@ -96,3 +97,11 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert metadata["second_voltage_generated"] is False
     assert metadata["second_lut_generated"] is False
     assert metadata["continuous_touched"] is False
+
+
+def test_expected_actual_drive_files_include_twelve_finite_cases() -> None:
+    expected = expected_actual_drive_result_filenames()
+
+    assert len(expected) == 12
+    assert "finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv" in expected
+    assert "finite_recommended_voltage_lut_sine_1.25Hz_1.25cycle_result.csv" in expected

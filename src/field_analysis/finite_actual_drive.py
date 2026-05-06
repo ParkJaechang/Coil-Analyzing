@@ -16,6 +16,8 @@ RESULT_FILENAME_RE = re.compile(
     r"finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv$",
     re.IGNORECASE,
 )
+EXPECTED_ACTUAL_DRIVE_FREQS_HZ = (0.5, 1.25, 2.0)
+EXPECTED_ACTUAL_DRIVE_CYCLES = (1.0, 1.25, 1.5, 1.75)
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,14 @@ def parse_actual_drive_filename(path: str | Path) -> dict[str, Any]:
         "freq_hz": float(match.group("freq")),
         "cycle_count": float(match.group("cycle")),
     }
+
+
+def expected_actual_drive_result_filenames() -> list[str]:
+    return [
+        f"finite_recommended_voltage_lut_sine_{freq:g}Hz_{cycle:g}cycle_result.csv"
+        for freq in EXPECTED_ACTUAL_DRIVE_FREQS_HZ
+        for cycle in EXPECTED_ACTUAL_DRIVE_CYCLES
+    ]
 
 
 def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
@@ -180,17 +190,27 @@ def process_actual_drive_review_folder(input_dir: str | Path, output_dir: str | 
     input_path = Path(input_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    records = [read_actual_drive_result(path) for path in sorted(input_path.glob("finite_recommended_voltage_lut_*_result.csv"))]
+    expected_files = expected_actual_drive_result_filenames()
+    existing_paths = {path.name: path for path in sorted(input_path.glob("finite_recommended_voltage_lut_*_result.csv"))}
+    records = [read_actual_drive_result(existing_paths[name]) for name in expected_files if name in existing_paths]
+    missing_files = [name for name in expected_files if name not in existing_paths]
     case_rows: list[dict[str, Any]] = []
+    metrics_rows: list[dict[str, Any]] = []
+    missing_rows = [_missing_case_row(name, input_path) for name in missing_files]
     for record in records:
         review_frame, metadata = build_actual_drive_review_case(record)
         review_name = review_csv_filename(metadata)
         review_path = output_path / review_name
         review_frame.to_csv(review_path, index=False)
-        case_rows.append(
-            {
+        plot_paths = _write_review_plots(review_frame, metadata, output_path / "plots")
+        parsed_row = {
                 "source_file": record.source_file,
+                "file_path": str(record.path),
+                "parse_status": "parsed",
+                "alignment_status": "ok",
                 "review_csv_file": review_name,
+                "review_csv_path": str(review_path),
+                "plot_paths": "|".join(plot_paths),
                 "waveform_type": record.waveform_type,
                 "freq_hz": record.freq_hz,
                 "cycle_count": record.cycle_count,
@@ -202,22 +222,114 @@ def process_actual_drive_review_folder(input_dir: str | Path, output_dir: str | 
                 "measured_tail_residual": metadata["measured_tail_residual"],
                 "measured_startup_residual_mT": metadata["measured_startup_residual_mT"],
                 "possible_polarity_flip_suggested": metadata["possible_polarity_flip_suggested"],
-            }
-        )
+        }
+        case_rows.append(parsed_row)
+        metrics_rows.append(parsed_row)
         (output_path / f"{review_name.removesuffix('.csv')}_metadata.json").write_text(
-            json.dumps(_json_safe(metadata), indent=2, ensure_ascii=False),
+            json.dumps(_json_safe({**metadata, "plot_paths": plot_paths}), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    summary = pd.DataFrame(case_rows)
+    summary = pd.DataFrame([*case_rows, *missing_rows])
     summary_path = output_path / "finite_actual_drive_review_summary.csv"
     summary.to_csv(summary_path, index=False)
+    metrics_path = output_path / "finite_actual_drive_case_metrics.csv"
+    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)
+    missing_path = output_path / "finite_actual_drive_missing_cases.csv"
+    pd.DataFrame(missing_rows).to_csv(missing_path, index=False)
+    manifest_path = output_path / "finite_actual_drive_review_manifest.json"
+    packet_complete = len(missing_files) == 0
+    manifest = {
+        "packet_type": "finite_actual_drive_phase1_review",
+        "input_dir": str(input_path),
+        "output_dir": str(output_path),
+        "expected_files_count": len(expected_files),
+        "parsed_files_count": len(records),
+        "missing_files": missing_files,
+        "review_packet_complete": packet_complete,
+        "review_packet_status": "complete" if packet_complete else "partial",
+        "summary_csv": str(summary_path),
+        "metrics_csv": str(metrics_path),
+        "missing_cases_csv": str(missing_path),
+        "plots_dir": str(output_path / "plots"),
+        "correction_delta_v_generated": False,
+        "second_voltage_v_generated": False,
+        "second_lut_generated": False,
+        "continuous_touched": False,
+        "stale_second_correction_artifacts_ignored": True,
+    }
+    manifest_path.write_text(json.dumps(_json_safe(manifest), indent=2, ensure_ascii=False), encoding="utf-8")
     return {
         "input_dir": str(input_path),
         "output_dir": str(output_path),
         "files_parsed": len(records),
+        "parsed_files_count": len(records),
+        "expected_files_count": len(expected_files),
+        "missing_files": missing_files,
+        "review_packet_complete": packet_complete,
         "summary_path": str(summary_path),
+        "metrics_path": str(metrics_path),
+        "missing_cases_path": str(missing_path),
+        "manifest_path": str(manifest_path),
         "summary": summary,
     }
+
+
+def _missing_case_row(source_file: str, input_path: Path) -> dict[str, Any]:
+    parsed = parse_actual_drive_filename(source_file)
+    return {
+        "source_file": source_file,
+        "file_path": str(input_path / source_file),
+        "parse_status": "missing",
+        "alignment_status": "unavailable_missing_file",
+        "review_csv_file": "",
+        "review_csv_path": "",
+        "plot_paths": "",
+        "waveform_type": parsed["waveform_type"],
+        "freq_hz": parsed["freq_hz"],
+        "cycle_count": parsed["cycle_count"],
+        "measured_active_nrmse": np.nan,
+        "measured_shape_corr": np.nan,
+        "measured_peak_error_mT": np.nan,
+        "measured_phase_error_s": np.nan,
+        "measured_terminal_error_mT": np.nan,
+        "measured_tail_residual": np.nan,
+        "measured_startup_residual_mT": np.nan,
+        "possible_polarity_flip_suggested": False,
+    }
+
+
+def _write_review_plots(review: pd.DataFrame, metadata: dict[str, Any], plot_dir: Path) -> list[str]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"actual_drive_review_{metadata['waveform_type']}_{float(metadata['freq_hz']):g}Hz_{float(metadata['cycle_count']):g}cycle"
+    plot_specs: list[tuple[str, list[tuple[str, str]], str]] = [
+        ("target_vs_measured", [("physical_target_output_mT", "Physical Target"), ("measured_field_mT", "Measured HallBz")], "field (mT inferred)"),
+        ("voltage", [("first_voltage_v", "Voltage1_V first command")], "voltage (V)"),
+        ("residual", [("measured_residual_mT", "Target - measured")], "residual (mT inferred)"),
+    ]
+    if "current_a" in review.columns:
+        plot_specs.append(("current", [("current_a", "Current1_A")], "current (A)"))
+    paths: list[str] = []
+    for suffix, columns, ylabel in plot_specs:
+        fig, ax = plt.subplots(figsize=(9, 4))
+        for column, label in columns:
+            ax.plot(review["time_s"], review[column], label=label, linewidth=1.2)
+        ax.axvline(metadata["target_active_end_s"], color="k", linestyle="--", linewidth=0.8, label="target end")
+        ax.set_title(f"{metadata['waveform_type']} {float(metadata['freq_hz']):g}Hz {float(metadata['cycle_count']):g}cycle - {suffix}")
+        ax.set_xlabel("time_s aligned to Voltage1_V command start")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="best")
+        fig.tight_layout()
+        path = plot_dir / f"{stem}_{suffix}.png"
+        fig.savefig(path, dpi=140)
+        plt.close(fig)
+        paths.append(str(path))
+    return paths
 
 
 def _parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:
