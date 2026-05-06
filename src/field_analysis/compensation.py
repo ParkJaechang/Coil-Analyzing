@@ -1126,6 +1126,7 @@ def synthesize_current_waveform_compensation(
         command_profile=command_profile,
         finite_cycle_mode=finite_cycle_mode,
         representative_cycle_selection=nearest_cycle_selection,
+        startup_diagnostics=startup_diagnostics,
     )
 
     return {
@@ -1231,8 +1232,24 @@ def synthesize_current_waveform_compensation(
         "steady_state_end_s": steady_state_metadata.get("steady_state_end_s"),
         "startup_excluded": steady_state_metadata.get("startup_excluded"),
         "continuous_evaluation_window": steady_state_metadata.get("continuous_evaluation_window"),
+        "startup_window_start_s": steady_state_metadata.get("startup_window_start_s"),
         "startup_window_end_s": steady_state_metadata.get("startup_window_end_s"),
         "steady_state_duration_s": steady_state_metadata.get("steady_state_duration_s"),
+        "steady_state_local_start_s": steady_state_metadata.get("steady_state_local_start_s"),
+        "steady_state_local_end_s": steady_state_metadata.get("steady_state_local_end_s"),
+        "source_absolute_steady_state_start_s": steady_state_metadata.get("source_absolute_steady_state_start_s"),
+        "source_absolute_steady_state_end_s": steady_state_metadata.get("source_absolute_steady_state_end_s"),
+        "continuous_source_total_duration_s": steady_state_metadata.get("continuous_source_total_duration_s"),
+        "continuous_startup_excluded_until_s": steady_state_metadata.get("continuous_startup_excluded_until_s"),
+        "continuous_steady_state_source_start_s": steady_state_metadata.get("continuous_steady_state_source_start_s"),
+        "continuous_steady_state_source_end_s": steady_state_metadata.get("continuous_steady_state_source_end_s"),
+        "continuous_steady_state_cycles_used": steady_state_metadata.get("continuous_steady_state_cycles_used"),
+        "continuous_steady_state_selection_mode": steady_state_metadata.get("continuous_steady_state_selection_mode"),
+        "steady_state_window_source": steady_state_metadata.get("steady_state_window_source"),
+        "steady_state_window_reason": steady_state_metadata.get("steady_state_window_reason"),
+        "continuous_command_objective": steady_state_metadata.get("continuous_command_objective"),
+        "startup_used_for_command_generation": steady_state_metadata.get("startup_used_for_command_generation"),
+        "steady_state_used_for_command_generation": steady_state_metadata.get("steady_state_used_for_command_generation"),
         "steady_state_nrmse": steady_state_metadata.get("steady_state_nrmse"),
         "steady_state_shape_corr": steady_state_metadata.get("steady_state_shape_corr"),
         "steady_state_peak_error": steady_state_metadata.get("steady_state_peak_error"),
@@ -5515,14 +5532,31 @@ def _attach_continuous_steady_state_metrics(
     command_profile: pd.DataFrame,
     finite_cycle_mode: bool,
     representative_cycle_selection: dict[str, Any],
+    startup_diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
     unavailable = {
         "steady_state_start_s": float("nan"),
         "steady_state_end_s": float("nan"),
         "startup_excluded": False,
         "continuous_evaluation_window": "not_applicable" if finite_cycle_mode else "unavailable",
+        "startup_window_start_s": float("nan"),
         "startup_window_end_s": float("nan"),
         "steady_state_duration_s": float("nan"),
+        "steady_state_local_start_s": float("nan"),
+        "steady_state_local_end_s": float("nan"),
+        "source_absolute_steady_state_start_s": float("nan"),
+        "source_absolute_steady_state_end_s": float("nan"),
+        "continuous_source_total_duration_s": float("nan"),
+        "continuous_startup_excluded_until_s": float("nan"),
+        "continuous_steady_state_source_start_s": float("nan"),
+        "continuous_steady_state_source_end_s": float("nan"),
+        "continuous_steady_state_cycles_used": 0,
+        "continuous_steady_state_selection_mode": "unavailable",
+        "steady_state_window_source": "unavailable",
+        "steady_state_window_reason": "steady_state_window_unavailable",
+        "continuous_command_objective": "steady_state",
+        "startup_used_for_command_generation": False,
+        "steady_state_used_for_command_generation": False,
         "steady_state_nrmse": float("nan"),
         "steady_state_shape_corr": float("nan"),
         "steady_state_peak_error": float("nan"),
@@ -5566,7 +5600,11 @@ def _attach_continuous_steady_state_metrics(
     min_selected = min(selected_indices) if selected_indices else 0
     startup_excluded = bool(available_cycle_count > selected_cycle_count and min_selected > 0)
     sample_period_s = steady_duration_s if steady_duration_s > 0 else float("nan")
+    startup_window_start_s = 0.0 if startup_excluded else float("nan")
     startup_window_end_s = float(min_selected * sample_period_s) if startup_excluded and np.isfinite(sample_period_s) else steady_start_s
+    source_steady_start_s = float(min_selected * sample_period_s + steady_start_s) if np.isfinite(sample_period_s) else float("nan")
+    source_steady_end_s = float(min_selected * sample_period_s + steady_end_s) if np.isfinite(sample_period_s) else float("nan")
+    source_total_duration_s = float(available_cycle_count * sample_period_s) if np.isfinite(sample_period_s) and available_cycle_count > 0 else float("nan")
 
     finite_mask = np.isfinite(time_values) & (time_values >= steady_start_s - 1e-12) & (time_values <= steady_end_s + 1e-12)
     steady_corr, steady_nrmse = _shape_corr_and_nrmse(target_values[finite_mask], predicted_values[finite_mask])
@@ -5589,13 +5627,53 @@ def _attach_continuous_steady_state_metrics(
         if np.isfinite(whole_predicted_pp) and np.isfinite(whole_target_pp)
         else float("nan")
     )
+    startup_offset = _first_numeric(startup_diagnostics.get("first_cycle_field_offset_delta_mT"))
+    startup_cycle_count = int(startup_diagnostics.get("startup_cycle_count_used", 0) or 0)
+    steady_cycle_count = int(startup_diagnostics.get("steady_cycle_count_used", selected_cycle_count) or selected_cycle_count)
+    total_metric_cycles = max(startup_cycle_count + steady_cycle_count, 1)
+    if startup_excluded and startup_offset is not None and np.isfinite(startup_offset) and abs(startup_offset) > 1e-12:
+        target_scale = max(abs(target_pp) * 0.5, 1e-9) if np.isfinite(target_pp) else 1.0
+        startup_nrmse = abs(float(startup_offset)) / target_scale
+        whole_nrmse = float(
+            np.sqrt(
+                (
+                    np.square(steady_nrmse if np.isfinite(steady_nrmse) else 0.0) * max(steady_cycle_count, 1)
+                    + np.square(startup_nrmse) * max(startup_cycle_count, 1)
+                )
+                / total_metric_cycles
+            )
+        )
+        corr_penalty = min(0.5, startup_nrmse * max(startup_cycle_count, 1) / total_metric_cycles)
+        whole_corr = float((steady_corr if np.isfinite(steady_corr) else 1.0) - corr_penalty)
+        whole_peak_error = float((peak_error if np.isfinite(peak_error) else 0.0) + float(startup_offset))
+    selection_mode = "last_n_cycles" if startup_excluded else "fallback"
     metadata = {
         "steady_state_start_s": steady_start_s,
         "steady_state_end_s": steady_end_s,
         "startup_excluded": startup_excluded,
-        "continuous_evaluation_window": "steady_state_representative_cycle",
+        "continuous_evaluation_window": "steady_state",
+        "startup_window_start_s": startup_window_start_s,
         "startup_window_end_s": startup_window_end_s,
         "steady_state_duration_s": steady_duration_s,
+        "steady_state_local_start_s": steady_start_s,
+        "steady_state_local_end_s": steady_end_s,
+        "source_absolute_steady_state_start_s": source_steady_start_s,
+        "source_absolute_steady_state_end_s": source_steady_end_s,
+        "continuous_source_total_duration_s": source_total_duration_s,
+        "continuous_startup_excluded_until_s": startup_window_end_s,
+        "continuous_steady_state_source_start_s": source_steady_start_s,
+        "continuous_steady_state_source_end_s": source_steady_end_s,
+        "continuous_steady_state_cycles_used": selected_cycle_count,
+        "continuous_steady_state_selection_mode": selection_mode,
+        "steady_state_window_source": "representative_cycle_selection",
+        "steady_state_window_reason": (
+            "startup_cycles_excluded_from_continuous_objective"
+            if startup_excluded
+            else "no_startup_cycles_available_to_exclude"
+        ),
+        "continuous_command_objective": "steady_state",
+        "startup_used_for_command_generation": False,
+        "steady_state_used_for_command_generation": True,
         "steady_state_nrmse": steady_nrmse,
         "steady_state_shape_corr": steady_corr,
         "steady_state_peak_error": peak_error,
