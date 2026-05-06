@@ -70,11 +70,17 @@ def test_support_reference_contract_matches_plotted_selected_support_trace() -> 
     assert "support_reference_trace_status" in profile.columns
     assert str(profile["support_reference_plotted_column"].iloc[0]) == "support_reference_output_mT"
     assert "target_aligned_support_reference_mT" in profile.columns
-    assert np.allclose(profile["support_reference_output_mT"], profile["support_scaled_field_mT"], equal_nan=True)
     assert np.allclose(profile["support_reference_output_mT"], profile["target_aligned_support_reference_mT"], equal_nan=True)
+    finite_reference = np.isfinite(pd.to_numeric(profile["support_reference_output_mT"], errors="coerce"))
+    assert finite_reference.any()
     assert not np.allclose(
         profile["support_reference_output_mT"],
         profile["predicted_field_mT"],
+        equal_nan=True,
+    )
+    assert not np.allclose(
+        pd.to_numeric(profile.loc[finite_reference, "support_reference_output_mT"], errors="coerce"),
+        pd.to_numeric(profile.loc[finite_reference, "support_scaled_field_mT"], errors="coerce"),
         equal_nan=True,
     )
 

@@ -1069,6 +1069,85 @@ def _format_metric_transition(before: object, after: object, unit: str = "", dig
     return f"{_format_optional_metric(before, unit, digits)} -> {_format_optional_metric(after, unit, digits)}"
 
 
+def _build_final_voltage_lut_export_frame(command_profile: pd.DataFrame) -> pd.DataFrame | None:
+    if "time_s" not in command_profile.columns or "limited_voltage_v" not in command_profile.columns:
+        return None
+    export_frame = pd.DataFrame(
+        {
+            "sample_index": np.arange(len(command_profile), dtype=int),
+            "time_s": command_profile["time_s"].to_numpy(),
+            "voltage_v": command_profile["limited_voltage_v"].to_numpy(),
+        }
+    )
+    for column in (
+        "recommended_voltage_v",
+        "baseline_recommended_voltage_v",
+        "compensated_recommended_voltage_v",
+        "startup_compensation_command_delta_v",
+    ):
+        if column in command_profile.columns:
+            export_frame[column] = command_profile[column].to_numpy()
+    return export_frame
+
+
+def _format_lut_filename_number(value: object) -> str | None:
+    numeric = first_number(value)
+    if numeric is None or not np.isfinite(float(numeric)):
+        return None
+    return f"{float(numeric):g}"
+
+
+def _safe_lut_filename_token(value: object) -> str | None:
+    text = _normalize_optional_text(value)
+    if text is None:
+        return None
+    cleaned = "".join(char if char.isalnum() or char in {".", "-"} else "_" for char in text.strip().lower())
+    cleaned = cleaned.strip("._-")
+    return cleaned or None
+
+
+def _final_voltage_lut_file_name(waveform_type: object, freq_hz: object, cycle_count: object) -> str:
+    waveform_token = _safe_lut_filename_token(waveform_type)
+    freq_token = _format_lut_filename_number(freq_hz)
+    cycle_token = _format_lut_filename_number(cycle_count)
+    if waveform_token is None or freq_token is None or cycle_token is None:
+        return "finite_recommended_voltage_lut.csv"
+    return f"finite_recommended_voltage_lut_{waveform_token}_{freq_token}Hz_{cycle_token}cycle.csv"
+
+
+def _render_final_voltage_lut_export_panel(
+    command_profile: pd.DataFrame,
+    *,
+    finite_compensation_result: bool,
+    waveform_type: object,
+    freq_hz: object,
+    cycle_count: object,
+    key_suffix: str,
+) -> None:
+    st.markdown("#### Final Recommended Voltage LUT")
+    st.caption("이 CSV는 화면에 표시된 최종 추천 전압 파형을 그대로 저장합니다.")
+    st.caption("Fourier 재합성 파형이 아닙니다.")
+    st.caption("전압 컬럼은 현재 Command Waveform plot의 limited_voltage_v와 동일합니다.")
+    if not finite_compensation_result:
+        st.info("finite compensation 결과에서만 최종 추천 전압 LUT를 다운로드할 수 있습니다.")
+        return
+
+    export_frame = _build_final_voltage_lut_export_frame(command_profile)
+    if export_frame is None:
+        st.warning(
+            "최종 추천 전압 LUT를 만들 수 없습니다: command_profile에 time_s 또는 limited_voltage_v가 없습니다."
+        )
+        return
+
+    st.download_button(
+        label="최종 추천 전압 LUT CSV 다운로드",
+        data=export_frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=_final_voltage_lut_file_name(waveform_type, freq_hz, cycle_count),
+        mime="text/csv",
+        key=f"download_final_voltage_lut_v2_{key_suffix}",
+    )
+
+
 def _format_bool_transition(before: bool | None, after: bool | None) -> str:
     def _label(value: bool | None) -> str:
         if value is None:
@@ -1735,6 +1814,91 @@ def _render_command_prediction_consistency_card(
         )
 
 
+def _render_continuous_steady_state_review(
+    compensation: dict[str, object],
+    command_profile: pd.DataFrame,
+) -> None:
+    metadata_keys = (
+        "steady_state_start_s",
+        "steady_state_end_s",
+        "startup_excluded",
+        "continuous_evaluation_window",
+        "startup_window_end_s",
+        "steady_state_duration_s",
+        "steady_state_nrmse",
+        "steady_state_shape_corr",
+        "steady_state_peak_error_mT",
+    )
+    has_metadata = any(_support_provenance_value(compensation, command_profile, key) is not None for key in metadata_keys)
+
+    st.markdown("#### Continuous Steady-State Review")
+    st.caption(
+        "This panel provides user inspection data for the steady-state evaluation window. "
+        "사용자가 steady-state alignment를 검토하십시오. "
+        "Support Reference is diagnostic only and is not the command target."
+    )
+    if not has_metadata:
+        st.info("Continuous steady-state review metadata unavailable")
+        return
+
+    st.markdown("**steady-state evaluation window**")
+    st.write(
+        f"- Steady-state window start: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_start_s'), 's')}`"
+    )
+    st.write(
+        f"- Steady-state window end: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_end_s'), 's')}`"
+    )
+    st.write(
+        f"- Startup excluded: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'startup_excluded'))}`"
+    )
+    st.write(
+        f"- Startup window end: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'startup_window_end_s'), 's')}`"
+    )
+    st.write(
+        f"- Evaluation window: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'continuous_evaluation_window'))}`"
+    )
+
+    st.markdown("**Steady-state metrics**")
+    st.write(
+        f"- Steady-state duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_duration_s'), 's')}`"
+    )
+    st.write(
+        f"- Steady-state NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_nrmse'))}`"
+    )
+    st.write(
+        f"- Steady-state shape corr: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_shape_corr'))}`"
+    )
+    st.write(
+        f"- Steady-state peak error: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'steady_state_peak_error_mT', 'steady_state_peak_error'), 'mT')}`"
+    )
+
+    st.markdown("**Prediction / command consistency**")
+    st.write(
+        f"- Predicted from plotted command: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'predicted_from_plotted_command'))}`"
+    )
+    st.write(
+        f"- Consistency status: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'command_prediction_consistency_status'))}`"
+    )
+    st.write(
+        f"- Support Reference used for command: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_reference_used_for_command'))}`"
+    )
+
+    with st.expander("Whole-window metrics (debug / secondary)", expanded=False):
+        st.caption("Whole-window metrics are debug/secondary only.")
+        st.write(
+            f"- whole_window_metrics_debug_only: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'whole_window_metrics_debug_only'))}`"
+        )
+        st.write(
+            f"- whole-window NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'whole_window_nrmse_debug'))}`"
+        )
+        st.write(
+            f"- whole-window shape corr: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'whole_window_shape_corr_debug'))}`"
+        )
+        st.write(
+            f"- whole-window peak error: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'whole_window_peak_error_debug'), 'mT')}`"
+        )
+
+
 def _render_finite_prediction_availability(compensation: dict[str, object]) -> None:
     prediction_available = _coerce_boolish(compensation.get("finite_prediction_available"))
     unavailable_reason = _normalize_optional_text(
@@ -2208,6 +2372,8 @@ def _render_quick_lut_tab_v2(
                 _render_finite_cycle_correction_summary(compensation, command_profile)
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
+                _render_continuous_steady_state_review(compensation, command_profile)
+                _render_command_prediction_consistency_card(compensation, command_profile)
                 render_startup_compensation_review(compensation, command_profile)
 
             st.write(f"- mode: `{compensation['mode']}`")
@@ -2301,6 +2467,14 @@ def _render_quick_lut_tab_v2(
                 file_name=comp_file_name,
                 mime="text/csv",
                 key="download_compensation_waveform_v2",
+            )
+            _render_final_voltage_lut_export_panel(
+                command_profile,
+                finite_compensation_result=finite_cycle_mode,
+                waveform_type=target_waveform,
+                freq_hz=target_freq,
+                cycle_count=target_cycle_count,
+                key_suffix="compensation",
             )
 
             if finite_cycle_mode:
@@ -2479,6 +2653,14 @@ def _render_quick_lut_tab_v2(
                 plot_command_waveform(recommendation["command_waveform"], value_column="limited_voltage_v"),
                 use_container_width=True,
             )
+        _render_final_voltage_lut_export_panel(
+            recommendation["command_waveform"],
+            finite_compensation_result=False,
+            waveform_type=target_waveform,
+            freq_hz=target_freq,
+            cycle_count=target_cycle_count,
+            key_suffix="scalar",
+        )
         render_startup_compensation_review({}, recommendation["command_waveform"])
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
