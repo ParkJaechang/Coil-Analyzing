@@ -1127,15 +1127,15 @@ def _render_final_voltage_lut_export_panel(
     st.markdown("#### Final Recommended Voltage LUT")
     st.caption("이 CSV는 화면에 표시된 최종 추천 전압 파형을 그대로 저장합니다.")
     st.caption("Fourier 재합성 파형이 아닙니다.")
-    st.caption("전압 컬럼은 현재 Command Waveform plot의 `limited_voltage_v`와 동일합니다.")
+    st.caption("전압 컬럼은 현재 Command Waveform plot의 limited_voltage_v와 동일합니다.")
     if not finite_compensation_result:
-        st.info("finite compensation LUT unavailable: finite field compensation result에서 사용할 수 있습니다.")
+        st.info("finite compensation 결과에서만 최종 추천 전압 LUT를 다운로드할 수 있습니다.")
         return
 
     export_frame = _build_final_voltage_lut_export_frame(command_profile)
     if export_frame is None:
         st.warning(
-            "finite compensation LUT unavailable: time_s is missing or limited_voltage_v is missing from command_profile."
+            "최종 추천 전압 LUT를 만들 수 없습니다: command_profile에 time_s 또는 limited_voltage_v가 없습니다."
         )
         return
 
