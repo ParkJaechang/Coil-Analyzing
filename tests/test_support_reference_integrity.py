@@ -32,6 +32,44 @@ def _support_entries() -> list[dict[str, object]]:
     return entries
 
 
+def _support_entry_with_prebaseline_and_tail() -> dict[str, object]:
+    freq_hz = 3.0
+    cycle_count = 1.25
+    active_duration_s = cycle_count / freq_hz
+    motion_start_s = 0.4
+    total_duration_s = 1.4
+    time_s = np.linspace(0.0, total_duration_s, 420)
+    active_rel = time_s - motion_start_s
+    active_mask = (active_rel >= 0.0) & (active_rel <= active_duration_s)
+    tail_mask = active_rel > active_duration_s
+    phase = np.clip(active_rel / active_duration_s, 0.0, 1.0)
+    active_wave = np.sin(np.pi * phase)
+    tail = np.exp(-(active_rel - active_duration_s) * 2.0)
+    field = np.where(active_mask, active_wave * 90.0, 0.0)
+    field = np.where(tail_mask, 45.0 * tail, field)
+    current = np.where(active_mask, active_wave * 8.0, 0.0)
+    current = np.where(tail_mask, 4.0 * tail, current)
+    voltage = np.where(active_mask, active_wave * 5.0, 0.0)
+    voltage = np.where(tail_mask, 2.5 * tail, voltage)
+    return {
+        "test_id": "finite_prebaseline_tail_source",
+        "waveform_type": "sine",
+        "freq_hz": freq_hz,
+        "approx_cycle_span": cycle_count,
+        "field_pp": 90.0,
+        "current_pp": 8.0,
+        "daq_voltage_pp": 10.0,
+        "frame": pd.DataFrame(
+            {
+                "time_s": time_s,
+                "daq_input_v": voltage,
+                "i_sum_signed": current,
+                "bz_mT": field,
+            }
+        ),
+    }
+
+
 def _trace_summary(result: dict[str, object]) -> tuple[str, str, str, float, float]:
     profile = result["command_profile"]
     column = str(result["support_reference_plotted_column"])
@@ -77,6 +115,36 @@ def test_support_reference_contract_matches_plotted_selected_support_trace() -> 
         profile["predicted_field_mT"],
         equal_nan=True,
     )
+
+
+def test_support_reference_uses_motion_start_plus_requested_duration_not_full_record_or_tail() -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[_support_entry_with_prebaseline_and_tail()],
+        waveform_type="sine",
+        freq_hz=3.0,
+        target_cycle_count=1.25,
+    )
+    profile = result["command_profile"]
+    expected_duration = 1.25 / 3.0
+    expected_start = 0.4
+    expected_end = expected_start + expected_duration
+
+    assert result["support_reference_timebase_mapping_mode"] == "active_segment_to_target_window"
+    assert result["support_reference_anchor_mode"] in {
+        "command_start_plus_declared_duration",
+        "motion_start_plus_declared_duration",
+    }
+    assert result["support_reference_alignment_status"] == "ok"
+    assert np.isclose(result["support_reference_source_window_start_s"], expected_start, atol=0.01)
+    assert np.isclose(result["support_reference_source_window_end_s"], expected_end, atol=0.01)
+    assert np.isclose(result["support_reference_source_window_duration_s"], expected_duration, atol=0.01)
+    assert np.isclose(result["support_reference_expected_duration_s"], expected_duration, atol=1e-9)
+    assert result["source_pre_baseline_excluded_from_reference"] is True
+    assert result["source_tail_excluded_from_reference"] is True
+    assert "full_record_to_target_window" not in str(result["support_reference_timebase_mapping_mode"])
+    assert str(profile["support_reference_timebase_mapping_mode"].iloc[0]) == "active_segment_to_target_window"
+    assert bool(profile["source_pre_baseline_excluded_from_reference"].iloc[0]) is True
+    assert bool(profile["source_tail_excluded_from_reference"].iloc[0]) is True
 
 
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:

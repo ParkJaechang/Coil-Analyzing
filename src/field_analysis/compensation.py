@@ -818,6 +818,24 @@ def synthesize_current_waveform_compensation(
         finite_prediction_source = final_extension_metadata["finite_prediction_source"] or finite_prediction_source
         predicted_cover_reason = final_extension_metadata["predicted_cover_reason"] or predicted_cover_reason
         support_cover_reason = final_extension_metadata["support_cover_reason"] or support_cover_reason
+    if (
+        field_only_route
+        and finite_cycle_mode
+        and use_finite_empirical_route
+        and target_active_end_s is not None
+        and np.isfinite(float(target_active_end_s))
+        and "time_s" in command_profile.columns
+    ):
+        time_values = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+        tail_mask = np.isfinite(time_values) & (time_values > float(target_active_end_s) + 1e-12)
+        for support_column in ("support_scaled_field_mT", "support_scaled_current_a", "support_reference_output_mT"):
+            if support_column in command_profile.columns and tail_mask.any():
+                values = pd.to_numeric(command_profile[support_column], errors="coerce").to_numpy(dtype=float).copy()
+                active_mask = np.isfinite(time_values) & (time_values <= float(target_active_end_s) + 1e-12)
+                finite_active_indices = np.flatnonzero(active_mask & np.isfinite(values))
+                if finite_active_indices.size:
+                    values[tail_mask] = float(values[int(finite_active_indices[-1])])
+                command_profile[support_column] = values
     if field_only_route and "support_scaled_field_mT" in command_profile.columns:
         command_profile["support_reference_output_mT"] = command_profile["support_scaled_field_mT"]
     if field_only_route and "support_reference_output_mT" in command_profile.columns:
@@ -1162,6 +1180,14 @@ def synthesize_current_waveform_compensation(
         "support_reference_timebase": support_reference_contract.get("support_reference_timebase"),
         "support_reference_plotted_source": support_reference_contract.get("support_reference_plotted_source"),
         "support_reference_alignment_status": support_reference_contract.get("support_reference_alignment_status"),
+        "support_reference_timebase_mapping_mode": support_reference_contract.get("support_reference_timebase_mapping_mode"),
+        "support_reference_source_window_start_s": support_reference_contract.get("support_reference_source_window_start_s"),
+        "support_reference_source_window_end_s": support_reference_contract.get("support_reference_source_window_end_s"),
+        "support_reference_source_window_duration_s": support_reference_contract.get("support_reference_source_window_duration_s"),
+        "support_reference_expected_duration_s": support_reference_contract.get("support_reference_expected_duration_s"),
+        "source_pre_baseline_excluded_from_reference": support_reference_contract.get("source_pre_baseline_excluded_from_reference"),
+        "source_tail_excluded_from_reference": support_reference_contract.get("source_tail_excluded_from_reference"),
+        "support_reference_anchor_mode": support_reference_contract.get("support_reference_anchor_mode"),
         "support_reference_selected_support_id": support_reference_contract.get("support_reference_selected_support_id"),
         "support_reference_route_mode": support_reference_contract.get("support_reference_route_mode"),
         "support_reference_pp": support_reference_contract.get("support_reference_pp"),
@@ -1752,6 +1778,72 @@ def _interpolate_finite_signal(
     return np.interp(np.asarray(target_time, dtype=float), source_time[order], source_values[order])
 
 
+def _finite_support_reference_window(
+    *,
+    full_frame: pd.DataFrame,
+    active_frame: pd.DataFrame,
+    active_duration_s: float,
+    field_column: str,
+) -> dict[str, Any]:
+    full = _prepare_finite_time_frame(full_frame)
+    if full.empty or "time_s" not in full.columns or active_duration_s <= 0:
+        return {
+            "support_reference_alignment_status": "active_window_missing",
+            "active_frame": pd.DataFrame(),
+        }
+    time_values = pd.to_numeric(full["time_s"], errors="coerce").to_numpy(dtype=float)
+    voltage_values = pd.to_numeric(full["daq_input_v"], errors="coerce").to_numpy(dtype=float)
+    command_start_s, _ = _nonzero_window(time_values, voltage_values)
+    field_values = (
+        pd.to_numeric(full[field_column], errors="coerce").to_numpy(dtype=float)
+        if field_column in full.columns
+        else np.full(len(full), np.nan)
+    )
+    field_start_s, _ = _nonzero_window(time_values, field_values)
+    explicit_start_s = (
+        float(active_frame["time_s"].min())
+        if not active_frame.empty and "time_s" in active_frame.columns
+        else float("nan")
+    )
+    if np.isfinite(command_start_s):
+        start_s = float(command_start_s)
+        anchor_mode = "command_start_plus_declared_duration"
+    elif np.isfinite(field_start_s):
+        start_s = float(field_start_s)
+        anchor_mode = "motion_start_plus_declared_duration"
+    elif np.isfinite(explicit_start_s):
+        start_s = float(explicit_start_s)
+        anchor_mode = "metadata_active_window"
+    else:
+        return {
+            "support_reference_alignment_status": "active_window_missing",
+            "active_frame": pd.DataFrame(),
+        }
+    end_s = start_s + float(active_duration_s)
+    window = _prepare_finite_time_frame(
+        full[(full["time_s"] >= start_s - 1e-9) & (full["time_s"] <= end_s + 1e-9)].copy()
+    )
+    if len(window) < 2:
+        return {
+            "support_reference_alignment_status": "active_window_missing",
+            "active_frame": pd.DataFrame(),
+        }
+    source_min_s = float(np.nanmin(time_values)) if np.isfinite(time_values).any() else float("nan")
+    source_max_s = float(np.nanmax(time_values)) if np.isfinite(time_values).any() else float("nan")
+    return {
+        "support_reference_alignment_status": "ok",
+        "active_frame": window,
+        "support_reference_source_window_start_s": start_s,
+        "support_reference_source_window_end_s": end_s,
+        "support_reference_source_window_duration_s": float(active_duration_s),
+        "support_reference_expected_duration_s": float(active_duration_s),
+        "source_pre_baseline_excluded_from_reference": bool(np.isfinite(source_min_s) and source_min_s < start_s - 1e-9),
+        "source_tail_excluded_from_reference": bool(np.isfinite(source_max_s) and source_max_s > end_s + 1e-9),
+        "support_reference_anchor_mode": anchor_mode,
+        "support_reference_timebase_mapping_mode": "active_segment_to_target_window",
+    }
+
+
 def _resample_finite_support_record(
     *,
     entry: dict[str, Any],
@@ -1764,50 +1856,38 @@ def _resample_finite_support_record(
 ) -> dict[str, Any] | None:
     full_frame = _prepare_finite_time_frame(entry.get("frame"))
     active_frame = _prepare_finite_time_frame(entry.get("active_frame"))
-    active_source = "explicit_active_frame"
-    if active_frame.empty:
-        active_source = "derived_from_cycle_metadata"
-        active_frame = full_frame.copy()
-    if active_frame.empty or full_frame.empty or "daq_input_v" not in full_frame.columns:
+    if full_frame.empty or "daq_input_v" not in full_frame.columns:
         return None
 
-    active_start_s = float(active_frame["time_s"].min())
-    expected_support_active_duration_s = float("nan")
-    entry_freq_hz = float(entry.get("freq_hz", np.nan))
-    entry_cycle_count = float(entry.get("approx_cycle_span", np.nan))
-    if np.isfinite(entry_freq_hz) and entry_freq_hz > 0 and np.isfinite(entry_cycle_count) and entry_cycle_count > 0:
-        expected_support_active_duration_s = float(entry_cycle_count / entry_freq_hz)
-    if active_source == "derived_from_cycle_metadata" and np.isfinite(expected_support_active_duration_s):
-        derived_active_end_s = active_start_s + expected_support_active_duration_s
-        derived_active = full_frame[full_frame["time_s"] <= derived_active_end_s + 1e-9].copy()
-        if len(derived_active) >= 2:
-            active_frame = _prepare_finite_time_frame(derived_active)
-
-    active_end_s = float(active_frame["time_s"].max())
-    active_support_duration_s = max(active_end_s - active_start_s, 1e-9)
-    support_observed_coverage_ratio = 1.0
-    support_padding_gap_s = 0.0
-    if np.isfinite(expected_support_active_duration_s) and expected_support_active_duration_s > 0:
-        support_observed_coverage_ratio = float(np.clip(active_support_duration_s / expected_support_active_duration_s, 0.0, 1.0))
-        support_padding_gap_s = max(expected_support_active_duration_s - active_support_duration_s, 0.0)
-    active_mask = time_grid <= float(active_duration_s) + 1e-12
-    target_active_rel = np.clip(time_grid[active_mask], 0.0, float(active_duration_s))
-    if active_duration_s > 0:
-        source_active_rel = target_active_rel / float(active_duration_s) * active_support_duration_s
-    else:
-        source_active_rel = np.zeros_like(target_active_rel)
-
-    active_time_rel = pd.to_numeric(active_frame["time_s"], errors="coerce").to_numpy(dtype=float) - active_start_s
     current_column = _resolve_finite_signal_column(
-        active_frame,
+        full_frame,
         [str(entry.get("resolved_current_channel") or ""), current_channel, "i_sum_signed", "signed_current_a", "i_custom_signed"],
         current_channel,
     )
     field_column = _resolve_finite_signal_column(
-        active_frame,
+        full_frame,
         [str(entry.get("resolved_field_channel") or ""), field_channel, "bz_mT", "bproj_mT", "bmag_mT"],
         field_channel,
     )
+    window = _finite_support_reference_window(
+        full_frame=full_frame,
+        active_frame=active_frame,
+        active_duration_s=float(active_duration_s),
+        field_column=field_column,
+    )
+    if window["support_reference_alignment_status"] != "ok":
+        return None
+    active_frame = window["active_frame"]
+    active_start_s = float(window["support_reference_source_window_start_s"])
+    active_end_s = float(window["support_reference_source_window_end_s"])
+    expected_support_active_duration_s = float(window["support_reference_expected_duration_s"])
+    active_support_duration_s = max(active_end_s - active_start_s, 1e-9)
+    support_observed_coverage_ratio = 1.0
+    support_padding_gap_s = 0.0
+    active_mask = time_grid <= float(active_duration_s) + 1e-12
+    target_active_rel = np.clip(time_grid[active_mask], 0.0, float(active_duration_s))
+    source_active_rel = target_active_rel.copy() if active_duration_s > 0 else np.zeros_like(target_active_rel)
+    active_time_rel = pd.to_numeric(active_frame["time_s"], errors="coerce").to_numpy(dtype=float) - active_start_s
     active_voltage_values, active_voltage_spikes = _despike_isolated_impulses(
         pd.to_numeric(active_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
     )
@@ -1839,71 +1919,12 @@ def _resample_finite_support_record(
     )
 
     tail_mask = ~active_mask
-    tail_voltage = np.zeros(int(tail_mask.sum()), dtype=float)
-    tail_current = np.zeros(int(tail_mask.sum()), dtype=float)
-    tail_field = np.zeros(int(tail_mask.sum()), dtype=float)
-    if tail_mask.any() and tail_duration_s > 0:
-        tail_frame = _prepare_finite_time_frame(full_frame[full_frame["time_s"] > active_end_s + 1e-9].copy())
-        if not tail_frame.empty:
-            tail_support_duration_s = max(float(tail_frame["time_s"].max()) - active_end_s, 1e-9)
-            target_tail_rel = np.clip(time_grid[tail_mask] - float(active_duration_s), 0.0, float(tail_duration_s))
-            source_tail_rel = target_tail_rel / float(tail_duration_s) * tail_support_duration_s
-            tail_time_rel = pd.to_numeric(tail_frame["time_s"], errors="coerce").to_numpy(dtype=float) - active_end_s
-            tail_voltage = _interpolate_finite_signal(
-                tail_time_rel,
-                pd.to_numeric(tail_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float),
-                source_tail_rel,
-            )
-            current_tail_column = _resolve_finite_signal_column(
-                tail_frame,
-                [str(entry.get("resolved_current_channel") or ""), current_channel, "i_sum_signed", "signed_current_a", "i_custom_signed"],
-                current_channel,
-            )
-            field_tail_column = _resolve_finite_signal_column(
-                tail_frame,
-                [str(entry.get("resolved_field_channel") or ""), field_channel, "bz_mT", "bproj_mT", "bmag_mT"],
-                field_channel,
-            )
-            tail_voltage_values, tail_voltage_spikes = _despike_isolated_impulses(
-                pd.to_numeric(tail_frame["daq_input_v"], errors="coerce").to_numpy(dtype=float)
-            )
-            tail_current_values, tail_current_spikes = _despike_isolated_impulses(
-                pd.to_numeric(tail_frame[current_tail_column], errors="coerce").to_numpy(dtype=float)
-                if current_tail_column in tail_frame.columns
-                else np.zeros(len(tail_frame), dtype=float)
-            )
-            tail_field_values, tail_field_spikes = _despike_isolated_impulses(
-                pd.to_numeric(tail_frame[field_tail_column], errors="coerce").to_numpy(dtype=float)
-                if field_tail_column in tail_frame.columns
-                else np.zeros(len(tail_frame), dtype=float)
-            )
-            support_spike_filtered_count += int(tail_voltage_spikes + tail_current_spikes + tail_field_spikes)
-            tail_current = _interpolate_finite_signal(
-                tail_time_rel,
-                tail_current_values,
-                source_tail_rel,
-            )
-            tail_field = _interpolate_finite_signal(
-                tail_time_rel,
-                tail_field_values,
-                source_tail_rel,
-            )
-            tail_voltage = _interpolate_finite_signal(
-                tail_time_rel,
-                tail_voltage_values,
-                source_tail_rel,
-            )
-
     voltage = np.zeros_like(time_grid, dtype=float)
     current = np.zeros_like(time_grid, dtype=float)
     field = np.zeros_like(time_grid, dtype=float)
     voltage[active_mask] = voltage_active
     current[active_mask] = current_active
     field[active_mask] = field_active
-    if tail_mask.any():
-        voltage[tail_mask] = tail_voltage
-        current[tail_mask] = tail_current
-        field[tail_mask] = tail_field
     zero_mask = np.zeros_like(time_grid, dtype=bool)
     if tail_mask.any():
         zero_mask[tail_mask] = (
@@ -1929,6 +1950,15 @@ def _resample_finite_support_record(
         "support_padding_gap_s": support_padding_gap_s / max(expected_support_active_duration_s, support_padding_gap_s, 1e-9) * float(active_duration_s)
         if support_padding_gap_s > 0 and np.isfinite(expected_support_active_duration_s) and expected_support_active_duration_s > 0
         else 0.0,
+        "support_reference_source_window_start_s": active_start_s,
+        "support_reference_source_window_end_s": active_end_s,
+        "support_reference_source_window_duration_s": active_support_duration_s,
+        "support_reference_expected_duration_s": expected_support_active_duration_s,
+        "source_pre_baseline_excluded_from_reference": bool(window["source_pre_baseline_excluded_from_reference"]),
+        "source_tail_excluded_from_reference": bool(window["source_tail_excluded_from_reference"]),
+        "support_reference_anchor_mode": str(window["support_reference_anchor_mode"]),
+        "support_reference_alignment_status": str(window["support_reference_alignment_status"]),
+        "support_reference_timebase_mapping_mode": "active_segment_to_target_window",
         "support_resampled_to_target_window": True,
         "hybrid_fill_applied": False,
         "hybrid_fill_start_s": float("nan"),
@@ -2012,6 +2042,17 @@ def _build_finite_modeled_profile(
     modeled["support_spike_filtered_count"] = int(support_payload.get("support_spike_filtered_count", 0) or 0)
     modeled["support_source_spike_detected"] = bool(support_payload.get("support_source_spike_detected", False))
     modeled["support_blend_boundary_count"] = int(support_payload.get("support_blend_boundary_count", 0) or 0)
+    modeled["support_reference_source_window_start_s"] = float(support_payload.get("support_reference_source_window_start_s", np.nan))
+    modeled["support_reference_source_window_end_s"] = float(support_payload.get("support_reference_source_window_end_s", np.nan))
+    modeled["support_reference_source_window_duration_s"] = float(support_payload.get("support_reference_source_window_duration_s", np.nan))
+    modeled["support_reference_expected_duration_s"] = float(support_payload.get("support_reference_expected_duration_s", active_duration_s))
+    modeled["source_pre_baseline_excluded_from_reference"] = bool(support_payload.get("source_pre_baseline_excluded_from_reference", False))
+    modeled["source_tail_excluded_from_reference"] = bool(support_payload.get("source_tail_excluded_from_reference", False))
+    modeled["support_reference_anchor_mode"] = str(support_payload.get("support_reference_anchor_mode", "fallback"))
+    modeled["support_reference_timebase_mapping_mode"] = str(
+        support_payload.get("support_reference_timebase_mapping_mode", "active_segment_to_target_window")
+    )
+    modeled["support_reference_alignment_status"] = str(support_payload.get("support_reference_alignment_status", "ok"))
     modeled["harmonic_weights_used"] = str(harmonic_weights_used)
     return _sync_modeled_alias_columns(modeled)
 
@@ -2221,6 +2262,14 @@ def synthesize_finite_empirical_compensation(
     support_resampled_to_target_window = False
     support_spike_filtered_count = 0
     support_source_spike_detected = False
+    support_reference_source_window_start_s = float("nan")
+    support_reference_source_window_end_s = float("nan")
+    support_reference_source_window_duration_s = float("nan")
+    support_reference_expected_duration_s = float(active_duration_s)
+    source_pre_baseline_excluded_from_reference = False
+    source_tail_excluded_from_reference = False
+    support_reference_anchor_mode = "fallback"
+    support_reference_alignment_status = "active_window_missing"
     support_rows: list[dict[str, Any]] = []
     for weight, record in zip(normalized_weights, selected_records, strict=False):
         distance_score, entry, freq_distance, cycle_distance, output_distance = record
@@ -2258,6 +2307,21 @@ def synthesize_finite_empirical_compensation(
         support_source_spike_detected = bool(
             support_source_spike_detected or support_payload.get("support_source_spike_detected", False)
         )
+        if not np.isfinite(support_reference_source_window_start_s):
+            support_reference_source_window_start_s = float(support_payload.get("support_reference_source_window_start_s", np.nan))
+        if not np.isfinite(support_reference_source_window_end_s):
+            support_reference_source_window_end_s = float(support_payload.get("support_reference_source_window_end_s", np.nan))
+        if not np.isfinite(support_reference_source_window_duration_s):
+            support_reference_source_window_duration_s = float(support_payload.get("support_reference_source_window_duration_s", np.nan))
+        support_reference_expected_duration_s = float(support_payload.get("support_reference_expected_duration_s", active_duration_s))
+        source_pre_baseline_excluded_from_reference = bool(
+            source_pre_baseline_excluded_from_reference or support_payload.get("source_pre_baseline_excluded_from_reference", False)
+        )
+        source_tail_excluded_from_reference = bool(
+            source_tail_excluded_from_reference or support_payload.get("source_tail_excluded_from_reference", False)
+        )
+        support_reference_anchor_mode = str(support_payload.get("support_reference_anchor_mode", support_reference_anchor_mode))
+        support_reference_alignment_status = str(support_payload.get("support_reference_alignment_status", support_reference_alignment_status))
         interpolated_voltage = np.asarray(support_payload["voltage_v"], dtype=float)
         interpolated_current = np.asarray(support_payload["current_a"], dtype=float)
         interpolated_field = np.asarray(support_payload["field_mT"], dtype=float)
@@ -2315,6 +2379,15 @@ def synthesize_finite_empirical_compensation(
                 "support_spike_filtered_count": int(support_spike_filtered_count),
                 "support_source_spike_detected": bool(support_source_spike_detected),
                 "support_blend_boundary_count": max(int(len(selected_records)) - 1, 0),
+                "support_reference_source_window_start_s": support_reference_source_window_start_s,
+                "support_reference_source_window_end_s": support_reference_source_window_end_s,
+                "support_reference_source_window_duration_s": support_reference_source_window_duration_s,
+                "support_reference_expected_duration_s": support_reference_expected_duration_s,
+                "source_pre_baseline_excluded_from_reference": source_pre_baseline_excluded_from_reference,
+                "source_tail_excluded_from_reference": source_tail_excluded_from_reference,
+                "support_reference_anchor_mode": support_reference_anchor_mode,
+                "support_reference_alignment_status": support_reference_alignment_status,
+                "support_reference_timebase_mapping_mode": "active_segment_to_target_window",
         },
         waveform_type=waveform_type,
         freq_hz=float(freq_hz),
@@ -4191,6 +4264,14 @@ def _build_support_reference_trace_contract(
             "support_reference_timebase": "target_aligned",
             "support_reference_plotted_source": "target_aligned_support_reference",
             "support_reference_alignment_status": "unavailable",
+            "support_reference_timebase_mapping_mode": "active_segment_to_target_window",
+            "support_reference_source_window_start_s": float("nan"),
+            "support_reference_source_window_end_s": float("nan"),
+            "support_reference_source_window_duration_s": float("nan"),
+            "support_reference_expected_duration_s": float("nan"),
+            "source_pre_baseline_excluded_from_reference": False,
+            "source_tail_excluded_from_reference": False,
+            "support_reference_anchor_mode": "fallback",
             "support_reference_selected_support_id": selected_support_id or None,
             "support_reference_route_mode": route_mode,
             "support_reference_pp": float("nan"),
@@ -4214,14 +4295,29 @@ def _build_support_reference_trace_contract(
         else float("nan")
     )
     status = "ok" if finite_values.size and np.isfinite(pp) and pp > threshold else "near_zero_or_unavailable"
+    mapping_mode = _first_text(command_profile.get("support_reference_timebase_mapping_mode")) or "active_segment_to_target_window"
+    alignment_status = _first_text(command_profile.get("support_reference_alignment_status")) or (
+        "ok" if status == "ok" else "near_zero_or_unavailable"
+    )
+    if mapping_mode != "active_segment_to_target_window":
+        status = "invalid_timebase_mapping"
+        alignment_status = "rejected_full_record_compression"
     return {
-        "support_reference_available": status == "ok",
+        "support_reference_available": status == "ok" and mapping_mode == "active_segment_to_target_window",
         "support_reference_trace_status": status,
         "support_reference_plotted_column": column,
         "support_reference_source_label": "selected_support_trace" if finite_support_used else "nearest_support_preview",
         "support_reference_timebase": "target_aligned",
         "support_reference_plotted_source": "target_aligned_support_reference",
-        "support_reference_alignment_status": "ok" if status == "ok" else "near_zero_or_unavailable",
+        "support_reference_alignment_status": alignment_status,
+        "support_reference_timebase_mapping_mode": mapping_mode,
+        "support_reference_source_window_start_s": _first_numeric(command_profile.get("support_reference_source_window_start_s")),
+        "support_reference_source_window_end_s": _first_numeric(command_profile.get("support_reference_source_window_end_s")),
+        "support_reference_source_window_duration_s": _first_numeric(command_profile.get("support_reference_source_window_duration_s")),
+        "support_reference_expected_duration_s": _first_numeric(command_profile.get("support_reference_expected_duration_s")),
+        "source_pre_baseline_excluded_from_reference": _first_boolish(command_profile.get("source_pre_baseline_excluded_from_reference")),
+        "source_tail_excluded_from_reference": _first_boolish(command_profile.get("source_tail_excluded_from_reference")),
+        "support_reference_anchor_mode": _first_text(command_profile.get("support_reference_anchor_mode")) or "fallback",
         "support_reference_selected_support_id": selected_support_id or None,
         "support_reference_route_mode": route_mode,
         "support_reference_pp": pp,
