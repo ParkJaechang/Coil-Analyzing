@@ -156,9 +156,9 @@ def test_lut_review_render_path_uses_scalar_selectbox_options() -> None:
 
     assert "options=successes" not in source
     assert "options=cached_files" not in source
-    assert "options=lut_ids" in source
     assert "options=cached_ids" in source
-    assert "records_by_id[selected_lut_id]" in source
+    assert "options=cache_ids" in source
+    assert "cache_records_by_id[selected_cache_id]" in source
 
 
 def test_voltage_lut_review_source_has_no_mojibake_patterns() -> None:

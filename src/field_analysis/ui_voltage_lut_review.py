@@ -16,15 +16,12 @@ DEBUG_VOLTAGE_COLUMNS = (
     "compensated_recommended_voltage_v",
     "startup_compensation_command_delta_v",
 )
-
-
 @dataclass(frozen=True)
 class ParsedVoltageLut:
     source_name: str
     frame: pd.DataFrame
     ok: bool
     error: str | None = None
-
 
 def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
     missing = [column for column in ("time_s", "limited_voltage_v") if column not in command_profile.columns]
@@ -93,6 +90,42 @@ def build_lut_review_options(
         records_by_id[option_id] = record
         labels_by_id[option_id] = record.source_name
     return options, records_by_id, labels_by_id
+
+
+def add_lut_cache_bytes(*args: object, **kwargs: object) -> str:
+    from .ui_voltage_lut_cache import add_lut_cache_bytes as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def build_lut_cache_records(*args: object, **kwargs: object) -> list[object]:
+    from .ui_voltage_lut_cache import build_lut_cache_records as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def build_lut_cache_selection_options(*args: object, **kwargs: object) -> tuple[list[str], dict[str, object], dict[str, str]]:
+    from .ui_voltage_lut_cache import build_lut_cache_selection_options as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def edit_lut_cache_metadata(*args: object, **kwargs: object) -> bool:
+    from .ui_voltage_lut_cache import edit_lut_cache_metadata as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def delete_lut_cache_item(*args: object, **kwargs: object) -> bool:
+    from .ui_voltage_lut_cache import delete_lut_cache_item as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def fallback_lut_cache_selection(*args: object, **kwargs: object) -> str | None:
+    from .ui_voltage_lut_cache import fallback_lut_cache_selection as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def build_lut_diagnostics(frame: pd.DataFrame) -> dict[str, object]:
@@ -185,9 +218,20 @@ def render_final_voltage_lut_export_panel(
 
 
 def render_voltage_lut_review_section(default_cache_root: Path | None = None) -> None:
+    from .ui_voltage_lut_cache import LUT_CACHE_STATE_KEY
+    from .ui_voltage_lut_cache import add_lut_cache_bytes
+    from .ui_voltage_lut_cache import build_lut_cache_records
+    from .ui_voltage_lut_cache import build_lut_cache_selection_options
+    from .ui_voltage_lut_cache import fallback_lut_cache_selection
+
     st.markdown("### LUT 검수 / LUT Review")
     st.caption("사용자 시간축/전압 파형 검수용 화면입니다. 장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다.")
     st.caption("필수 schema: sample_index, time_s, voltage_v")
+
+    cache_state = st.session_state.setdefault(LUT_CACHE_STATE_KEY, {})
+    if not isinstance(cache_state, dict):
+        cache_state = {}
+        st.session_state[LUT_CACHE_STATE_KEY] = cache_state
 
     uploaded_files = st.file_uploader(
         "Exported voltage LUT CSV 업로드",
@@ -195,9 +239,8 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
         accept_multiple_files=True,
         key="voltage_lut_review_upload",
     )
-    parsed_items: list[ParsedVoltageLut] = []
     for uploaded_file in uploaded_files or []:
-        parsed_items.append(parse_voltage_lut_upload(uploaded_file.name, uploaded_file.getvalue()))
+        add_lut_cache_bytes(cache_state, uploaded_file.name, uploaded_file.getvalue())
 
     cached_files = _discover_cached_lut_files(default_cache_root)
     if cached_files:
@@ -212,29 +255,44 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
             )
             if st.button("선택한 cached LUT 불러오기", key="load_cached_voltage_lut"):
                 selected_cache = cached_by_id[selected_cache_id]
-                parsed_items.append(parse_voltage_lut_upload(selected_cache.name, selected_cache.read_bytes()))
+                add_lut_cache_bytes(cache_state, selected_cache.name, selected_cache.read_bytes())
 
-    if not parsed_items:
+    records = build_lut_cache_records(cache_state)
+    st.markdown("#### 업로드된 LUT 캐시")
+    if not records:
         st.info("업로드된 LUT CSV가 없습니다. Quick LUT에서 다운로드한 최종 모델링 전압 LUT CSV를 업로드하세요.")
         return
 
+    _render_lut_cache_summary(records)
+    cache_ids, cache_records_by_id, cache_labels_by_id = build_lut_cache_selection_options(records)
+    safe_selected_id = fallback_lut_cache_selection(cache_ids, st.session_state.get("voltage_lut_cache_selected_id"))
+    if safe_selected_id is None:
+        st.info("업로드된 LUT 캐시가 비어 있습니다.")
+        return
+    st.session_state["voltage_lut_cache_selected_id"] = safe_selected_id
+    selected_cache_id = st.selectbox(
+        "업로드된 LUT 캐시 선택",
+        options=cache_ids,
+        format_func=lambda cache_id: cache_labels_by_id[cache_id],
+        key="voltage_lut_cache_selected_id",
+    )
+    selected_record = cache_records_by_id[selected_cache_id]
+    st.caption(f"Internal ID: {selected_record.id}")
+    _render_lut_cache_metadata_editor(cache_state, selected_record)
+    _render_lut_cache_delete_panel(cache_state, selected_record)
+
+    parsed_items = [record.parsed for record in records]
     successes = [item for item in parsed_items if item.ok]
     failures = [item for item in parsed_items if not item.ok]
     st.write(f"- parsed LUT files: `{len(successes)}`")
     st.write(f"- failed LUT files: `{len(failures)}`")
     for failure in failures:
         st.warning(f"{failure.source_name}: {failure.error or 'parse failed'}")
-    if not successes:
+    if not selected_record.parsed.ok:
+        st.warning(f"읽을 수 없음: {selected_record.parsed.error or 'parse failed'}")
         return
 
-    lut_ids, records_by_id, labels_by_id = build_lut_review_options(successes)
-    selected_lut_id = st.selectbox(
-        "LUT case",
-        options=lut_ids,
-        format_func=lambda lut_id: labels_by_id[lut_id],
-        key="voltage_lut_review_case",
-    )
-    selected = records_by_id[selected_lut_id]
+    selected = selected_record.parsed
     diagnostics = build_lut_diagnostics(selected.frame)
     _render_lut_plots(selected.frame)
     _render_lut_diagnostics(diagnostics)
@@ -326,6 +384,76 @@ def _render_lut_warnings(diagnostics: dict[str, object]) -> None:
         st.warning("irregular dt warning: sample interval이 일정하지 않을 수 있습니다.")
 
 
+def _render_lut_cache_summary(records: list[object]) -> None:
+    rows: list[dict[str, object]] = []
+    for record in records:
+        diagnostics = record.diagnostics
+        rows.append(
+            {
+                "display label": record.display_name,
+                "original filename": record.original_filename,
+                "uploaded/created time": record.metadata.get("created_time"),
+                "sample count": diagnostics.get("sample_count") if record.parsed.ok else None,
+                "duration": diagnostics.get("duration_s") if record.parsed.ok else None,
+                "time range": _format_range(diagnostics.get("time_start_s"), diagnostics.get("time_end_s"))
+                if record.parsed.ok
+                else "",
+                "voltage range": _format_range(diagnostics.get("voltage_min_v"), diagnostics.get("voltage_max_v"))
+                if record.parsed.ok
+                else "",
+                "timebase status": diagnostics.get("time_axis_status") if record.parsed.ok else "읽을 수 없음",
+                "user note": record.user_note,
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+
+def _render_lut_cache_metadata_editor(
+    cache_state: dict[str, dict[str, object]],
+    record: object,
+) -> None:
+    from .ui_voltage_lut_cache import edit_lut_cache_metadata
+
+    with st.expander("LUT 캐시 metadata 편집", expanded=False):
+        display_name = st.text_input(
+            "display name",
+            value=record.display_name,
+            key=f"voltage_lut_cache_display_name_{record.id}",
+        )
+        user_note = st.text_area(
+            "user note",
+            value=record.user_note,
+            key=f"voltage_lut_cache_user_note_{record.id}",
+        )
+        if st.button("LUT 캐시 metadata 저장", key=f"save_voltage_lut_cache_metadata_{record.id}"):
+            edit_lut_cache_metadata(
+                cache_state,
+                record.id,
+                display_name=display_name,
+                user_note=user_note,
+            )
+            st.rerun()
+
+
+def _render_lut_cache_delete_panel(
+    cache_state: dict[str, dict[str, object]],
+    record: object,
+) -> None:
+    from .ui_voltage_lut_cache import delete_lut_cache_item
+
+    with st.expander("LUT 캐시 삭제", expanded=False):
+        st.caption("원본 CSV numerical data는 수정하지 않습니다. 앱 캐시 목록에서만 제거합니다.")
+        confirm = st.checkbox("삭제 확인", key=f"confirm_delete_voltage_lut_cache_{record.id}")
+        if st.button(
+            "선택한 LUT 캐시 삭제",
+            key=f"delete_voltage_lut_cache_{record.id}",
+            disabled=not confirm,
+        ):
+            delete_lut_cache_item(cache_state, record.id)
+            st.session_state.pop("voltage_lut_cache_selected_id", None)
+            st.rerun()
+
+
 def _discover_cached_lut_files(default_cache_root: Path | None) -> list[Path]:
     if default_cache_root is None:
         default_cache_root = Path("outputs") / "field_analysis_app_state"
@@ -347,6 +475,14 @@ def _unique_option_id(source_name: str, existing: dict[str, object]) -> str:
     while f"{base}#{index}" in existing:
         index += 1
     return f"{base}#{index}"
+
+
+def _format_range(start: object, end: object) -> str:
+    start_number = _float_or_nan(start)
+    end_number = _float_or_nan(end)
+    if not np.isfinite(start_number) or not np.isfinite(end_number):
+        return ""
+    return f"{start_number:g} .. {end_number:g}"
 
 
 def _bytes_to_buffer(data: bytes) -> object:
