@@ -67,8 +67,11 @@ def test_actual_drive_filename_and_preamble_parse(tmp_path: Path) -> None:
     assert record.metadata["time_unit"] == "ms"
     assert record.metadata["voltage_unit"] == "V"
     assert record.metadata["field_unit"] == "mT_inferred_from_HallBz"
-    assert {"time_s_abs", "first_voltage_v", "measured_field_raw", "current_a"}.issubset(record.frame.columns)
+    assert {"time_s_abs", "first_voltage_v", "actual_drive_voltage_v", "measured_field_raw", "hallbz_raw_mT", "current_a"}.issubset(record.frame.columns)
     assert np.isclose(float(record.frame["time_s_abs"].iloc[-1]), 1.4)
+    assert np.isclose(float(record.frame["hallbz_raw_mT"].iloc[0]), 1.5)
+    assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), -1.5)
+    assert record.metadata["hallbz_sign_inverted"] is True
 
 
 def test_actual_drive_filename_with_upload_prefix_parses_to_canonical_name() -> None:
@@ -108,6 +111,8 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert {
         "time_s",
         "first_voltage_v",
+        "command_voltage_v",
+        "actual_drive_voltage_v",
         "physical_target_output_mT",
         "measured_field_mT",
         "measured_residual_mT",
@@ -126,6 +131,8 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert metadata["second_voltage_generated"] is False
     assert metadata["second_lut_generated"] is False
     assert metadata["continuous_touched"] is False
+    assert metadata["command_voltage_source"] == "Voltage1_V_no_separate_command_reference"
+    assert metadata["actual_drive_voltage_source"] == "Voltage1_V"
 
 
 def test_actual_drive_review_payload_contract_for_in_app_upload(tmp_path: Path) -> None:
@@ -141,9 +148,16 @@ def test_actual_drive_review_payload_contract_for_in_app_upload(tmp_path: Path) 
     assert case["upload_internal_id"] == "upload_abc"
     assert case["parse_status"] == "parsed"
     assert case["parse_error"] is None
-    assert {"time_s", "first_voltage_v", "physical_target_output_mT", "measured_field_mT", "measured_residual_mT", "current_a"}.issubset(
-        case["time_series"].columns
-    )
+    assert {
+        "time_s",
+        "first_voltage_v",
+        "command_voltage_v",
+        "actual_drive_voltage_v",
+        "physical_target_output_mT",
+        "measured_field_mT",
+        "measured_residual_mT",
+        "current_a",
+    }.issubset(case["time_series"].columns)
     assert "correction_delta_v" not in case["time_series"].columns
     assert "second_voltage_v" not in case["time_series"].columns
     assert np.isfinite(case["metrics"]["measured_active_nrmse"])

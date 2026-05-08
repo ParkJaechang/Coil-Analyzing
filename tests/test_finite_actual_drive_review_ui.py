@@ -84,9 +84,7 @@ def test_hash_prefixed_upload_filename_parses_to_review_case(tmp_path: Path) -> 
     assert case.upload_internal_id == "7d72d4709ef49600"
     assert case.canonical_source_filename == "finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
     assert case.label == "sine | 0.5 Hz | 1.25 cycle | finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
-    assert {"time_s", "first_voltage_v", "physical_target_output_mT", "measured_field_mT", "measured_residual_mT"}.issubset(
-        case.review_frame.columns
-    )
+    assert {"time_s", "first_voltage_v", "command_voltage_v", "actual_drive_voltage_v", "physical_target_output_mT", "measured_field_mT", "measured_residual_mT"}.issubset(case.review_frame.columns)
 
 
 def test_missing_required_columns_are_reported(tmp_path: Path) -> None:
@@ -113,7 +111,10 @@ def test_review_ui_contract_labels_and_no_overclaim() -> None:
         "HallBz는 measured field로 사용됩니다.",
         "field unit은 inferred mT로 표시됩니다.",
         "First Command Voltage",
+        "Command vs Actual Drive Voltage",
+        "Actual Drive Voltage",
         "Target - Measured",
+        "All Actual-Drive Measured Fields",
         "리뷰 CSV 다운로드",
         "요약 CSV 다운로드",
         "measured_active_nrmse",

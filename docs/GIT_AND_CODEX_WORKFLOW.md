@@ -191,6 +191,39 @@ git status -sb
 git diff
 ```
 
+## Feature Regression Prevention Checklist
+
+Use this checklist before starting a backend/UI follow-up PR. Its purpose is to prevent a later branch from looking like it rolled back a previously accepted feature.
+
+Branch hygiene:
+
+- Do not cherry-pick UI feature fragments from a stale branch into a newer PR.
+- Do not continue feature work from a branch that is missing dependency features from earlier PRs such as Support Reference active-segment alignment, command-prediction causality, startup review visibility, final voltage LUT export/review, or finite actual-drive Phase 1 review.
+- After merge or rebase, record the runtime workspace SHA with `git rev-parse HEAD` and compare it with the PR head SHA.
+- Run `git status --short` before staging and stage only files that belong to the current task.
+
+Visibility checks:
+
+- `source_present`: the source module/function exists in the checked-out branch.
+- `AppTest_visible`: Streamlit AppTest or source contract tests can see the feature path.
+- `launched_runtime_visible`: the locally launched app/runtime exposes the feature.
+- `actual_user_path_visible`: the user-facing path used during validation shows the same feature, not a different stale workspace.
+
+Regression locks to preserve:
+
+- Support Reference must use `active_segment_to_target_window`; never compress the full source record into the target window.
+- Support Reference remains diagnostic only and must not be used as the command generation target.
+- Displayed predicted output must be forward-predicted from the plotted command.
+- Startup compensation review must show unavailable/status panels instead of silently hiding missing backend fields.
+- Final modeled voltage LUT export must use `limited_voltage_v` and `time_s` sample-by-sample, not Fourier re-synthesis or harmonic coefficients.
+- LUT Review must parse exported LUT CSVs, plot voltage versus `time_s` and sample index, and keep DataFrame objects out of widget/session-state equality paths.
+- Finite actual-drive Phase 1 review parses `TimeMs`, `Voltage1_V`, and `HallBz`, and must not generate `correction_delta_v`, `second_voltage_v`, or a second LUT.
+
+Artifact hygiene:
+
+- Do not commit generated artifacts, runtime screenshots, exported ZIP/CSV packets, upload caches, or `outputs/field_analysis_app_state`.
+- Keep generated artifacts outside the PR unless the task explicitly asks for small repo fixtures.
+
 ## Continuing On Another PC
 
 Use GitHub as the handoff point.

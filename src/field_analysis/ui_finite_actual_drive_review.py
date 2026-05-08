@@ -123,6 +123,7 @@ def render_finite_actual_drive_review_section() -> None:
     _render_case_summary(selected_case)
     _render_status_panel(selected_case)
     _render_review_plots(selected_case)
+    _render_all_actual_drive_overlay(parse_result)
     _render_metrics_panel(selected_case)
     _render_review_exports(selected_case, parse_result)
 
@@ -221,6 +222,15 @@ def _render_review_plots(case: ActualDriveReviewCase) -> None:
         use_container_width=True,
     )
     st.plotly_chart(
+        _line_figure(
+            frame,
+            [("command_voltage_v", "Command Voltage"), ("actual_drive_voltage_v", "Actual Drive Voltage")],
+            "Command vs Actual Drive Voltage",
+            "V",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
         _line_figure(frame, [("measured_residual_mT", "Target - Measured")], "Residual", "mT inferred"),
         use_container_width=True,
     )
@@ -229,6 +239,25 @@ def _render_review_plots(case: ActualDriveReviewCase) -> None:
             _line_figure(frame, [("current_a", "Current1_A")], "Current, if available", "A"),
             use_container_width=True,
         )
+
+
+def _render_all_actual_drive_overlay(parse_result: ActualDriveReviewParseResult) -> None:
+    figure = go.Figure()
+    for case in parse_result.cases:
+        frame = case.review_frame
+        if "measured_field_mT" not in frame.columns:
+            continue
+        figure.add_trace(
+            go.Scatter(x=frame["time_s"], y=frame["measured_field_mT"], mode="lines", name=case.label, line={"width": 1.0})
+        )
+    figure.update_layout(
+        template="plotly_white",
+        height=420,
+        title="All Actual-Drive Measured Fields",
+        xaxis_title="time_s",
+        yaxis_title="mT inferred",
+    )
+    st.plotly_chart(figure, use_container_width=True)
 
 
 def _line_figure(frame: pd.DataFrame, columns: list[tuple[str, str]], title: str, yaxis_title: str) -> go.Figure:

@@ -1,25 +1,18 @@
 from __future__ import annotations
 
-import json
-import re
-import struct
-import zlib
+import json, re, struct, zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 import numpy as np
 import pandas as pd
-
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
 
 RESULT_FILENAME_RE = re.compile(
     r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv)$",
     re.IGNORECASE,
 )
-EXPECTED_ACTUAL_DRIVE_FREQS_HZ = (0.5, 1.25, 2.0)
-EXPECTED_ACTUAL_DRIVE_CYCLES = (1.0, 1.25, 1.5, 1.75)
-
+EXPECTED_ACTUAL_DRIVE_FREQS_HZ, EXPECTED_ACTUAL_DRIVE_CYCLES = (0.5, 1.25, 2.0), (1.0, 1.25, 1.5, 1.75)
 @dataclass(frozen=True)
 class ActualDriveRecord:
     source_file: str
@@ -32,7 +25,6 @@ class ActualDriveRecord:
 
 def parse_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     return parse_finite_actual_drive_filename(path)
-
 
 def parse_finite_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     name = Path(path).name
@@ -73,12 +65,17 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"Missing actual-drive result columns in {source_path.name}: {missing}")
+    hallbz_raw = pd.to_numeric(frame["HallBz"], errors="coerce")
+    voltage1_v = pd.to_numeric(frame["Voltage1_V"], errors="coerce")
     normalized = pd.DataFrame(
         {
             "sample_index": np.arange(len(frame), dtype=int),
             "time_s_abs": pd.to_numeric(frame["TimeMs"], errors="coerce") / 1000.0,
-            "first_voltage_v": pd.to_numeric(frame["Voltage1_V"], errors="coerce"),
-            "measured_field_raw": pd.to_numeric(frame["HallBz"], errors="coerce"),
+            "first_voltage_v": voltage1_v,
+            "command_voltage_v": voltage1_v,
+            "actual_drive_voltage_v": voltage1_v,
+            "hallbz_raw_mT": hallbz_raw,
+            "measured_field_raw": -hallbz_raw,
         }
     )
     if "Current1_A" in frame.columns:
@@ -95,7 +92,10 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
         "auto_sync_hall_lag_ms": _parse_auto_sync_lag_ms(preamble),
         "field_unit": "mT_inferred_from_HallBz",
         "field_units": "mT",
+        "hallbz_sign_inverted": True,
         "voltage_unit": "V",
+        "command_voltage_source": "Voltage1_V_no_separate_command_reference",
+        "actual_drive_voltage_source": "Voltage1_V",
         "time_unit": "ms",
         "raw_preamble": preamble,
     }
@@ -204,6 +204,8 @@ def build_actual_drive_review_case(record: ActualDriveRecord) -> tuple[pd.DataFr
         {
             "time_s": relative_time,
             "first_voltage_v": first_voltage,
+            "command_voltage_v": frame["command_voltage_v"].to_numpy(dtype=float),
+            "actual_drive_voltage_v": frame["actual_drive_voltage_v"].to_numpy(dtype=float),
             "physical_target_output_mT": physical_target,
             "measured_field_mT": measured_field,
             "measured_residual_mT": residual,
