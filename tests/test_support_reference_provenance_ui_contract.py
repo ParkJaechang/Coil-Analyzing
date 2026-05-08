@@ -21,6 +21,13 @@ def test_support_reference_provenance_panel_markers_exist() -> None:
         "Override / Match Reason",
         "Raw selected support is the original uploaded/support record.",
         "Target-aligned support reference is the plotted support trace aligned to the target timebase.",
+        "mapping mode:",
+        "source window start:",
+        "source window end:",
+        "source window duration:",
+        "expected duration:",
+        "pre-baseline excluded:",
+        "tail excluded:",
         "_render_support_reference_provenance_panel(compensation, command_profile)",
     ]
     missing = [marker for marker in expected_markers if marker not in source]
@@ -44,6 +51,15 @@ def test_support_reference_provenance_payload_keys_are_used() -> None:
         "support_reference_pp",
         "support_reference_duration_s",
         "support_reference_timebase",
+        "support_reference_timebase_mapping_mode",
+        "support_reference_anchor_mode",
+        "support_reference_source_window_start_s",
+        "support_reference_source_window_end_s",
+        "support_reference_source_window_duration_s",
+        "support_reference_expected_duration_s",
+        "support_reference_source_window_reason",
+        "source_pre_baseline_excluded_from_reference",
+        "source_tail_excluded_from_reference",
         "requested_support_family",
         "support_family_requested",
         "support_family_override_applied",
@@ -112,3 +128,12 @@ def test_command_prediction_consistency_payload_keys_are_used() -> None:
     missing = [key for key in expected_keys if key not in source]
 
     assert not missing, f"Missing command prediction consistency payload keys: {missing}"
+
+
+def test_support_reference_user_facing_text_has_no_mojibake() -> None:
+    source = _source()
+
+    mojibake_patterns = ["\ufffd", "\uf9e4", "\uc4d2", "?\uaff0\uc0ac", "ì", "í", "ë", "ê", "ð"]
+    found = [pattern for pattern in mojibake_patterns if pattern in source]
+
+    assert not found, f"Mojibake patterns found in support reference UI text: {found}"
