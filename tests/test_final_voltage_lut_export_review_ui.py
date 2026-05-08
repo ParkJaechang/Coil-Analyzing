@@ -16,6 +16,7 @@ from field_analysis.ui_voltage_lut_review import (
     build_final_voltage_lut_frame,
     build_final_voltage_lut_filename,
     build_lut_diagnostics,
+    build_lut_review_options,
     build_normalized_lut_csv_bytes,
     parse_voltage_lut_upload,
 )
@@ -108,7 +109,7 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
         "voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다",
         "finite compensation LUT unavailable",
         "사용자 시간축/전압 파형 검수용",
-        "장비 구동 적합성이나 보정 품질을 자동 판정하지 않음",
+        "장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다",
         "LUT Voltage vs time_s",
         "LUT Voltage vs sample_index",
         "dt_irregularity_ratio",
@@ -119,3 +120,59 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
     missing = [marker for marker in expected_markers if marker not in source]
 
     assert not missing, f"Missing LUT review UI markers: {missing}"
+
+
+def test_lut_review_selectbox_options_are_scalar_ids_not_dataframe_objects() -> None:
+    parsed = [
+        parse_voltage_lut_upload("first.csv", b"sample_index,time_s,voltage_v\n0,0,1\n"),
+        parse_voltage_lut_upload("second.csv", b"sample_index,time_s,voltage_v\n0,0,2\n"),
+    ]
+
+    options, records_by_id, labels_by_id = build_lut_review_options(parsed)
+
+    assert options == ["first.csv", "second.csv"]
+    assert all(isinstance(option, str) for option in options)
+    assert all(hasattr(record.frame, "columns") for record in records_by_id.values())
+    assert labels_by_id["first.csv"] == "first.csv"
+
+
+def test_lut_review_duplicate_source_names_still_use_scalar_unique_ids() -> None:
+    parsed = [
+        parse_voltage_lut_upload("same.csv", b"sample_index,time_s,voltage_v\n0,0,1\n"),
+        parse_voltage_lut_upload("same.csv", b"sample_index,time_s,voltage_v\n0,0,2\n"),
+    ]
+
+    options, records_by_id, labels_by_id = build_lut_review_options(parsed)
+
+    assert options == ["same.csv", "same.csv#2"]
+    assert all(isinstance(option, str) for option in options)
+    assert records_by_id["same.csv"].frame["voltage_v"].tolist() == [1]
+    assert records_by_id["same.csv#2"].frame["voltage_v"].tolist() == [2]
+    assert labels_by_id["same.csv#2"] == "same.csv"
+
+
+def test_lut_review_render_path_uses_scalar_selectbox_options() -> None:
+    source = (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8")
+
+    assert "options=successes" not in source
+    assert "options=cached_files" not in source
+    assert "options=lut_ids" in source
+    assert "options=cached_ids" in source
+    assert "records_by_id[selected_lut_id]" in source
+
+
+def test_voltage_lut_review_source_has_no_mojibake_patterns() -> None:
+    source = (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8")
+    mojibake_patterns = [
+        chr(0xFFFD),
+        chr(0xF9E4),
+        chr(0xC4D2),
+        "?" + chr(0xAFF0) + chr(0xC0AC),
+        chr(0x00EC),
+        chr(0x00ED),
+        chr(0x00EB),
+        chr(0x00EA),
+    ]
+    found = [pattern for pattern in mojibake_patterns if pattern in source]
+
+    assert not found, f"Mojibake patterns found in LUT review UI text: {found}"

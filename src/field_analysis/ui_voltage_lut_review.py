@@ -80,6 +80,21 @@ def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     return ParsedVoltageLut(source_name=source_name, frame=normalized, ok=True)
 
 
+def build_lut_review_options(
+    records: list[ParsedVoltageLut],
+) -> tuple[list[str], dict[str, ParsedVoltageLut], dict[str, str]]:
+    """Build scalar selectbox options while keeping DataFrames in a lookup map."""
+    options: list[str] = []
+    records_by_id: dict[str, ParsedVoltageLut] = {}
+    labels_by_id: dict[str, str] = {}
+    for record in records:
+        option_id = _unique_option_id(record.source_name, records_by_id)
+        options.append(option_id)
+        records_by_id[option_id] = record
+        labels_by_id[option_id] = record.source_name
+    return options, records_by_id, labels_by_id
+
+
 def build_lut_diagnostics(frame: pd.DataFrame) -> dict[str, object]:
     time_s = pd.to_numeric(frame.get("time_s"), errors="coerce").to_numpy(dtype=float)
     voltage = pd.to_numeric(frame.get("voltage_v"), errors="coerce").to_numpy(dtype=float)
@@ -171,7 +186,7 @@ def render_final_voltage_lut_export_panel(
 
 def render_voltage_lut_review_section(default_cache_root: Path | None = None) -> None:
     st.markdown("### LUT 검수 / LUT Review")
-    st.caption("사용자 시간축/전압 파형 검수용 화면입니다. 장비 구동 적합성이나 보정 품질을 자동 판정하지 않음.")
+    st.caption("사용자 시간축/전압 파형 검수용 화면입니다. 장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다.")
     st.caption("필수 schema: sample_index, time_s, voltage_v")
 
     uploaded_files = st.file_uploader(
@@ -187,13 +202,16 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
     cached_files = _discover_cached_lut_files(default_cache_root)
     if cached_files:
         with st.expander("cached/exported LUT file 불러오기", expanded=False):
-            selected_cache = st.selectbox(
+            cached_ids = [str(path) for path in cached_files]
+            cached_by_id = dict(zip(cached_ids, cached_files, strict=True))
+            selected_cache_id = st.selectbox(
                 "Cached LUT file",
-                options=cached_files,
-                format_func=lambda path: path.name,
+                options=cached_ids,
+                format_func=lambda path_id: Path(path_id).name,
                 key="voltage_lut_cached_file",
             )
             if st.button("선택한 cached LUT 불러오기", key="load_cached_voltage_lut"):
+                selected_cache = cached_by_id[selected_cache_id]
                 parsed_items.append(parse_voltage_lut_upload(selected_cache.name, selected_cache.read_bytes()))
 
     if not parsed_items:
@@ -209,12 +227,14 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
     if not successes:
         return
 
-    selected = st.selectbox(
+    lut_ids, records_by_id, labels_by_id = build_lut_review_options(successes)
+    selected_lut_id = st.selectbox(
         "LUT case",
-        options=successes,
-        format_func=lambda item: item.source_name,
+        options=lut_ids,
+        format_func=lambda lut_id: labels_by_id[lut_id],
         key="voltage_lut_review_case",
     )
+    selected = records_by_id[selected_lut_id]
     diagnostics = build_lut_diagnostics(selected.frame)
     _render_lut_plots(selected.frame)
     _render_lut_diagnostics(diagnostics)
@@ -317,6 +337,16 @@ def _discover_cached_lut_files(default_cache_root: Path | None) -> list[Path]:
     for pattern in patterns:
         files.extend(path for path in root.rglob(pattern) if path.is_file())
     return sorted(set(files), key=lambda path: str(path).lower())
+
+
+def _unique_option_id(source_name: str, existing: dict[str, object]) -> str:
+    base = str(source_name).strip() or "lut"
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}#{index}" in existing:
+        index += 1
+    return f"{base}#{index}"
 
 
 def _bytes_to_buffer(data: bytes) -> object:
