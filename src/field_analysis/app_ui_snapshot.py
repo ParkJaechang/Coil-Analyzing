@@ -65,6 +65,7 @@ from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
+from .ui_voltage_lut_review import render_final_voltage_lut_export_panel, render_voltage_lut_review_section
 from .utils import first_number, infer_current_from_text, infer_frequency_from_text, infer_waveform_from_text
 
 
@@ -380,7 +381,7 @@ def _run_app_shell(
     if usage_mode == "간단 LUT":
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
+            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "LUT Review", "Data Import", "Export"],
             horizontal=True,
             key="quick_section_nav",
         )
@@ -394,6 +395,7 @@ def _run_app_shell(
                 "Validation / Retune",
                 "Catalogs / Diagnostics",
                 "Raw Waveforms",
+                "LUT Review",
                 "Cycle Overlay",
                 "Loop Analysis",
                 "Frequency/Amplitude Comparison",
@@ -414,6 +416,10 @@ def _run_app_shell(
 
     if active_section == "Run Readiness":
         render_run_readiness_section()
+        return
+
+    if active_section == "LUT Review":
+        render_voltage_lut_review_section()
         return
 
     if not uploaded_payloads and not transient_payloads and not validation_payloads and not lcr_payloads:
@@ -2301,6 +2307,13 @@ def _render_quick_lut_tab_v2(
                 file_name=comp_file_name,
                 mime="text/csv",
                 key="download_compensation_waveform_v2",
+            )
+            render_final_voltage_lut_export_panel(
+                command_profile=command_profile,
+                finite_cycle_mode=bool(finite_cycle_mode),
+                waveform_type=target_waveform,
+                freq_hz=float(target_freq),
+                cycle_count=target_cycle_count,
             )
 
             if finite_cycle_mode:
