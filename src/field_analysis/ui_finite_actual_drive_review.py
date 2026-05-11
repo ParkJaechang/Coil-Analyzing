@@ -79,7 +79,18 @@ def render_finite_actual_drive_review_section() -> None:
     st.caption("이 섹션은 1차 추천 전압을 실제 장비에 넣은 결과를 확인하기 위한 리뷰 화면입니다.")
     st.caption("아직 2차 보정 전압은 계산하지 않습니다.")
     st.caption("사용자가 그래프를 확인한 뒤 2차 보정 방향을 결정합니다.")
+    st.caption("이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다.")
+    st.caption("Measured field는 peak 기준 ±50mT로 정규화되어 표시됩니다.")
+    st.caption("Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다.")
+    st.caption("field_normalization_mode = peak_to_50mT · voltage_normalization_mode = peak_to_5V")
+    st.caption("Raw 값은 보존되며, 정규화는 review plot/metrics용입니다.")
+    st.caption("modeled cycle과 intended drive cycle은 별도 metadata로 표시됩니다.")
     st.caption("This is review, not acceptance. UI does not judge model quality.")
+    st.info(
+        "이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다. "
+        "Measured field는 peak 기준 ±50mT, Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다. "
+        "Raw 값은 보존되며 정규화는 review plot/metrics용입니다."
+    )
 
     uploaded_files = st.file_uploader(
         "validation/result CSV 업로드",
@@ -122,6 +133,8 @@ def render_finite_actual_drive_review_section() -> None:
     selected_case = label_by_case[selected_label]
     _render_case_summary(selected_case)
     _render_status_panel(selected_case)
+    _render_normalization_status_panel(selected_case)
+    _render_cycle_semantics_panel(selected_case)
     _render_review_plots(selected_case)
     _render_all_actual_drive_overlay(parse_result)
     _render_metrics_panel(selected_case)
@@ -206,6 +219,57 @@ def _render_status_panel(case: ActualDriveReviewCase) -> None:
         st.dataframe(pd.DataFrame([{"status": key, "value": value} for key, value in case.status.items()]))
 
 
+def _render_normalization_status_panel(case: ActualDriveReviewCase) -> None:
+    st.markdown("#### Normalization status")
+    st.caption("Shape/timing review only: 절대 gain 평가는 하지 않습니다.")
+    st.caption("Command target/gain quality is not automatically judged.")
+    rows = []
+    fields = [
+        "field_normalization_enabled",
+        "field_normalization_mode",
+        "field_normalization_source_peak_mT",
+        "field_normalization_scale_factor",
+        "voltage_normalization_enabled",
+        "voltage_normalization_mode",
+        "voltage_normalization_source_peak_v",
+        "voltage_normalization_scale_factor",
+        "shape_review_only",
+    ]
+    missing = []
+    for field in fields:
+        value = _case_value(case, field)
+        if value is None:
+            missing.append(field)
+            value = "unavailable"
+        rows.append({"field": field, "value": value})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    if missing:
+        st.info(f"Normalization metadata unavailable for: {', '.join(missing)}")
+    st.caption("Raw peak values are informational only; no acceptance decision is made.")
+
+
+def _render_cycle_semantics_panel(case: ActualDriveReviewCase) -> None:
+    st.markdown("#### Cycle semantics")
+    st.caption("모델링 cycle label과 실제 구동 의도 cycle은 별도로 표시됩니다. target을 바꾼 것이 아닙니다.")
+    rows = []
+    fields = [
+        "modeled_cycle_count",
+        "intended_drive_cycle_count",
+        "source_filename_cycle_count",
+        "cycle_usage_mode",
+    ]
+    missing = []
+    for field in fields:
+        value = _case_value(case, field)
+        if value is None:
+            missing.append(field)
+            value = "unavailable"
+        rows.append({"field": field, "value": value})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    if missing:
+        st.info(f"Cycle semantics metadata unavailable for: {', '.join(missing)}")
+
+
 def _render_review_plots(case: ActualDriveReviewCase) -> None:
     frame = case.review_frame
     st.plotly_chart(
@@ -215,7 +279,7 @@ def _render_review_plots(case: ActualDriveReviewCase) -> None:
                 ("normalized_physical_target_output_mT", "Physical Target normalized"),
                 ("normalized_measured_field_mT", "Measured HallBz normalized"),
             ],
-            "Target vs Measured Field (review-normalized)",
+            "Normalized Target vs Normalized Measured Field",
             "review-normalized mT",
         ),
         use_container_width=True,
@@ -236,20 +300,56 @@ def _render_review_plots(case: ActualDriveReviewCase) -> None:
                 ("normalized_first_voltage_v", "Command Voltage normalized"),
                 ("normalized_actual_drive_voltage_v", "Actual Drive Voltage normalized"),
             ],
-            "Command vs Actual Drive Voltage (review-normalized)",
+            "Normalized First/Actual Drive Voltage",
             "review-normalized V",
+        ),
+        use_container_width=True,
+    )
+    st.caption("Command vs Actual Drive Voltage is shown with review-normalized values.")
+    st.plotly_chart(
+        _line_figure(
+            frame,
+            [("measured_residual_normalized_mT", "Target - Measured normalized")],
+            "Normalized Residual",
+            "normalized residual mT",
         ),
         use_container_width=True,
     )
     st.plotly_chart(
         _line_figure(
-            frame,
-            [("measured_residual_normalized_mT", "Target - Measured normalized")],
-            "Residual (review-normalized)",
-            "normalized residual mT",
+            _terminal_zoom_frame(frame),
+            [
+                ("normalized_physical_target_output_mT", "Physical Target normalized"),
+                ("normalized_measured_field_mT", "Measured HallBz normalized"),
+            ],
+            "Terminal peak zoom using normalized values",
+            "review-normalized mT",
         ),
         use_container_width=True,
     )
+    with st.expander("Raw Measured Field", expanded=False):
+        st.plotly_chart(
+            _line_figure(
+                frame,
+                [("measured_field_mT", "Raw Measured HallBz")],
+                "Raw Measured Field",
+                "raw mT",
+            ),
+            use_container_width=True,
+        )
+    with st.expander("Raw First/Actual Drive Voltage", expanded=False):
+        st.plotly_chart(
+            _line_figure(
+                frame,
+                [
+                    ("first_voltage_v", "Raw First Command Voltage"),
+                    ("actual_drive_voltage_v", "Raw Actual Drive Voltage"),
+                ],
+                "Raw First/Actual Drive Voltage",
+                "raw V",
+            ),
+            use_container_width=True,
+        )
     if "current_a" in frame.columns:
         st.plotly_chart(
             _line_figure(frame, [("current_a", "Current1_A")], "Current, if available", "A"),
@@ -288,6 +388,7 @@ def _line_figure(frame: pd.DataFrame, columns: list[tuple[str, str]], title: str
 
 def _render_metrics_panel(case: ActualDriveReviewCase) -> None:
     st.markdown("#### Metrics")
+    st.caption("normalized metrics are for shape/timing review; raw peaks are informational only.")
     metrics = [
         "measured_active_nrmse",
         "measured_shape_corr",
@@ -312,6 +413,13 @@ def _render_metrics_panel(case: ActualDriveReviewCase) -> None:
 
 def _render_review_exports(case: ActualDriveReviewCase, parse_result: ActualDriveReviewParseResult) -> None:
     st.download_button(
+        "normalized review CSV 다운로드",
+        data=case.review_frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"normalized_actual_drive_review_{case.waveform_type}_{case.freq_hz:g}Hz_{case.cycle_count:g}cycle.csv",
+        mime="text/csv",
+        key="finite_actual_drive_normalized_review_csv_download",
+    )
+    st.download_button(
         "리뷰 CSV 다운로드",
         data=case.review_frame.to_csv(index=False).encode("utf-8-sig"),
         file_name=f"actual_drive_review_{case.waveform_type}_{case.freq_hz:g}Hz_{case.cycle_count:g}cycle.csv",
@@ -325,3 +433,31 @@ def _render_review_exports(case: ActualDriveReviewCase, parse_result: ActualDriv
         mime="text/csv",
         key="finite_actual_drive_summary_csv_download",
     )
+    st.download_button(
+        "raw-preserved CSV 다운로드",
+        data=case.review_frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"raw_preserved_actual_drive_review_{case.waveform_type}_{case.freq_hz:g}Hz_{case.cycle_count:g}cycle.csv",
+        mime="text/csv",
+        key="finite_actual_drive_raw_preserved_csv_download",
+    )
+
+
+def _case_value(case: ActualDriveReviewCase, key: str) -> Any:
+    if key in case.metadata:
+        return case.metadata.get(key)
+    if key in case.metrics:
+        return case.metrics.get(key)
+    if key in case.status:
+        return case.status.get(key)
+    return None
+
+
+def _terminal_zoom_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "time_s" not in frame.columns:
+        return frame
+    time_values = pd.to_numeric(frame["time_s"], errors="coerce")
+    finite_time = time_values.dropna()
+    if finite_time.empty:
+        return frame
+    start = float(finite_time.quantile(0.75))
+    return frame.loc[time_values >= start]

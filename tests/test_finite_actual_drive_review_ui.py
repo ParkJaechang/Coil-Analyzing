@@ -105,6 +105,35 @@ def test_review_ui_contract_labels_and_no_overclaim() -> None:
     helper = REVIEW_UI.read_text(encoding="utf-8")
 
     expected = [
+        "이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다.",
+        "Measured field는 peak 기준 ±50mT로 정규화되어 표시됩니다.",
+        "Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다.",
+        "Raw 값은 보존되며, 정규화는 review plot/metrics용입니다.",
+        "modeled cycle과 intended drive cycle은 별도 metadata로 표시됩니다.",
+        "Normalization status",
+        "field_normalization_enabled",
+        "field_normalization_mode",
+        "peak_to_50mT",
+        "field_normalization_source_peak_mT",
+        "field_normalization_scale_factor",
+        "voltage_normalization_enabled",
+        "voltage_normalization_mode",
+        "peak_to_5V",
+        "voltage_normalization_source_peak_v",
+        "voltage_normalization_scale_factor",
+        "shape_review_only",
+        "Cycle semantics",
+        "modeled_cycle_count",
+        "intended_drive_cycle_count",
+        "source_filename_cycle_count",
+        "cycle_usage_mode",
+        "모델링 cycle label과 실제 구동 의도 cycle은 별도로 표시됩니다. target을 바꾼 것이 아닙니다.",
+        "Normalized Target vs Normalized Measured Field",
+        "Raw Measured Field",
+        "Normalized First/Actual Drive Voltage",
+        "Raw First/Actual Drive Voltage",
+        "Normalized Residual",
+        "Terminal peak zoom",
         "Physical Target",
         "Measured HallBz",
         "Voltage1_V는 실제 1차 command로 사용됩니다.",
@@ -123,30 +152,38 @@ def test_review_ui_contract_labels_and_no_overclaim() -> None:
         "measured_phase_error_s",
         "measured_terminal_error_mT",
         "measured_tail_residual",
+        "normalized_nrmse",
+        "normalized_shape_corr",
+        "terminal_peak_time_error_s",
+        "raw_field_peak_mT",
+        "raw_voltage_peak_v",
         "alignment_confidence",
         "possible_polarity_flip_suggested",
         "review, not acceptance",
         "사용자가 그래프를 확인한 뒤 2차 보정 방향을 결정합니다.",
+        "Command target/gain quality is not automatically judged.",
     ]
     missing = [marker for marker in expected if marker not in helper]
 
     assert not missing
     assert "합격" not in helper
     assert "pass/fail" not in helper.lower()
+    assert "2차 보정 LUT" not in helper
+    assert "correction_delta_v" not in helper
 
 
 def test_review_ui_text_has_no_mojibake_patterns() -> None:
     helper = REVIEW_UI.read_text(encoding="utf-8")
     mojibake_patterns = (
-        "\ufffd",
-        "\uf9e4",
-        "\uc4d2",
-        "?\uaff0\uc0ac",
-        "ì",
-        "í",
-        "ë",
-        "ê",
-        "ð",
+        chr(0xFFFD),
+        chr(0xF9E4),
+        chr(0xC4D2),
+        "?" + chr(0xAFF0) + chr(0xC0AC),
+        chr(0x00EC),
+        chr(0x00ED),
+        chr(0x00EB),
+        chr(0x00EA),
+        chr(0x00F0),
     )
 
     assert not any(pattern in helper for pattern in mojibake_patterns)
