@@ -16,6 +16,7 @@ if str(SRC_ROOT) not in sys.path:
 def test_feedback_review_panel_renders_supported_status_and_graph_markers() -> None:
     from field_analysis.ui_quick_lut_feedback import build_feedback_status_rows
     from field_analysis.ui_quick_lut_feedback import feedback_export_source_column
+    from field_analysis.ui_quick_lut_feedback import build_command_source_rows
 
     metadata = {
         "feedback_route": "finite_feedback_symmetric_peak_correction",
@@ -34,16 +35,39 @@ def test_feedback_review_panel_renders_supported_status_and_graph_markers() -> N
     assert {"field": "supported cycles", "value": "1.0, 1.5"} in rows
     assert {"field": "unsupported cycles", "value": "1.25, 1.75"} in rows
     assert {"field": "unsupported reason", "value": "unsupported_cycle_phase_delay"} in rows
-    assert feedback_export_source_column(
+    profile = pd.DataFrame(
+        {
+            "limited_voltage_v": [0.0],
+            "feedback_corrected_limited_voltage_v": [1.0],
+            "feedback_correction_status": ["ok"],
+            "feedback_correction_available": [True],
+        }
+    )
+    assert feedback_export_source_column(profile) == "feedback_corrected_limited_voltage_v"
+    assert {"field": "active_command_source", "value": "feedback_corrected_limited_voltage_v"} in build_command_source_rows(
+        profile, metadata
+    )
+    assert {
+        "field": "command_prediction_consistency_status",
+        "value": "forward_prediction_unavailable_for_feedback_corrected_command",
+    } in build_command_source_rows(profile, metadata)
+
+
+def test_command_source_rows_show_baseline_when_feedback_unavailable() -> None:
+    from field_analysis.ui_quick_lut_feedback import build_command_source_rows
+
+    rows = build_command_source_rows(
         pd.DataFrame(
             {
                 "limited_voltage_v": [0.0],
-                "feedback_corrected_limited_voltage_v": [1.0],
-                "feedback_correction_status": ["ok"],
-                "feedback_correction_available": [True],
+                "feedback_correction_status": ["feedback_source_unavailable"],
+                "feedback_correction_available": [False],
             }
         )
-    ) == "feedback_corrected_limited_voltage_v"
+    )
+
+    assert {"field": "active_command_source", "value": "limited_voltage_v"} in rows
+    assert {"field": "feedback_used_for_correction", "value": False} in rows
 
 
 def test_feedback_export_source_falls_back_to_baseline_when_unavailable() -> None:
@@ -87,6 +111,18 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "voltage normalized/limited to ±5V",
         "Feedback correction delta",
         "Feedback corrected limited voltage",
+        "Command source panel",
+        "active_command_source",
+        "plotted_command_source",
+        "run_waveform_voltage_source",
+        "feedback_used_for_correction",
+        "baseline_limited_voltage_v",
+        "active/plotted command",
+        "Predicted Output status",
+        "displayed_predicted_valid",
+            "command_prediction_consistency_status",
+        "forward_prediction_unavailable_for_feedback_corrected_command",
+        "화면 Command Waveform과 동일한 column을 저장합니다",
         "exported_voltage_source_column",
         "unsupported_cycle_phase_delay",
         "apply_finite_feedback_peak_correction",
@@ -117,6 +153,7 @@ def test_feedback_plot_dataframe_accepts_optional_prediction() -> None:
             "physical_target_output_mT": [0.0, 50.0],
             "measured_field_normalized_mT": [0.0, 40.0],
             "baseline_limited_voltage_v": [0.0, 4.0],
+            "limited_voltage_v": [0.0, 4.5],
             "feedback_correction_delta_v": [0.0, 0.5],
             "feedback_corrected_limited_voltage_v": [0.0, 4.5],
         }
@@ -125,4 +162,6 @@ def test_feedback_plot_dataframe_accepts_optional_prediction() -> None:
 
     assert list(frame["time_s"]) == [0.0, 0.1]
     assert "feedback_corrected_predicted_field_mT" not in frame.columns
+    assert np.allclose(frame["active/plotted command"], [0.0, 4.5])
+    assert np.allclose(frame["Baseline recommended/limited voltage"], [0.0, 4.0])
     assert np.allclose(frame["Residual"], [0.0, 10.0])

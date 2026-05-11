@@ -115,19 +115,36 @@ def apply_finite_feedback_peak_correction(
     profile["feedback_correction_delta_v"] = correction_delta
     profile["feedback_corrected_recommended_voltage_v"] = corrected_recommended
     profile["feedback_corrected_limited_voltage_v"] = corrected_limited
+    profile["active_limited_voltage_v"] = corrected_limited
+    profile["limited_voltage_v"] = corrected_limited
+    profile["active_command_source"] = "feedback_corrected_limited_voltage_v"
+    profile["plotted_command_source"] = "feedback_corrected_limited_voltage_v"
+    profile["exported_voltage_source_column"] = "feedback_corrected_limited_voltage_v"
+    profile["run_waveform_voltage_source"] = "feedback_corrected_limited_voltage_v"
     profile["positive_lobe_mask"] = positive_mask
     profile["negative_lobe_mask"] = negative_mask
     profile["feedback_correction_status"] = "ok"
     profile["feedback_correction_available"] = True
     profile["feedback_route"] = FEEDBACK_ROUTE_NAME
+    profile["feedback_used_for_correction"] = True
+    profile["correction_method"] = "residual_proportional_feedback"
 
     prediction_available = forward_model is not None
     if forward_model is not None:
         predicted = np.asarray(forward_model(time_s, corrected_limited), dtype=float)
         if len(predicted) == len(profile):
             profile["feedback_corrected_predicted_field_mT"] = predicted
+            profile["displayed_predicted_field_mT"] = predicted
         else:
             prediction_available = False
+    profile["predicted_from_plotted_command"] = bool(prediction_available)
+    profile["displayed_predicted_valid"] = bool(prediction_available)
+    profile["plotted_predicted_source"] = (
+        "feedback_corrected_predicted_field_mT" if prediction_available else "unavailable"
+    )
+    profile["command_prediction_consistency_status"] = (
+        "ok" if prediction_available else "forward_prediction_unavailable_for_feedback_corrected_command"
+    )
 
     before_pos = _peak_error(target, signed_normalized, positive_mask)
     before_neg = _peak_error(target, signed_normalized, negative_mask)
@@ -145,6 +162,7 @@ def apply_finite_feedback_peak_correction(
         "feedback_correction_available": True,
         "feedback_correction_status": "ok",
         "feedback_route": FEEDBACK_ROUTE_NAME,
+        "correction_method": "residual_proportional_feedback",
         "feedback_source_file": record.source_file,
         "feedback_run_label": _run_label(record.source_file),
         "feedback_schema_status": "ok",
@@ -171,9 +189,16 @@ def apply_finite_feedback_peak_correction(
         "correction_delta_peak_v": peak_abs(correction_delta),
         "voltage_limit_status": "clamped" if clipped else "ok",
         "target_unchanged": True,
+        "active_command_source": "feedback_corrected_limited_voltage_v",
+        "plotted_command_source": "feedback_corrected_limited_voltage_v",
+        "exported_voltage_source_column": "feedback_corrected_limited_voltage_v",
+        "run_waveform_voltage_source": "feedback_corrected_limited_voltage_v",
         "forward_prediction_available": bool(prediction_available),
         "predicted_from_plotted_command": bool(prediction_available),
-        "plotted_command_source": "feedback_corrected_limited_voltage_v",
+        "displayed_predicted_valid": bool(prediction_available),
+        "command_prediction_consistency_status": (
+            "ok" if prediction_available else "forward_prediction_unavailable_for_feedback_corrected_command"
+        ),
         "plotted_predicted_source": (
             "feedback_corrected_predicted_field_mT" if prediction_available else "unavailable"
         ),

@@ -160,6 +160,32 @@ def feedback_export_source_column(command_profile: pd.DataFrame) -> str:
     return "feedback_corrected_limited_voltage_v"
 
 
+def build_command_source_rows(command_profile: pd.DataFrame, metadata: dict[str, object] | None = None) -> list[dict[str, object]]:
+    metadata = metadata or {}
+    active_source = feedback_export_source_column(command_profile)
+    predicted_valid = bool(
+        metadata.get("predicted_from_plotted_command", False)
+        and "feedback_corrected_predicted_field_mT" in command_profile.columns
+    )
+    return [
+        {"field": "active_command_source", "value": active_source},
+        {"field": "plotted_command_source", "value": active_source},
+        {"field": "exported_voltage_source_column", "value": active_source},
+        {"field": "run_waveform_voltage_source", "value": active_source},
+        {"field": "feedback_used_for_correction", "value": bool(metadata.get("feedback_used_for_correction", False))},
+        {"field": "predicted_from_plotted_command", "value": bool(metadata.get("predicted_from_plotted_command", False))},
+        {"field": "displayed_predicted_valid", "value": predicted_valid},
+        {
+            "field": "command_prediction_consistency_status",
+            "value": metadata.get(
+                "command_prediction_consistency_status",
+                "ok" if predicted_valid else "forward_prediction_unavailable_for_feedback_corrected_command",
+            ),
+        },
+        {"field": "correction_method", "value": metadata.get("correction_method", "residual_proportional_feedback")},
+    ]
+
+
 def build_feedback_status_rows(metadata: dict[str, object]) -> list[dict[str, object]]:
     route = metadata.get("feedback_route") or "finite_actual_feedback_peak_correction"
     if route == "finite_feedback_symmetric_peak_correction":
@@ -184,6 +210,7 @@ def build_feedback_plot_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
     columns = {
         "physical_target_output_mT": "Physical Target",
         "measured_field_normalized_mT": "Normalized measured feedback field",
+        "limited_voltage_v": "active/plotted command",
         "baseline_limited_voltage_v": "Baseline recommended/limited voltage",
         "feedback_correction_delta_v": "Feedback correction delta",
         "feedback_corrected_limited_voltage_v": "Feedback corrected limited voltage",
@@ -200,6 +227,9 @@ def build_feedback_plot_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
 def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
     st.markdown("#### Quick LUT feedback correction result")
     st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 모델 품질을 자동 합격 처리하지 않습니다.")
+    st.markdown("##### Command source panel")
+    st.caption("화면 Command Waveform과 동일한 column을 저장합니다. 실제 active/plotted command source를 아래에서 확인하십시오.")
+    st.dataframe(pd.DataFrame(build_command_source_rows(command_profile, metadata)), use_container_width=True)
     st.dataframe(pd.DataFrame(build_feedback_status_rows(metadata)), use_container_width=True)
     st.markdown("##### Normalization panel")
     st.caption("HallBz sign applied")
@@ -223,15 +253,20 @@ def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: d
 
     plot_frame = build_feedback_plot_frame(command_profile)
     _render_plot(plot_frame, ["Physical Target", "Normalized measured feedback field", "Residual"], "Field feedback review")
-    _render_plot(
-        plot_frame,
-        ["Baseline recommended/limited voltage", "Feedback correction delta", "Feedback corrected limited voltage"],
-        "Voltage feedback correction review",
-    )
+    command_columns = [
+        "baseline_limited_voltage_v",
+        "Baseline recommended/limited voltage",
+        "Feedback correction delta",
+        "Feedback corrected limited voltage",
+        "active/plotted command",
+    ]
+    _render_plot(plot_frame, command_columns, "Baseline vs corrected command")
+    st.markdown("##### Predicted Output status")
+    st.caption("기존 predicted를 corrected prediction처럼 표시하지 않습니다.")
     if "feedback_corrected_predicted_field_mT" in plot_frame.columns:
         _render_plot(plot_frame, ["Physical Target", "feedback_corrected_predicted_field_mT"], "Feedback corrected prediction")
     else:
-        st.info("feedback_corrected_predicted_field_mT unavailable: prediction panel is unavailable for this result.")
+        st.info("forward prediction unavailable: feedback_corrected_predicted_field_mT가 없어 그래프를 만들지 않습니다.")
 
     metrics = [
         "positive_peak_error_before_mT",

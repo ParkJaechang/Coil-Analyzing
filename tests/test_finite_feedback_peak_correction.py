@@ -45,6 +45,7 @@ def _command_profile(*, freq_hz: float = 1.0, cycle_count: float = 1.0) -> pd.Da
             "physical_target_output_mT": target,
             "recommended_voltage_v": baseline,
             "limited_voltage_v": baseline,
+            "predicted_field_mT": target * 0.25,
         }
     )
 
@@ -76,6 +77,18 @@ def test_quick_lut_finite_feedback_peak_correction_supported_cycles(tmp_path: Pa
     assert np.allclose(corrected["physical_target_output_mT"], original_target)
     assert np.nanmax(np.abs(corrected["measured_field_normalized_mT"])) == pytest.approx(50.0, abs=1e-6)
     assert np.nanmax(np.abs(corrected["feedback_corrected_limited_voltage_v"])) <= 5.0 + 1e-9
+    assert np.allclose(corrected["active_limited_voltage_v"], corrected["feedback_corrected_limited_voltage_v"])
+    assert np.allclose(corrected["limited_voltage_v"], corrected["active_limited_voltage_v"])
+    assert np.allclose(corrected["baseline_limited_voltage_v"], profile["limited_voltage_v"])
+    assert corrected["active_command_source"].iloc[0] == "feedback_corrected_limited_voltage_v"
+    assert corrected["plotted_command_source"].iloc[0] == corrected["active_command_source"].iloc[0]
+    assert corrected["exported_voltage_source_column"].iloc[0] == corrected["active_command_source"].iloc[0]
+    assert corrected["run_waveform_voltage_source"].iloc[0] == corrected["active_command_source"].iloc[0]
+    assert metadata["active_command_source"] == "feedback_corrected_limited_voltage_v"
+    assert metadata["plotted_command_source"] == "feedback_corrected_limited_voltage_v"
+    assert metadata["exported_voltage_source_column"] == "feedback_corrected_limited_voltage_v"
+    assert metadata["run_waveform_voltage_source"] == "feedback_corrected_limited_voltage_v"
+    assert metadata["correction_method"] == "residual_proportional_feedback"
     assert np.nanmax(np.abs(corrected["feedback_correction_delta_v"])) == pytest.approx(metadata["correction_delta_peak_v"])
     assert corrected["feedback_corrected_limited_voltage_v"].equals(corrected["feedback_corrected_recommended_voltage_v"]) or metadata[
         "voltage_limit_status"
@@ -85,7 +98,10 @@ def test_quick_lut_finite_feedback_peak_correction_supported_cycles(tmp_path: Pa
     assert np.isfinite(metadata["negative_peak_error_before_mT"])
     assert np.isfinite(metadata["peak_symmetry_error_before_mT"])
     assert "feedback_corrected_predicted_field_mT" in corrected.columns
+    assert "displayed_predicted_field_mT" in corrected.columns
+    assert np.allclose(corrected["displayed_predicted_field_mT"], corrected["feedback_corrected_predicted_field_mT"])
     assert metadata["predicted_from_plotted_command"] is True
+    assert metadata["displayed_predicted_valid"] is True
 
 
 @pytest.mark.parametrize("cycle_count", [1.25, 1.75])
@@ -141,11 +157,36 @@ def test_final_lut_export_uses_feedback_corrected_voltage_when_valid(tmp_path: P
 
     payload = build_final_modeled_voltage_lut_export(corrected, freq_hz=1.0, cycle_count=1.0, waveform="sine")
 
-    assert payload["metadata"]["voltage_source_column"] == "feedback_corrected_limited_voltage_v"
-    assert payload["metadata"]["exported_voltage_source_column"] == "feedback_corrected_limited_voltage_v"
-    assert np.allclose(payload["frame"]["voltage_v"], corrected["feedback_corrected_limited_voltage_v"])
+    active_source = corrected["active_command_source"].iloc[0]
+    assert payload["metadata"]["voltage_source_column"] == active_source
+    assert payload["metadata"]["exported_voltage_source_column"] == active_source
+    assert np.allclose(payload["frame"]["voltage_v"], corrected[active_source])
     assert "correction_delta_v" not in payload["frame"].columns
     assert "second_voltage_v" not in payload["frame"].columns
+
+
+def test_feedback_without_forward_model_marks_displayed_prediction_invalid(tmp_path: Path) -> None:
+    feedback_path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_feedback_csv(feedback_path)
+    profile = _command_profile()
+
+    corrected, metadata = apply_finite_feedback_peak_correction(
+        profile,
+        feedback_path,
+        waveform_type="sine",
+        freq_hz=1.0,
+        cycle_count=1.0,
+    )
+
+    assert metadata["feedback_correction_status"] == "ok"
+    assert metadata["active_command_source"] == "feedback_corrected_limited_voltage_v"
+    assert metadata["displayed_predicted_valid"] is False
+    assert metadata["predicted_from_plotted_command"] is False
+    assert metadata["command_prediction_consistency_status"] == "forward_prediction_unavailable_for_feedback_corrected_command"
+    assert metadata["plotted_predicted_source"] == "unavailable"
+    assert "displayed_predicted_field_mT" not in corrected.columns
+    assert "feedback_corrected_predicted_field_mT" not in corrected.columns
+    assert "predicted_field_mT" in corrected.columns
 
 
 def test_final_lut_export_falls_back_to_limited_voltage_without_feedback() -> None:
