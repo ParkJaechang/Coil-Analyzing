@@ -77,6 +77,7 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
 def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     snapshot_source = (REPO_ROOT / "src" / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
     raw_ui_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms.py").read_text(encoding="utf-8")
+    plot_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms_plot.py").read_text(encoding="utf-8")
     quality_source = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms_quality.py").read_text(encoding="utf-8")
 
     assert "render_raw_waveforms_tab(" in snapshot_source
@@ -90,7 +91,7 @@ def test_raw_waveforms_ui_contract_is_audit_oriented() -> None:
     assert "Current/App" in raw_ui_source
     assert "Source type / 데이터 종류" in raw_ui_source
     assert "Selected Data Summary / 선택 데이터 요약" in raw_ui_source
-    assert "render_channel_timebase_summary" in raw_ui_source
+    assert "render_channel_timebase_summary" in plot_source
     assert "Channel timebase summary" in quality_source
     assert "Parser quality flags" in raw_ui_source
     assert "timebase_source" in raw_ui_source

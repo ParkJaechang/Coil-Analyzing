@@ -59,12 +59,17 @@ from .plotting import (
 from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
+from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
+from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
+from .ui_quick_lut_feedback import render_feedback_correction_review
+from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
+from .ui_voltage_lut_review import render_final_voltage_lut_export_panel, render_voltage_lut_review_section
 from .utils import first_number, infer_current_from_text, infer_frequency_from_text, infer_waveform_from_text
 
 
@@ -380,7 +385,7 @@ def _run_app_shell(
     if usage_mode == "간단 LUT":
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "Data Import", "Export"],
+            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "LUT Review", "Data Import", "Export"],
             horizontal=True,
             key="quick_section_nav",
         )
@@ -394,6 +399,7 @@ def _run_app_shell(
                 "Validation / Retune",
                 "Catalogs / Diagnostics",
                 "Raw Waveforms",
+                "LUT Review",
                 "Cycle Overlay",
                 "Loop Analysis",
                 "Frequency/Amplitude Comparison",
@@ -414,6 +420,10 @@ def _run_app_shell(
 
     if active_section == "Run Readiness":
         render_run_readiness_section()
+        return
+
+    if active_section == "LUT Review":
+        render_voltage_lut_review_section()
         return
 
     if not uploaded_payloads and not transient_payloads and not validation_payloads and not lcr_payloads:
@@ -2015,6 +2025,8 @@ def _render_quick_lut_tab_v2(
             f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
         )
 
+    feedback_selection = render_quick_lut_feedback_input_section(finite_cycle_mode=bool(finite_cycle_mode))
+
     if not estimate_clicked and not compensation_clicked:
         st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
         return
@@ -2108,6 +2120,16 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
+            feedback_metadata = None
+            if finite_cycle_mode:
+                command_profile, feedback_metadata = apply_feedback_correction_from_selection(
+                    command_profile,
+                    feedback_selection,
+                    waveform_type=str(target_waveform),
+                    freq_hz=float(target_freq),
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+                )
+                compensation["command_profile"] = command_profile
             plot_command_profile = _prepare_semantic_compensation_plot_profile(command_profile)
             (
                 reference_profile,
@@ -2206,6 +2228,7 @@ def _render_quick_lut_tab_v2(
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
+                render_feedback_correction_review(command_profile, feedback_metadata or {})
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
                 render_startup_compensation_review(compensation, command_profile)
@@ -2301,6 +2324,13 @@ def _render_quick_lut_tab_v2(
                 file_name=comp_file_name,
                 mime="text/csv",
                 key="download_compensation_waveform_v2",
+            )
+            render_final_voltage_lut_export_panel(
+                command_profile=command_profile,
+                finite_cycle_mode=bool(finite_cycle_mode),
+                waveform_type=target_waveform,
+                freq_hz=float(target_freq),
+                cycle_count=target_cycle_count,
             )
 
             if finite_cycle_mode:
@@ -2595,6 +2625,8 @@ def _render_raw_waveforms_tab(
     transient_measurements: list | None = None,
     transient_preprocess_results: list | None = None,
 ) -> None:
+    render_finite_actual_drive_review_section()
+    st.divider()
     render_raw_waveforms_tab(
         test_ids=test_ids,
         analysis_lookup=analysis_lookup,
