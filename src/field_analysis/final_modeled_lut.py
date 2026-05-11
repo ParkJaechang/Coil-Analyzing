@@ -9,6 +9,8 @@ import pandas as pd
 
 
 FINAL_MODELED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
+FINITE_PRODUCTION_SUPPORTED_CYCLES = (1.0,)
+FINITE_PRODUCTION_UNSUPPORTED_CYCLES = (1.25, 1.5, 1.75, 2.0)
 
 
 def build_final_modeled_voltage_lut_export(
@@ -43,6 +45,7 @@ def build_final_modeled_voltage_lut_export(
         }
     )
     diagnostics = diagnose_modeled_voltage_lut_timebase(lut_frame)
+    cycle_policy = _finite_production_cycle_policy(cycle_count)
     metadata = {
         "lut_export_type": "final_modeled_voltage_lut",
         "voltage_source_column": voltage_source_column,
@@ -64,6 +67,7 @@ def build_final_modeled_voltage_lut_export(
         "voltage_min_v": diagnostics["voltage_min_v"],
         "voltage_max_v": diagnostics["voltage_max_v"],
         "voltage_limit_v": _optional_float(voltage_limit_v),
+        **cycle_policy,
     }
     return {"frame": lut_frame, "metadata": metadata}
 
@@ -177,6 +181,19 @@ def _optional_float(value: float | None) -> float | None:
         return None
     numeric = float(value)
     return numeric if np.isfinite(numeric) else None
+
+
+def _finite_production_cycle_policy(cycle_count: float | None) -> dict[str, Any]:
+    cycle = _optional_float(cycle_count)
+    supported = cycle is not None and any(abs(cycle - item) <= 1e-9 for item in FINITE_PRODUCTION_SUPPORTED_CYCLES)
+    return {
+        "production_cycle_policy": "1cycle_only",
+        "production_supported_cycles": list(FINITE_PRODUCTION_SUPPORTED_CYCLES),
+        "unsupported_cycles": list(FINITE_PRODUCTION_UNSUPPORTED_CYCLES),
+        "finite_production_cycle_supported": bool(supported),
+        "finite_production_export_status": "ok" if supported else "unsupported_cycle_policy_1cycle_only",
+        "finite_production_export_warning": None if supported else "non_1cycle_production_disabled",
+    }
 
 
 def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:

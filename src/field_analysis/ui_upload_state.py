@@ -8,6 +8,11 @@ from typing import Any
 
 import streamlit as st
 
+from .upload_state_dedupe import dedupe_exact_upload_entries
+from .upload_state_dedupe import exact_upload_key
+from .upload_state_dedupe import is_relative_to
+from .upload_state_dedupe import list_exact_upload_records_from_manifest
+from .upload_state_dedupe import uploaded_file_keys
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -188,7 +193,7 @@ def persist_uploaded_files(
     category_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_upload_manifest(paths=resolved_paths)
     existing_entries = [dict(entry) for entry in manifest["files"].get(category, []) if isinstance(entry, dict)]
-    existing_entries = _dedupe_exact_upload_entries(category, existing_entries, category_dir=category_dir)
+    existing_entries = dedupe_exact_upload_entries(existing_entries, category_dir=category_dir)
     existing_cache_names = {str(entry.get("cache_name") or "") for entry in existing_entries if entry.get("cache_name")}
     existing_digest_to_id = {
         str(entry.get("content_sha256")): str(entry.get("upload_item_id") or _upload_item_id(category, str(entry.get("cache_name") or "")))
@@ -196,9 +201,9 @@ def persist_uploaded_files(
         if entry.get("content_sha256") and entry.get("cache_name")
     }
     existing_exact_uploads = {
-        _exact_upload_key(entry): entry
+        exact_upload_key(entry): entry
         for entry in existing_entries
-        if _exact_upload_key(entry) is not None
+        if exact_upload_key(entry) is not None
     }
 
     for uploaded in uploaded_files or []:
@@ -247,12 +252,20 @@ def category_payloads(
     uploaded_files: list[Any] | tuple[Any, ...] | None,
     *,
     paths: UploadStatePaths | None = None,
+    include_cached_uploads: bool = False,
 ) -> list[tuple[str, bytes]]:
     resolved_paths = paths or build_upload_state_paths()
+    current_upload_keys: set[tuple[str, str]] = set()
     if uploaded_files:
+        current_upload_keys = uploaded_file_keys(uploaded_files)
         persist_uploaded_files(category, uploaded_files, paths=resolved_paths)
     payloads: list[tuple[str, bytes]] = []
-    for record in list_persisted_uploads(category, paths=resolved_paths):
+    records = (
+        list_persisted_uploads(category, paths=resolved_paths)
+        if include_cached_uploads
+        else _list_exact_upload_records(category, current_upload_keys, paths=resolved_paths)
+    )
+    for record in records:
         path = Path(str(record["path"]))
         payloads.append((str(record["cache_name"]), path.read_bytes()))
     return payloads
@@ -458,46 +471,18 @@ def _upload_item_id(category: str, cache_name: str) -> str:
     return f"{UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, 'unknown')}:{digest}"
 
 
-def _exact_upload_key(entry: dict[str, Any]) -> tuple[str, str] | None:
-    digest = str(entry.get("content_sha256") or "").strip()
-    if not digest:
-        return None
-    original = str(entry.get("original_filename") or entry.get("display_name") or entry.get("file_name") or "").strip()
-    if not original:
-        return None
-    return (Path(original).name, digest)
-
-
-def _dedupe_exact_upload_entries(
+def _list_exact_upload_records(
     category: str,
-    entries: list[dict[str, Any]],
+    exact_keys: set[tuple[str, str]],
     *,
-    category_dir: Path,
+    paths: UploadStatePaths,
 ) -> list[dict[str, Any]]:
-    retained: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for entry in entries:
-        key = _exact_upload_key(entry)
-        if key is None or key not in seen:
-            retained.append(entry)
-            if key is not None:
-                seen.add(key)
-            continue
-        _delete_duplicate_upload_file(category, entry, category_dir=category_dir)
-    return retained
-
-
-def _delete_duplicate_upload_file(category: str, entry: dict[str, Any], *, category_dir: Path) -> None:
-    path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / str(entry.get("cache_name") or "")))
-    try:
-        resolved = path.resolve()
-        root = category_dir.resolve()
-    except OSError:
-        return
-    if not _is_relative_to(resolved, root):
-        return
-    if resolved.exists() and resolved.is_file():
-        resolved.unlink()
+    return list_exact_upload_records_from_manifest(
+        load_upload_manifest(paths=paths),
+        category,
+        exact_keys,
+        category_dir=paths.category_dir(category),
+    )
 
 
 def _unique_cache_name(base_name: str, existing_names: set[str]) -> str:
@@ -572,20 +557,12 @@ def _delete_physical_files(
             resolved = path.resolve()
         except OSError:
             continue
-        if not _is_relative_to(resolved, upload_root):
+        if not is_relative_to(resolved, upload_root):
             continue
         if resolved.exists() and resolved.is_file():
             resolved.unlink()
             deleted.append(str(resolved))
     return deleted
-
-
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
 
 
 def _delete_result(deleted: list[dict[str, Any]], physical_deleted: list[str], invalidated: list[str]) -> dict[str, Any]:

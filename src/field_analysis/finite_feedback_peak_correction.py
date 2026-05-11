@@ -14,11 +14,11 @@ from .finite_actual_drive_normalization import normalize_peak_to_limit
 from .finite_actual_drive_normalization import peak_abs
 
 
-PRODUCTION_FEEDBACK_PEAK_CYCLES = (1.5, 2.0)
-REFERENCE_FEEDBACK_PEAK_CYCLES = (1.0,)
-UNSUPPORTED_FEEDBACK_PEAK_CYCLES = (1.25, 1.75)
-SUPPORTED_FEEDBACK_PEAK_CYCLES = (*REFERENCE_FEEDBACK_PEAK_CYCLES, *PRODUCTION_FEEDBACK_PEAK_CYCLES)
-SUGGESTED_REPLACEMENT_CYCLES = {1.25: 1.5, 1.75: 2.0}
+PRODUCTION_FEEDBACK_PEAK_CYCLES = (1.0,)
+REFERENCE_FEEDBACK_PEAK_CYCLES: tuple[float, ...] = ()
+UNSUPPORTED_FEEDBACK_PEAK_CYCLES = (1.25, 1.5, 1.75, 2.0)
+SUPPORTED_FEEDBACK_PEAK_CYCLES = PRODUCTION_FEEDBACK_PEAK_CYCLES
+SUGGESTED_REPLACEMENT_CYCLES = {1.25: 1.0, 1.5: 1.0, 1.75: 1.0, 2.0: 1.0}
 FEEDBACK_ROUTE_NAME = "finite_feedback_symmetric_peak_correction"
 
 
@@ -49,8 +49,8 @@ def apply_finite_feedback_peak_correction(
         return profile, {
             **base_metadata,
             "feedback_correction_available": False,
-            "feedback_correction_status": "unsupported_cycle_phase_delay",
-            "feedback_correction_unavailable_reason": "unsupported_cycle_phase_delay",
+            "feedback_correction_status": "unsupported_cycle_policy_1cycle_only",
+            "feedback_correction_unavailable_reason": "non_1cycle_production_disabled",
             "feedback_used_for_correction": False,
             "target_unchanged": True,
             "correction_delta_v_generated": False,
@@ -242,6 +242,7 @@ def _base_metadata(*, feedback_source: object, freq_hz: float, cycle_count: floa
         "freq_hz": float(freq_hz),
         "cycle_count": float(cycle_count),
         "supported_feedback_peak_cycles": list(SUPPORTED_FEEDBACK_PEAK_CYCLES),
+        "production_cycle_policy": "1cycle_only",
         **_cycle_policy_metadata(cycle_count),
     }
 
@@ -267,7 +268,7 @@ def _cycle_policy(cycle_count: float) -> str:
     if any(abs(value - cycle) <= 1e-9 for cycle in REFERENCE_FEEDBACK_PEAK_CYCLES):
         return "reference_supported"
     if any(abs(value - cycle) <= 1e-9 for cycle in UNSUPPORTED_FEEDBACK_PEAK_CYCLES):
-        return "unsupported_phase_delay"
+        return "unsupported_cycle_policy_1cycle_only"
     return "unsupported_unknown_cycle"
 
 

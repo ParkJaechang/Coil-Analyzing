@@ -175,3 +175,14 @@ def test_category_payloads_does_not_duplicate_persisted_files_on_rerun(tmp_path:
     assert len(first_payloads) == 1
     assert len(second_payloads) == 1
     assert summary["continuous_cycle"]["count"] == 1
+
+
+def test_category_payloads_without_current_upload_does_not_auto_load_cached_files(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    persist_uploaded_files("continuous", [_Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")], paths=paths)
+
+    payloads = category_payloads("continuous", None, paths=paths)
+    cached_payloads = category_payloads("continuous", None, paths=paths, include_cached_uploads=True)
+
+    assert payloads == []
+    assert len(cached_payloads) == 1
