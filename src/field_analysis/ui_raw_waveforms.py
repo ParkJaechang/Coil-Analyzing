@@ -8,26 +8,21 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from .plotting import plot_waveforms
 from .ui_raw_waveforms_labels import (
     FIXED_DAQ_OUTPUT_LABEL,
     FIXED_GAIN_LABEL,
     infer_new_dataset_filename_metadata,
 )
-from .ui_raw_waveforms_quality import (
-    add_finite_visual_markers,
-    build_finite_marker_times,
-    preferred_marker_channel,
-    render_anomaly_helper,
-    render_channel_timebase_summary,
-    render_finite_marker_summary,
-)
+from .ui_raw_waveforms_plot import render_raw_waveform_plot
+from .ui_raw_waveforms_plot import render_finite_symmetric_peak_review
+from .ui_raw_waveforms_plot import render_waveform_normalization_summary
 from .utils import first_number
+from .waveform_review_normalization import build_finite_symmetric_peak_review
+from .waveform_review_normalization import normalize_raw_waveform_frame
 
 
 _OPAQUE_PREFIX_MIN_LEN = 12
 _OPAQUE_PREFIX_MAX_LEN = 32
-_METADATA_HIDDEN_COLUMNS = {"source_file", "sheet_name", "test_id", "notes", "parse_warnings"}
 
 
 @dataclass(frozen=True)
@@ -184,9 +179,24 @@ def render_raw_waveforms_tab(
         key="raw_dataset_audit",
     )
     display_frame = selected_item.corrected_frame if dataset_mode == "corrected" else selected_item.raw_frame
+    display_frame, normalization_metadata = normalize_raw_waveform_frame(
+        display_frame,
+        source_type=selected_record.source_type,
+        freq_hz=selected_record.freq_hz,
+        cycle_count=selected_record.cycle_count,
+    )
+    symmetric_peak_metadata: dict[str, Any] | None = None
+    if selected_record.source_type == "finite-cycle":
+        display_frame, symmetric_peak_metadata = build_finite_symmetric_peak_review(
+            display_frame,
+            freq_hz=selected_record.freq_hz,
+            cycle_count=selected_record.cycle_count,
+        )
 
     _render_selected_test_summary(selected_record, dataset_mode, display_frame)
-    _render_raw_waveform_plot(selected_record, dataset_mode, display_frame)
+    render_waveform_normalization_summary(normalization_metadata)
+    render_finite_symmetric_peak_review(display_frame, symmetric_peak_metadata)
+    render_raw_waveform_plot(selected_record, dataset_mode, display_frame)
 
 
 def _build_raw_waveform_test_record(test_id: str, analysis: Any) -> RawWaveformTestRecord:
@@ -394,56 +404,6 @@ def _render_selected_test_summary(
         st.write(f"- quality_flags: `{record.quality_flags or 'none'}`")
 
 
-def _render_raw_waveform_plot(
-    record: RawWaveformTestRecord,
-    dataset_mode: str,
-    display_frame: pd.DataFrame,
-) -> None:
-    default_channels = [
-        "daq_input_v",
-        "coil1_current_a",
-        "coil2_current_a",
-        "temperature_c",
-        "bx_mT",
-        "by_mT",
-        "bz_mT",
-        "bmag_mT",
-    ]
-    plottable_columns = [
-        column
-        for column in display_frame.columns
-        if column not in _METADATA_HIDDEN_COLUMNS and pd.api.types.is_numeric_dtype(display_frame[column])
-    ]
-    selected_channels = st.multiselect(
-        "Signals to inspect",
-        options=plottable_columns,
-        default=[channel for channel in default_channels if channel in plottable_columns],
-        key="raw_channels_audit",
-    )
-    st.caption(
-        f"Plot view: {dataset_mode} | source={record.source_file_label or 'unknown'} | "
-        f"signals={', '.join(selected_channels) if selected_channels else 'none selected'}"
-    )
-    if not selected_channels:
-        st.warning("Select at least one numeric signal to plot.")
-        return
-    marker_channel = preferred_marker_channel(display_frame, selected_channels)
-    marker_times = build_finite_marker_times(display_frame, marker_channel)
-    figure = plot_waveforms(display_frame, selected_channels, title=f"{record.label} / {dataset_mode}")
-    if record.source_type == "finite-cycle":
-        add_finite_visual_markers(figure, marker_times)
-        render_finite_marker_summary(marker_times)
-    st.plotly_chart(figure, use_container_width=True)
-    render_channel_timebase_summary(display_frame, selected_channels)
-    render_anomaly_helper(
-        display_frame,
-        selected_channels,
-        source_type=record.source_type,
-        duration_s=record.duration_s,
-        freq_hz=record.freq_hz,
-        cycle_count=record.cycle_count,
-    )
-    st.dataframe(display_frame.head(200), use_container_width=True)
 def _format_raw_waveform_label(record: RawWaveformTestRecord) -> str:
     parts = [
         _display_value(record.source_type),
