@@ -64,6 +64,9 @@ from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_wavefo
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
+from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
+from .ui_quick_lut_feedback import render_feedback_correction_review
+from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel, render_voltage_lut_review_section
@@ -2022,6 +2025,8 @@ def _render_quick_lut_tab_v2(
             f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
         )
 
+    feedback_selection = render_quick_lut_feedback_input_section(finite_cycle_mode=bool(finite_cycle_mode))
+
     if not estimate_clicked and not compensation_clicked:
         st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
         return
@@ -2115,6 +2120,16 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
+            feedback_metadata = None
+            if finite_cycle_mode:
+                command_profile, feedback_metadata = apply_feedback_correction_from_selection(
+                    command_profile,
+                    feedback_selection,
+                    waveform_type=str(target_waveform),
+                    freq_hz=float(target_freq),
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+                )
+                compensation["command_profile"] = command_profile
             plot_command_profile = _prepare_semantic_compensation_plot_profile(command_profile)
             (
                 reference_profile,
@@ -2213,6 +2228,7 @@ def _render_quick_lut_tab_v2(
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
+                render_feedback_correction_review(command_profile, feedback_metadata or {})
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
                 render_startup_compensation_review(compensation, command_profile)

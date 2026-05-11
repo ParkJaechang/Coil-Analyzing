@@ -210,9 +210,11 @@ def render_final_voltage_lut_export_panel(
     st.markdown("#### 최종 모델링 전압 LUT CSV 다운로드")
     st.caption(
         "화면 Command Waveform에 표시되는 최종 전압 배열을 Fourier 재합성 없이 그대로 저장합니다. "
-        "voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다."
+        "feedback correction이 유효하면 feedback_corrected_limited_voltage_v를 사용하고, "
+        "그 외에는 baseline limited_voltage_v를 사용합니다."
     )
     st.caption("Fourier formula / harmonic coefficient export와 다른 time-voltage LUT입니다. no Fourier/resynthesis.")
+    st.caption("baseline export path에서는 voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다.")
     if not finite_cycle_mode:
         st.info("finite compensation LUT unavailable: finite compensation 결과에서만 다운로드할 수 있습니다.")
         return
@@ -229,13 +231,14 @@ def render_final_voltage_lut_export_panel(
         freq_hz=freq_hz,
         cycle_count=cycle_count,
     )
+    st.caption(f"exported_voltage_source_column: `{_export_voltage_source_column(command_profile)}`")
     st.download_button(
         label="최종 모델링 전압 LUT CSV 다운로드",
         data=build_final_voltage_lut_csv_bytes(command_profile),
         file_name=file_name,
         mime="text/csv",
         key="download_final_modeled_voltage_lut_csv",
-        help="Fourier 재합성 파형이 아니라 limited_voltage_v 기반 최종 time-voltage LUT입니다.",
+        help="Fourier 재합성 파형이 아닙니다. exported_voltage_source_column 기반 최종 time-voltage LUT입니다.",
     )
 
 

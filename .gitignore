@@ -5,6 +5,8 @@ __pycache__/
 .env
 artifacts/
 outputs/
+PR/
+runtime_*.png
 *.log
 
 .coil_analyzer/uploads/
