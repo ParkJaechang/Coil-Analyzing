@@ -25,12 +25,13 @@ def build_final_modeled_voltage_lut_export(
 
     if not isinstance(command_profile, pd.DataFrame) or command_profile.empty:
         raise ValueError("command_profile must be a non-empty DataFrame")
-    for column in ("time_s", "limited_voltage_v"):
+    voltage_source_column = _export_voltage_source_column(command_profile)
+    for column in ("time_s", voltage_source_column):
         if column not in command_profile.columns:
             raise ValueError(f"command_profile missing required column: {column}")
 
     time_s = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
-    voltage_v = pd.to_numeric(command_profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    voltage_v = pd.to_numeric(command_profile[voltage_source_column], errors="coerce").to_numpy(dtype=float)
     if len(time_s) != len(voltage_v):
         raise ValueError("time_s and limited_voltage_v length mismatch")
 
@@ -44,7 +45,8 @@ def build_final_modeled_voltage_lut_export(
     diagnostics = diagnose_modeled_voltage_lut_timebase(lut_frame)
     metadata = {
         "lut_export_type": "final_modeled_voltage_lut",
-        "voltage_source_column": "limited_voltage_v",
+        "voltage_source_column": voltage_source_column,
+        "exported_voltage_source_column": voltage_source_column,
         "time_source_column": "time_s",
         "fourier_resynthesis_involved": False,
         "harmonic_export_involved": False,
@@ -175,6 +177,19 @@ def _optional_float(value: float | None) -> float | None:
         return None
     numeric = float(value)
     return numeric if np.isfinite(numeric) else None
+
+
+def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
+    if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
+        return "limited_voltage_v"
+    status = None
+    if "feedback_correction_status" in command_profile.columns and len(command_profile):
+        status = str(command_profile["feedback_correction_status"].iloc[0])
+    available = True
+    if "feedback_correction_available" in command_profile.columns and len(command_profile):
+        value = command_profile["feedback_correction_available"].iloc[0]
+        available = bool(value)
+    return "feedback_corrected_limited_voltage_v" if available and status in {None, "ok"} else "limited_voltage_v"
 
 
 def _suspect_time_unit(*, duration_s: float, dt_median_s: float) -> str:

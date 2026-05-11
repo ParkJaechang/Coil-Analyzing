@@ -1,0 +1,266 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from .finite_actual_drive import ActualDriveRecord
+from .finite_actual_drive import build_actual_drive_review_case
+from .finite_actual_drive import read_actual_drive_result
+from .finite_actual_drive_normalization import normalize_peak_to_limit
+from .finite_actual_drive_normalization import peak_abs
+
+
+SUPPORTED_FEEDBACK_PEAK_CYCLES = (1.0, 1.5)
+FEEDBACK_ROUTE_NAME = "finite_feedback_symmetric_peak_correction"
+
+
+def apply_finite_feedback_peak_correction(
+    command_profile: pd.DataFrame,
+    feedback_source: str | Path | ActualDriveRecord | dict[str, Any],
+    *,
+    waveform_type: str,
+    freq_hz: float,
+    cycle_count: float,
+    voltage_limit_v: float = 5.0,
+    correction_gain: float = 0.25,
+    forward_model: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Apply Quick LUT finite feedback peak correction using actual-drive result data.
+
+    This helper is intentionally command-profile based: it does not alter the
+    physical target, and it never treats Raw Waveforms as the modeling route.
+    """
+
+    profile = command_profile.copy()
+    base_metadata = _base_metadata(
+        feedback_source=feedback_source,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    if not _cycle_supported(cycle_count):
+        return profile, {
+            **base_metadata,
+            "feedback_correction_available": False,
+            "feedback_correction_status": "unsupported_cycle_phase_delay",
+            "feedback_correction_unavailable_reason": "unsupported_cycle_phase_delay",
+            "feedback_used_for_correction": False,
+            "target_unchanged": True,
+        }
+
+    required = {"time_s", "limited_voltage_v"}
+    missing = sorted(required - set(profile.columns))
+    if missing:
+        return profile, {
+            **base_metadata,
+            "feedback_correction_available": False,
+            "feedback_correction_status": "missing_command_columns",
+            "feedback_correction_unavailable_reason": ",".join(missing),
+            "feedback_used_for_correction": False,
+            "target_unchanged": True,
+        }
+
+    record = _load_feedback_record(feedback_source)
+    review_frame, review_metadata = build_actual_drive_review_case(record)
+    target = _target_array(profile, review_frame)
+    time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    measured = _interp(review_frame["time_s"], review_frame["normalized_measured_field_mT"], time_s)
+    actual_voltage = _interp(review_frame["time_s"], review_frame["normalized_actual_drive_voltage_v"], time_s)
+    raw_hallbz = _interp(record.frame["time_s_abs"] - review_metadata["command_start_s"], record.frame["hallbz_raw_mT"], time_s)
+    signed_field = -raw_hallbz
+    signed_normalized, field_norm_meta = normalize_peak_to_limit(
+        signed_field,
+        _finite_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count),
+        limit=50.0,
+        unavailable_status="unavailable_zero_peak",
+    )
+    residual = target - measured
+    active_mask = _finite_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
+    positive_mask = active_mask & (target > 1e-9)
+    negative_mask = active_mask & (target < -1e-9)
+
+    if not positive_mask.any() or not negative_mask.any():
+        return profile, {
+            **base_metadata,
+            "feedback_correction_available": False,
+            "feedback_correction_status": "unavailable_missing_lobe",
+            "feedback_correction_unavailable_reason": "missing_positive_or_negative_lobe",
+            "feedback_used_for_correction": False,
+            "target_unchanged": True,
+        }
+
+    baseline_limited = pd.to_numeric(profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    baseline_recommended = (
+        pd.to_numeric(profile["recommended_voltage_v"], errors="coerce").to_numpy(dtype=float)
+        if "recommended_voltage_v" in profile.columns
+        else baseline_limited.copy()
+    )
+    raw_delta = correction_gain * (residual / 50.0) * float(voltage_limit_v)
+    raw_delta[~active_mask | ~np.isfinite(raw_delta)] = 0.0
+    correction_delta = _smooth(raw_delta)
+    corrected_recommended = baseline_recommended + correction_delta
+    corrected_limited = np.clip(corrected_recommended, -abs(float(voltage_limit_v)), abs(float(voltage_limit_v)))
+    clipped = bool(np.any(np.abs(corrected_recommended - corrected_limited) > 1e-9))
+
+    profile["measured_field_raw_mT"] = raw_hallbz
+    profile["measured_field_signed_mT"] = signed_field
+    profile["measured_field_normalized_mT"] = signed_normalized
+    profile["measured_residual_mT"] = target - signed_normalized
+    profile["actual_first_voltage_v"] = actual_voltage
+    profile["baseline_recommended_voltage_v"] = baseline_recommended
+    profile["baseline_limited_voltage_v"] = baseline_limited
+    profile["feedback_correction_delta_v"] = correction_delta
+    profile["feedback_corrected_recommended_voltage_v"] = corrected_recommended
+    profile["feedback_corrected_limited_voltage_v"] = corrected_limited
+    profile["positive_lobe_mask"] = positive_mask
+    profile["negative_lobe_mask"] = negative_mask
+    profile["feedback_correction_status"] = "ok"
+    profile["feedback_correction_available"] = True
+    profile["feedback_route"] = FEEDBACK_ROUTE_NAME
+
+    prediction_available = forward_model is not None
+    if forward_model is not None:
+        predicted = np.asarray(forward_model(time_s, corrected_limited), dtype=float)
+        if len(predicted) == len(profile):
+            profile["feedback_corrected_predicted_field_mT"] = predicted
+        else:
+            prediction_available = False
+
+    before_pos = _peak_error(target, signed_normalized, positive_mask)
+    before_neg = _peak_error(target, signed_normalized, negative_mask)
+    after_pos = float("nan")
+    after_neg = float("nan")
+    after_symmetry = float("nan")
+    if prediction_available and "feedback_corrected_predicted_field_mT" in profile.columns:
+        predicted_values = profile["feedback_corrected_predicted_field_mT"].to_numpy(dtype=float)
+        after_pos = _peak_error(target, predicted_values, positive_mask)
+        after_neg = _peak_error(target, predicted_values, negative_mask)
+        after_symmetry = _symmetry_error(predicted_values, positive_mask, negative_mask)
+
+    metadata = {
+        **base_metadata,
+        "feedback_correction_available": True,
+        "feedback_correction_status": "ok",
+        "feedback_route": FEEDBACK_ROUTE_NAME,
+        "feedback_source_file": record.source_file,
+        "feedback_run_label": _run_label(record.source_file),
+        "feedback_schema_status": "ok",
+        "feedback_alignment_status": str(review_metadata.get("alignment_status") or "ok"),
+        "feedback_used_for_correction": True,
+        "hallbz_sign_applied": True,
+        "field_normalization_mode": "peak_to_50mT",
+        "voltage_normalization_mode": "peak_to_5V_or_limit",
+        "field_normalization_scale_factor": field_norm_meta["scale_factor"],
+        "voltage_normalization_scale_factor": review_metadata.get("voltage_normalization_scale_factor"),
+        "raw_field_peak_mT": peak_abs(raw_hallbz[active_mask]),
+        "normalized_field_peak_mT": peak_abs(signed_normalized[active_mask]),
+        "raw_voltage_peak_v": review_metadata.get("raw_voltage_peak_v"),
+        "normalized_voltage_peak_v": review_metadata.get("normalized_voltage_peak_v"),
+        "alignment_status": str(review_metadata.get("alignment_status") or "ok"),
+        "alignment_time_shift_s": float(review_metadata.get("alignment_offset_s") or 0.0),
+        "alignment_confidence": review_metadata.get("alignment_confidence"),
+        "positive_peak_error_before_mT": before_pos,
+        "negative_peak_error_before_mT": before_neg,
+        "positive_peak_error_after_mT": after_pos,
+        "negative_peak_error_after_mT": after_neg,
+        "peak_symmetry_error_before_mT": _symmetry_error(signed_normalized, positive_mask, negative_mask),
+        "peak_symmetry_error_after_mT": after_symmetry,
+        "correction_delta_peak_v": peak_abs(correction_delta),
+        "voltage_limit_status": "clamped" if clipped else "ok",
+        "target_unchanged": True,
+        "forward_prediction_available": bool(prediction_available),
+        "predicted_from_plotted_command": bool(prediction_available),
+        "plotted_command_source": "feedback_corrected_limited_voltage_v",
+        "plotted_predicted_source": (
+            "feedback_corrected_predicted_field_mT" if prediction_available else "unavailable"
+        ),
+    }
+    return profile, metadata
+
+
+def _load_feedback_record(source: str | Path | ActualDriveRecord | dict[str, Any]) -> ActualDriveRecord:
+    if isinstance(source, ActualDriveRecord):
+        return source
+    if isinstance(source, dict) and isinstance(source.get("record"), ActualDriveRecord):
+        return source["record"]
+    return read_actual_drive_result(Path(source))
+
+
+def _base_metadata(*, feedback_source: object, freq_hz: float, cycle_count: float) -> dict[str, Any]:
+    return {
+        "feedback_route": FEEDBACK_ROUTE_NAME,
+        "feedback_source_file": Path(str(feedback_source)).name if isinstance(feedback_source, (str, Path)) else None,
+        "feedback_run_label": _run_label(Path(str(feedback_source)).name) if isinstance(feedback_source, (str, Path)) else "unknown",
+        "freq_hz": float(freq_hz),
+        "cycle_count": float(cycle_count),
+        "supported_feedback_peak_cycles": list(SUPPORTED_FEEDBACK_PEAK_CYCLES),
+    }
+
+
+def _cycle_supported(cycle_count: float) -> bool:
+    return any(abs(float(cycle_count) - supported) <= 1e-9 for supported in SUPPORTED_FEEDBACK_PEAK_CYCLES)
+
+
+def _target_array(profile: pd.DataFrame, review_frame: pd.DataFrame) -> np.ndarray:
+    if "physical_target_output_mT" in profile.columns:
+        return pd.to_numeric(profile["physical_target_output_mT"], errors="coerce").to_numpy(dtype=float)
+    return _interp(review_frame["time_s"], review_frame["normalized_physical_target_output_mT"], profile["time_s"])
+
+
+def _finite_mask(time_s: np.ndarray, *, freq_hz: float, cycle_count: float) -> np.ndarray:
+    duration = float(cycle_count) / max(float(freq_hz), 1e-12)
+    values = np.asarray(time_s, dtype=float)
+    return np.isfinite(values) & (values >= -1e-12) & (values <= duration + 1e-12)
+
+
+def _interp(source_time: Any, source_values: Any, target_time: Any) -> np.ndarray:
+    x = pd.to_numeric(pd.Series(source_time), errors="coerce").to_numpy(dtype=float)
+    y = pd.to_numeric(pd.Series(source_values), errors="coerce").to_numpy(dtype=float)
+    t = pd.to_numeric(pd.Series(target_time), errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() == 0:
+        return np.full(len(t), np.nan)
+    order = np.argsort(x[finite])
+    x_valid = x[finite][order]
+    y_valid = y[finite][order]
+    return np.interp(t, x_valid, y_valid, left=np.nan, right=np.nan)
+
+
+def _smooth(values: np.ndarray, window: int = 7) -> np.ndarray:
+    series = pd.Series(np.asarray(values, dtype=float))
+    return series.rolling(window=window, center=True, min_periods=1).mean().to_numpy(dtype=float)
+
+
+def _peak_error(target: np.ndarray, measured: np.ndarray, mask: np.ndarray) -> float:
+    if not mask.any():
+        return float("nan")
+    target_peak = _signed_peak(target[mask])
+    measured_peak = _signed_peak(measured[mask])
+    return float(target_peak - measured_peak)
+
+
+def _signed_peak(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return float("nan")
+    max_abs_index = int(np.nanargmax(np.abs(finite)))
+    return float(finite[max_abs_index])
+
+
+def _symmetry_error(values: np.ndarray, positive_mask: np.ndarray, negative_mask: np.ndarray) -> float:
+    pos = peak_abs(values[positive_mask])
+    neg = peak_abs(values[negative_mask])
+    return float(abs(pos - neg)) if np.isfinite(pos) and np.isfinite(neg) else float("nan")
+
+
+def _run_label(source_file: str | None) -> str:
+    text = (source_file or "").lower()
+    if "second" in text or "2nd" in text:
+        return "second_run"
+    if "first" in text or "1st" in text:
+        return "first_run"
+    return "unknown"

@@ -15,6 +15,8 @@ DEBUG_VOLTAGE_COLUMNS = (
     "baseline_recommended_voltage_v",
     "compensated_recommended_voltage_v",
     "startup_compensation_command_delta_v",
+    "feedback_corrected_limited_voltage_v",
+    "feedback_correction_delta_v",
 )
 @dataclass(frozen=True)
 class ParsedVoltageLut:
@@ -24,7 +26,8 @@ class ParsedVoltageLut:
     error: str | None = None
 
 def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
-    missing = [column for column in ("time_s", "limited_voltage_v") if column not in command_profile.columns]
+    voltage_source_column = _export_voltage_source_column(command_profile)
+    missing = [column for column in ("time_s", voltage_source_column) if column not in command_profile.columns]
     if missing:
         raise ValueError(f"Missing final voltage LUT source columns: {missing}")
 
@@ -32,7 +35,7 @@ def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame
         {
             "sample_index": np.arange(len(command_profile), dtype=int),
             "time_s": pd.to_numeric(command_profile["time_s"], errors="coerce"),
-            "voltage_v": pd.to_numeric(command_profile["limited_voltage_v"], errors="coerce"),
+            "voltage_v": pd.to_numeric(command_profile[voltage_source_column], errors="coerce"),
         }
     )
     for column in DEBUG_VOLTAGE_COLUMNS:
@@ -57,6 +60,18 @@ def build_final_voltage_lut_filename(
 
 def build_final_voltage_lut_csv_bytes(command_profile: pd.DataFrame) -> bytes:
     return build_final_voltage_lut_frame(command_profile).to_csv(index=False).encode("utf-8-sig")
+
+
+def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
+    if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
+        return "limited_voltage_v"
+    if "feedback_correction_status" in command_profile.columns and len(command_profile):
+        if str(command_profile["feedback_correction_status"].iloc[0]) != "ok":
+            return "limited_voltage_v"
+    if "feedback_correction_available" in command_profile.columns and len(command_profile):
+        if not bool(command_profile["feedback_correction_available"].iloc[0]):
+            return "limited_voltage_v"
+    return "feedback_corrected_limited_voltage_v"
 
 
 def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
