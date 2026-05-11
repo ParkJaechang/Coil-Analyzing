@@ -14,7 +14,11 @@ from .finite_actual_drive_normalization import normalize_peak_to_limit
 from .finite_actual_drive_normalization import peak_abs
 
 
-SUPPORTED_FEEDBACK_PEAK_CYCLES = (1.0, 1.5)
+PRODUCTION_FEEDBACK_PEAK_CYCLES = (1.5, 2.0)
+REFERENCE_FEEDBACK_PEAK_CYCLES = (1.0,)
+UNSUPPORTED_FEEDBACK_PEAK_CYCLES = (1.25, 1.75)
+SUPPORTED_FEEDBACK_PEAK_CYCLES = (*REFERENCE_FEEDBACK_PEAK_CYCLES, *PRODUCTION_FEEDBACK_PEAK_CYCLES)
+SUGGESTED_REPLACEMENT_CYCLES = {1.25: 1.5, 1.75: 2.0}
 FEEDBACK_ROUTE_NAME = "finite_feedback_symmetric_peak_correction"
 
 
@@ -49,6 +53,9 @@ def apply_finite_feedback_peak_correction(
             "feedback_correction_unavailable_reason": "unsupported_cycle_phase_delay",
             "feedback_used_for_correction": False,
             "target_unchanged": True,
+            "correction_delta_v_generated": False,
+            "second_voltage_v_generated": False,
+            "second_lut_generated": False,
         }
 
     required = {"time_s", "limited_voltage_v"}
@@ -159,6 +166,14 @@ def apply_finite_feedback_peak_correction(
 
     metadata = {
         **base_metadata,
+        **_startup_diagnostics(
+            time_s,
+            signed_field,
+            signed_normalized,
+            active_mask,
+            freq_hz=freq_hz,
+            cycle_count=cycle_count,
+        ),
         "feedback_correction_available": True,
         "feedback_correction_status": "ok",
         "feedback_route": FEEDBACK_ROUTE_NAME,
@@ -169,11 +184,13 @@ def apply_finite_feedback_peak_correction(
         "feedback_alignment_status": str(review_metadata.get("alignment_status") or "ok"),
         "feedback_used_for_correction": True,
         "hallbz_sign_applied": True,
+        "hallbz_effective_convention": "effective_field_mT=-HallBz_raw",
         "field_normalization_mode": "peak_to_50mT",
         "voltage_normalization_mode": "peak_to_5V_or_limit",
         "field_normalization_scale_factor": field_norm_meta["scale_factor"],
         "voltage_normalization_scale_factor": review_metadata.get("voltage_normalization_scale_factor"),
         "raw_field_peak_mT": peak_abs(raw_hallbz[active_mask]),
+        "raw_peak_values_informational_only": True,
         "normalized_field_peak_mT": peak_abs(signed_normalized[active_mask]),
         "raw_voltage_peak_v": review_metadata.get("raw_voltage_peak_v"),
         "normalized_voltage_peak_v": review_metadata.get("normalized_voltage_peak_v"),
@@ -202,6 +219,9 @@ def apply_finite_feedback_peak_correction(
         "plotted_predicted_source": (
             "feedback_corrected_predicted_field_mT" if prediction_available else "unavailable"
         ),
+        "correction_delta_v_generated": True,
+        "second_voltage_v_generated": False,
+        "second_lut_generated": False,
     }
     return profile, metadata
 
@@ -222,11 +242,41 @@ def _base_metadata(*, feedback_source: object, freq_hz: float, cycle_count: floa
         "freq_hz": float(freq_hz),
         "cycle_count": float(cycle_count),
         "supported_feedback_peak_cycles": list(SUPPORTED_FEEDBACK_PEAK_CYCLES),
+        **_cycle_policy_metadata(cycle_count),
     }
 
 
 def _cycle_supported(cycle_count: float) -> bool:
     return any(abs(float(cycle_count) - supported) <= 1e-9 for supported in SUPPORTED_FEEDBACK_PEAK_CYCLES)
+
+
+def _cycle_policy_metadata(cycle_count: float) -> dict[str, Any]:
+    return {
+        "production_supported_cycles": list(PRODUCTION_FEEDBACK_PEAK_CYCLES),
+        "reference_supported_cycles": list(REFERENCE_FEEDBACK_PEAK_CYCLES),
+        "unsupported_cycles": list(UNSUPPORTED_FEEDBACK_PEAK_CYCLES),
+        "cycle_policy": _cycle_policy(cycle_count),
+        "suggested_replacement_cycle": _suggested_replacement_cycle(cycle_count),
+    }
+
+
+def _cycle_policy(cycle_count: float) -> str:
+    value = float(cycle_count)
+    if any(abs(value - cycle) <= 1e-9 for cycle in PRODUCTION_FEEDBACK_PEAK_CYCLES):
+        return "production_supported"
+    if any(abs(value - cycle) <= 1e-9 for cycle in REFERENCE_FEEDBACK_PEAK_CYCLES):
+        return "reference_supported"
+    if any(abs(value - cycle) <= 1e-9 for cycle in UNSUPPORTED_FEEDBACK_PEAK_CYCLES):
+        return "unsupported_phase_delay"
+    return "unsupported_unknown_cycle"
+
+
+def _suggested_replacement_cycle(cycle_count: float) -> float | None:
+    value = float(cycle_count)
+    for cycle, replacement in SUGGESTED_REPLACEMENT_CYCLES.items():
+        if abs(value - cycle) <= 1e-9:
+            return replacement
+    return None
 
 
 def _target_array(profile: pd.DataFrame, review_frame: pd.DataFrame) -> np.ndarray:
@@ -280,6 +330,70 @@ def _symmetry_error(values: np.ndarray, positive_mask: np.ndarray, negative_mask
     pos = peak_abs(values[positive_mask])
     neg = peak_abs(values[negative_mask])
     return float(abs(pos - neg)) if np.isfinite(pos) and np.isfinite(neg) else float("nan")
+
+
+def _startup_diagnostics(
+    time_s: np.ndarray,
+    signed_field: np.ndarray,
+    normalized_field: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    freq_hz: float,
+    cycle_count: float,
+) -> dict[str, Any]:
+    duration_s = float(cycle_count) / max(float(freq_hz), 1e-12)
+    if not active_mask.any() or not np.isfinite(duration_s) or duration_s <= 0:
+        return _startup_unavailable("unavailable_no_active_window")
+
+    startup_duration_s = min(duration_s, max(duration_s * 0.2, 0.25 / max(float(freq_hz), 1e-12)))
+    startup_start_s = 0.0
+    startup_end_s = float(startup_duration_s)
+    startup_mask = active_mask & (time_s >= startup_start_s - 1e-12) & (time_s <= startup_end_s + 1e-12)
+    steady_mask = active_mask & (time_s >= startup_end_s - 1e-12)
+    if startup_mask.sum() < 3 or steady_mask.sum() < 3:
+        return _startup_unavailable("insufficient_window", start_s=startup_start_s, end_s=startup_end_s)
+
+    raw_offset = _mean_delta(signed_field, startup_mask, steady_mask)
+    normalized_offset = _mean_delta(normalized_field, startup_mask, steady_mask)
+    slope = _linear_slope(time_s[startup_mask], normalized_field[startup_mask])
+    return {
+        "startup_offset_mT": raw_offset,
+        "startup_offset_normalized_mT": normalized_offset,
+        "startup_offset_ratio": abs(normalized_offset) / 50.0 if np.isfinite(normalized_offset) else float("nan"),
+        "startup_decay_slope": slope,
+        "startup_window_start_s": startup_start_s,
+        "startup_window_end_s": startup_end_s,
+        "startup_offset_status": "ok",
+    }
+
+
+def _startup_unavailable(reason: str, *, start_s: float = float("nan"), end_s: float = float("nan")) -> dict[str, Any]:
+    return {
+        "startup_offset_mT": float("nan"),
+        "startup_offset_normalized_mT": float("nan"),
+        "startup_offset_ratio": float("nan"),
+        "startup_decay_slope": float("nan"),
+        "startup_window_start_s": start_s,
+        "startup_window_end_s": end_s,
+        "startup_offset_status": reason,
+    }
+
+
+def _mean_delta(values: np.ndarray, first_mask: np.ndarray, second_mask: np.ndarray) -> float:
+    first = np.asarray(values, dtype=float)[first_mask]
+    second = np.asarray(values, dtype=float)[second_mask]
+    if first.size == 0 or second.size == 0:
+        return float("nan")
+    return float(np.nanmean(first) - np.nanmean(second))
+
+
+def _linear_slope(time_s: np.ndarray, values: np.ndarray) -> float:
+    finite = np.isfinite(time_s) & np.isfinite(values)
+    if finite.sum() < 2:
+        return float("nan")
+    x = np.asarray(time_s, dtype=float)[finite]
+    y = np.asarray(values, dtype=float)[finite]
+    return float(np.polyfit(x - x[0], y, deg=1)[0])
 
 
 def _run_label(source_file: str | None) -> str:

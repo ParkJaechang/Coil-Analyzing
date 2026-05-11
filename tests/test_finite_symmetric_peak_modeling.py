@@ -17,7 +17,7 @@ from field_analysis.waveform_review_normalization import normalize_raw_waveform_
 
 
 def _finite_frame(*, cycle_count: float = 1.0, freq_hz: float = 1.0) -> pd.DataFrame:
-    time_s = np.linspace(0.0, 2.0, 401)
+    time_s = np.linspace(0.0, 0.5 + cycle_count / freq_hz, 501)
     active = (time_s >= 0.25) & (time_s <= 0.25 + cycle_count / freq_hz)
     phase = 2.0 * np.pi * freq_hz * (time_s - 0.25)
     field = np.where(active, np.where(np.sin(phase) >= 0.0, 80.0 * np.sin(phase), 40.0 * np.sin(phase)), 0.0)
@@ -69,7 +69,7 @@ def test_raw_continuous_waveform_normalization_uses_steady_state_window_and_pres
     assert np.nanmax(np.abs(normalized.loc[steady, "normalized_continuous_field_mT"])) == pytest.approx(50.0, abs=1e-6)
 
 
-@pytest.mark.parametrize("cycle_count", [1.0, 1.5])
+@pytest.mark.parametrize("cycle_count", [1.5, 2.0])
 def test_finite_symmetric_peak_modeling_supported_cycles_compute_lobe_metrics(cycle_count: float) -> None:
     normalized, _metadata = normalize_raw_waveform_frame(
         _finite_frame(cycle_count=cycle_count),
@@ -83,7 +83,11 @@ def test_finite_symmetric_peak_modeling_supported_cycles_compute_lobe_metrics(cy
     assert result["finite_symmetric_peak_modeling_enabled"] is True
     assert result["finite_symmetric_peak_cycle_supported"] is True
     assert result["finite_symmetric_peak_status"] == "ok"
-    assert result["supported_finite_symmetric_cycles"] == [1.0, 1.5]
+    assert result["supported_finite_symmetric_cycles"] == [1.0, 1.5, 2.0]
+    assert result["production_supported_finite_symmetric_cycles"] == [1.5, 2.0]
+    assert result["reference_supported_finite_symmetric_cycles"] == [1.0]
+    assert result["unsupported_finite_symmetric_cycles"] == [1.25, 1.75]
+    assert result["finite_symmetric_peak_cycle_role"] == "production"
     assert result["normalized_peak_target_mT"] == 50.0
     assert np.isfinite(result["positive_peak_mT"])
     assert np.isfinite(result["negative_peak_mT"])
@@ -93,6 +97,23 @@ def test_finite_symmetric_peak_modeling_supported_cycles_compute_lobe_metrics(cy
     assert "symmetric_peak_command_delta_v" in result_frame.columns
     assert np.nanmax(np.abs(result_frame["symmetric_peak_recommended_voltage_v"])) <= 5.0 + 1e-9
     assert result["command_voltage_limit_status"] == "ok"
+
+
+def test_finite_one_cycle_symmetric_peak_modeling_is_reference_legacy() -> None:
+    normalized, _metadata = normalize_raw_waveform_frame(
+        _finite_frame(cycle_count=1.0),
+        source_type="finite-cycle",
+        freq_hz=1.0,
+        cycle_count=1.0,
+    )
+
+    result_frame, result = build_finite_symmetric_peak_review(normalized, freq_hz=1.0, cycle_count=1.0)
+
+    assert result["finite_symmetric_peak_modeling_enabled"] is True
+    assert result["finite_symmetric_peak_cycle_supported"] is True
+    assert result["finite_symmetric_peak_status"] == "ok"
+    assert result["finite_symmetric_peak_cycle_role"] == "reference_legacy"
+    assert "symmetric_peak_recommended_voltage_v" in result_frame.columns
 
 
 @pytest.mark.parametrize("cycle_count", [1.25, 1.75])
@@ -110,6 +131,7 @@ def test_finite_symmetric_peak_modeling_rejects_non_primary_cycles(cycle_count: 
     assert result["finite_symmetric_peak_modeling_enabled"] is False
     assert result["finite_symmetric_peak_cycle_supported"] is False
     assert result["finite_symmetric_peak_status"] == "unsupported_cycle"
+    assert result["finite_symmetric_peak_cycle_role"] == "unsupported_review_only"
 
 
 def test_finite_symmetric_peak_modeling_rejects_bad_source_quality() -> None:

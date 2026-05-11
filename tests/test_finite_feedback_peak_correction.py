@@ -50,7 +50,7 @@ def _command_profile(*, freq_hz: float = 1.0, cycle_count: float = 1.0) -> pd.Da
     )
 
 
-@pytest.mark.parametrize("cycle_count", [1.0, 1.5])
+@pytest.mark.parametrize("cycle_count", [1.5, 2.0])
 def test_quick_lut_finite_feedback_peak_correction_supported_cycles(tmp_path: Path, cycle_count: float) -> None:
     feedback_path = tmp_path / f"finite_recommended_voltage_lut_sine_1Hz_{cycle_count:g}cycle_result.csv"
     _write_feedback_csv(feedback_path, cycle_count=cycle_count)
@@ -89,6 +89,10 @@ def test_quick_lut_finite_feedback_peak_correction_supported_cycles(tmp_path: Pa
     assert metadata["exported_voltage_source_column"] == "feedback_corrected_limited_voltage_v"
     assert metadata["run_waveform_voltage_source"] == "feedback_corrected_limited_voltage_v"
     assert metadata["correction_method"] == "residual_proportional_feedback"
+    assert metadata["production_supported_cycles"] == [1.5, 2.0]
+    assert metadata["reference_supported_cycles"] == [1.0]
+    assert metadata["unsupported_cycles"] == [1.25, 1.75]
+    assert metadata["cycle_policy"] == "production_supported"
     assert np.nanmax(np.abs(corrected["feedback_correction_delta_v"])) == pytest.approx(metadata["correction_delta_peak_v"])
     assert corrected["feedback_corrected_limited_voltage_v"].equals(corrected["feedback_corrected_recommended_voltage_v"]) or metadata[
         "voltage_limit_status"
@@ -104,8 +108,29 @@ def test_quick_lut_finite_feedback_peak_correction_supported_cycles(tmp_path: Pa
     assert metadata["displayed_predicted_valid"] is True
 
 
-@pytest.mark.parametrize("cycle_count", [1.25, 1.75])
-def test_feedback_peak_correction_rejects_phase_delay_cycles(tmp_path: Path, cycle_count: float) -> None:
+def test_reference_one_cycle_is_allowed_but_marked_reference(tmp_path: Path) -> None:
+    feedback_path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_feedback_csv(feedback_path, cycle_count=1.0)
+
+    corrected, metadata = apply_finite_feedback_peak_correction(
+        _command_profile(cycle_count=1.0),
+        feedback_path,
+        waveform_type="sine",
+        freq_hz=1.0,
+        cycle_count=1.0,
+    )
+
+    assert metadata["feedback_correction_available"] is True
+    assert metadata["feedback_correction_status"] == "ok"
+    assert metadata["cycle_policy"] == "reference_supported"
+    assert metadata["feedback_used_for_correction"] is True
+    assert np.nanmax(np.abs(corrected["feedback_corrected_limited_voltage_v"])) <= 5.0 + 1e-9
+
+
+@pytest.mark.parametrize("cycle_count, replacement", [(1.25, 1.5), (1.75, 2.0)])
+def test_feedback_peak_correction_rejects_phase_delay_cycles(
+    tmp_path: Path, cycle_count: float, replacement: float
+) -> None:
     feedback_path = tmp_path / f"finite_recommended_voltage_lut_sine_1Hz_{cycle_count:g}cycle_result.csv"
     _write_feedback_csv(feedback_path, cycle_count=cycle_count)
     profile = _command_profile(cycle_count=cycle_count)
@@ -121,7 +146,15 @@ def test_feedback_peak_correction_rejects_phase_delay_cycles(tmp_path: Path, cyc
     assert corrected is not profile
     assert metadata["feedback_correction_available"] is False
     assert metadata["feedback_correction_status"] == "unsupported_cycle_phase_delay"
+    assert metadata["feedback_used_for_correction"] is False
+    assert metadata["target_unchanged"] is True
+    assert metadata["suggested_replacement_cycle"] == replacement
+    assert metadata["production_supported_cycles"] == [1.5, 2.0]
+    assert metadata["reference_supported_cycles"] == [1.0]
+    assert metadata["unsupported_cycles"] == [1.25, 1.75]
     assert "feedback_correction_delta_v" not in corrected.columns
+    assert "second_voltage_v" not in corrected.columns
+    assert "second_lut" not in corrected.columns
     assert np.allclose(corrected["limited_voltage_v"], profile["limited_voltage_v"])
 
 
@@ -139,7 +172,10 @@ def test_feedback_correction_preserves_hallbz_raw_signed_and_normalized_arrays(t
 
     assert {"measured_field_raw_mT", "measured_field_signed_mT", "measured_field_normalized_mT"}.issubset(corrected.columns)
     assert np.nanmax(np.abs(corrected["measured_field_raw_mT"])) == pytest.approx(metadata["raw_field_peak_mT"], abs=1e-6)
+    assert np.allclose(corrected["measured_field_signed_mT"], -corrected["measured_field_raw_mT"], equal_nan=True)
     assert np.nanmax(np.abs(corrected["measured_field_normalized_mT"])) == pytest.approx(50.0, abs=1e-6)
+    assert metadata["hallbz_effective_convention"] == "effective_field_mT=-HallBz_raw"
+    assert metadata["raw_peak_values_informational_only"] is True
     assert metadata["feedback_schema_status"] == "ok"
     assert metadata["feedback_alignment_status"] == "ok"
 
@@ -148,14 +184,14 @@ def test_final_lut_export_uses_feedback_corrected_voltage_when_valid(tmp_path: P
     feedback_path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
     _write_feedback_csv(feedback_path)
     corrected, _metadata = apply_finite_feedback_peak_correction(
-        _command_profile(),
+        _command_profile(cycle_count=1.5),
         feedback_path,
         waveform_type="sine",
         freq_hz=1.0,
-        cycle_count=1.0,
+        cycle_count=1.5,
     )
 
-    payload = build_final_modeled_voltage_lut_export(corrected, freq_hz=1.0, cycle_count=1.0, waveform="sine")
+    payload = build_final_modeled_voltage_lut_export(corrected, freq_hz=1.0, cycle_count=1.5, waveform="sine")
 
     active_source = corrected["active_command_source"].iloc[0]
     assert payload["metadata"]["voltage_source_column"] == active_source
@@ -163,6 +199,8 @@ def test_final_lut_export_uses_feedback_corrected_voltage_when_valid(tmp_path: P
     assert np.allclose(payload["frame"]["voltage_v"], corrected[active_source])
     assert "correction_delta_v" not in payload["frame"].columns
     assert "second_voltage_v" not in payload["frame"].columns
+    assert payload["metadata"]["fourier_resynthesis_involved"] is False
+    assert payload["metadata"]["harmonic_export_involved"] is False
 
 
 def test_feedback_without_forward_model_marks_displayed_prediction_invalid(tmp_path: Path) -> None:
@@ -187,6 +225,37 @@ def test_feedback_without_forward_model_marks_displayed_prediction_invalid(tmp_p
     assert "displayed_predicted_field_mT" not in corrected.columns
     assert "feedback_corrected_predicted_field_mT" not in corrected.columns
     assert "predicted_field_mT" in corrected.columns
+
+
+def test_startup_offset_diagnostic_metadata_for_offset_like_finite_response(tmp_path: Path) -> None:
+    feedback_path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_2cycle_result.csv"
+    _write_feedback_csv(feedback_path, cycle_count=2.0)
+    lines = feedback_path.read_text(encoding="utf-8").splitlines()
+    header_index = next(i for i, line in enumerate(lines) if line.startswith("Row,"))
+    adjusted = lines[: header_index + 1]
+    for row in lines[header_index + 1 :]:
+        parts = row.split(",")
+        time_s = float(parts[1]) / 1000.0 - 1.0
+        if 0.0 <= time_s <= 0.35:
+            parts[3] = f"{float(parts[3]) - 25.0:.9f}"
+        adjusted.append(",".join(parts))
+    feedback_path.write_text("\n".join(adjusted), encoding="utf-8")
+
+    _corrected, metadata = apply_finite_feedback_peak_correction(
+        _command_profile(cycle_count=2.0),
+        feedback_path,
+        waveform_type="sine",
+        freq_hz=1.0,
+        cycle_count=2.0,
+    )
+
+    assert metadata["startup_offset_status"] == "ok"
+    assert metadata["startup_window_start_s"] == 0.0
+    assert metadata["startup_window_end_s"] > 0.0
+    assert np.isfinite(metadata["startup_offset_mT"])
+    assert np.isfinite(metadata["startup_offset_normalized_mT"])
+    assert np.isfinite(metadata["startup_offset_ratio"])
+    assert np.isfinite(metadata["startup_decay_slope"])
 
 
 def test_final_lut_export_falls_back_to_limited_voltage_without_feedback() -> None:

@@ -9,7 +9,10 @@ from .finite_actual_drive_normalization import normalize_peak_to_limit
 from .finite_actual_drive_normalization import peak_abs
 
 
-SUPPORTED_FINITE_SYMMETRIC_CYCLES = [1.0, 1.5]
+PRODUCTION_FINITE_SYMMETRIC_CYCLES = [1.5, 2.0]
+REFERENCE_FINITE_SYMMETRIC_CYCLES = [1.0]
+UNSUPPORTED_FINITE_SYMMETRIC_CYCLES = [1.25, 1.75]
+SUPPORTED_FINITE_SYMMETRIC_CYCLES = [*REFERENCE_FINITE_SYMMETRIC_CYCLES, *PRODUCTION_FINITE_SYMMETRIC_CYCLES]
 FIELD_REVIEW_LIMIT_MT = 50.0
 VOLTAGE_REVIEW_LIMIT_V = 5.0
 
@@ -238,11 +241,26 @@ def _symmetric_metadata(*, status: str, enabled: bool, cycle_count: float) -> di
         "finite_symmetric_peak_cycle_supported": _cycle_supported(cycle_count),
         "finite_symmetric_peak_status": status,
         "supported_finite_symmetric_cycles": list(SUPPORTED_FINITE_SYMMETRIC_CYCLES),
+        "production_supported_finite_symmetric_cycles": list(PRODUCTION_FINITE_SYMMETRIC_CYCLES),
+        "reference_supported_finite_symmetric_cycles": list(REFERENCE_FINITE_SYMMETRIC_CYCLES),
+        "unsupported_finite_symmetric_cycles": list(UNSUPPORTED_FINITE_SYMMETRIC_CYCLES),
+        "finite_symmetric_peak_cycle_role": _cycle_role(cycle_count),
     }
 
 
 def _cycle_supported(cycle_count: float) -> bool:
     return any(abs(float(cycle_count) - supported) <= 1e-9 for supported in SUPPORTED_FINITE_SYMMETRIC_CYCLES)
+
+
+def _cycle_role(cycle_count: float) -> str:
+    value = float(cycle_count)
+    if any(abs(value - cycle) <= 1e-9 for cycle in PRODUCTION_FINITE_SYMMETRIC_CYCLES):
+        return "production"
+    if any(abs(value - cycle) <= 1e-9 for cycle in REFERENCE_FINITE_SYMMETRIC_CYCLES):
+        return "reference_legacy"
+    if any(abs(value - cycle) <= 1e-9 for cycle in UNSUPPORTED_FINITE_SYMMETRIC_CYCLES):
+        return "unsupported_review_only"
+    return "unsupported_unknown"
 
 
 def _preferred_field_column(frame: pd.DataFrame) -> str | None:
