@@ -76,7 +76,7 @@ def test_upload_memory_group_records_include_item_level_metadata(tmp_path: Path)
     assert record["internal id"] == record["upload_item_id"]
 
 
-def test_upload_memory_duplicate_detection_uses_filename_without_overwriting(tmp_path: Path) -> None:
+def test_upload_memory_duplicate_detection_warns_but_same_content_is_idempotent(tmp_path: Path) -> None:
     from field_analysis.ui_upload_memory_management import find_duplicate_upload_names
     from field_analysis.ui_upload_state import build_upload_memory_items
     from field_analysis.ui_upload_state import build_upload_state_paths
@@ -90,8 +90,8 @@ def test_upload_memory_duplicate_detection_uses_filename_without_overwriting(tmp
     validation_items = [item for item in build_upload_memory_items(paths=paths) if item["category"] == "validation"]
 
     assert duplicates == ["result.csv"]
-    assert len(validation_items) == 2
-    assert any(item.get("duplicate_of") for item in validation_items)
+    assert len(validation_items) == 1
+    assert not any(item.get("duplicate_of") for item in validation_items)
 
 
 def test_upload_memory_management_source_uses_scalar_item_ids_not_dataframes() -> None:

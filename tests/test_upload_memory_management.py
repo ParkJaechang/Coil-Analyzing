@@ -17,6 +17,7 @@ from field_analysis.ui_upload_state import build_upload_memory_items
 from field_analysis.ui_upload_state import delete_upload_memory_group
 from field_analysis.ui_upload_state import delete_upload_memory_item
 from field_analysis.ui_upload_state import delete_upload_memory_items
+from field_analysis.ui_upload_state import category_payloads
 from field_analysis.ui_upload_state import persist_uploaded_files
 
 
@@ -125,24 +126,52 @@ def test_delete_missing_and_outside_path_are_safe(tmp_path: Path) -> None:
     assert delete_upload_memory_item("missing", paths=paths)["deleted_count"] == 0
 
 
-def test_duplicate_upload_does_not_overwrite_and_uses_scalar_widget_state(tmp_path: Path) -> None:
+def test_repeated_same_upload_is_idempotent_and_uses_scalar_widget_state(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
-    persist_uploaded_files(
-        "validation",
-        [
-            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
-            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
-        ],
-        paths=paths,
-    )
+    uploads = [
+        _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+        _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+    ]
+    persist_uploaded_files("validation", uploads, paths=paths)
+    persist_uploaded_files("validation", uploads, paths=paths)
 
     items = build_upload_memory_items(paths=paths)
     validation_items = [item for item in items if item["label"] == "actual_drive_validation_run"]
     selected_ids = [item["upload_item_id"] for item in validation_items]
     session_state = {"selected_upload_item_ids": selected_ids}
 
-    assert len(validation_items) == 2
-    assert validation_items[1]["duplicate_of"] == validation_items[0]["upload_item_id"]
-    assert len({item["stored_filename"] for item in validation_items}) == 2
+    assert len(validation_items) == 1
+    assert validation_items[0]["duplicate_of"] is None
     assert all(isinstance(item_id, str) for item_id in session_state["selected_upload_item_ids"])
     assert not any(isinstance(value, pd.DataFrame) for value in session_state.values())
+
+
+def test_same_filename_different_content_keeps_separate_items(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    persist_uploaded_files(
+        "validation",
+        [
+            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"different"),
+        ],
+        paths=paths,
+    )
+
+    items = build_upload_memory_items(paths=paths)
+    validation_items = [item for item in items if item["label"] == "actual_drive_validation_run"]
+
+    assert len(validation_items) == 2
+    assert len({item["stored_filename"] for item in validation_items}) == 2
+
+
+def test_category_payloads_does_not_duplicate_persisted_files_on_rerun(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+
+    first_payloads = category_payloads("continuous", [upload], paths=paths)
+    second_payloads = category_payloads("continuous", [upload], paths=paths)
+    summary = build_upload_memory_group_summary(build_upload_memory_items(paths=paths))
+
+    assert len(first_payloads) == 1
+    assert len(second_payloads) == 1
+    assert summary["continuous_cycle"]["count"] == 1

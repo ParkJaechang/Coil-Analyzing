@@ -188,42 +188,51 @@ def persist_uploaded_files(
     category_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_upload_manifest(paths=resolved_paths)
     existing_entries = [dict(entry) for entry in manifest["files"].get(category, []) if isinstance(entry, dict)]
+    existing_entries = _dedupe_exact_upload_entries(category, existing_entries, category_dir=category_dir)
     existing_cache_names = {str(entry.get("cache_name") or "") for entry in existing_entries if entry.get("cache_name")}
     existing_digest_to_id = {
         str(entry.get("content_sha256")): str(entry.get("upload_item_id") or _upload_item_id(category, str(entry.get("cache_name") or "")))
         for entry in existing_entries
         if entry.get("content_sha256") and entry.get("cache_name")
     }
+    existing_exact_uploads = {
+        _exact_upload_key(entry): entry
+        for entry in existing_entries
+        if _exact_upload_key(entry) is not None
+    }
 
     for uploaded in uploaded_files or []:
         display_name = Path(str(getattr(uploaded, "name", "") or "")).name or "upload.bin"
         raw_bytes = bytes(uploaded.getvalue())
         digest = hashlib.sha256(raw_bytes).hexdigest()
+        exact_key = (display_name, digest)
+        if exact_key in existing_exact_uploads:
+            continue
         cache_name = _unique_cache_name(_stable_cache_name(display_name, raw_bytes), existing_cache_names)
         target_path = category_dir / cache_name
         if not target_path.exists() or target_path.read_bytes() != raw_bytes:
             target_path.write_bytes(raw_bytes)
         upload_item_id = _upload_item_id(category, cache_name)
-        existing_entries.append(
-            {
-                "upload_item_id": upload_item_id,
-                "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
-                "category": category,
-                "file_name": display_name,
-                "original_filename": display_name,
-                "display_name": display_name,
-                "cache_name": cache_name,
-                "stored_filename": cache_name,
-                "path": str(target_path),
-                "stored_path": str(target_path),
-                "size_bytes": len(raw_bytes),
-                "file_size": len(raw_bytes),
-                "content_sha256": digest,
-                "duplicate_of": existing_digest_to_id.get(digest),
-            }
-        )
+        new_entry = {
+            "upload_item_id": upload_item_id,
+            "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
+            "category": category,
+            "file_name": display_name,
+            "original_filename": display_name,
+            "display_name": display_name,
+            "cache_name": cache_name,
+            "stored_filename": cache_name,
+            "path": str(target_path),
+            "stored_path": str(target_path),
+            "size_bytes": len(raw_bytes),
+            "file_size": len(raw_bytes),
+            "content_sha256": digest,
+            "duplicate_of": existing_digest_to_id.get(digest),
+        }
+        existing_entries.append(new_entry)
         existing_cache_names.add(cache_name)
         existing_digest_to_id.setdefault(digest, upload_item_id)
+        existing_exact_uploads[exact_key] = new_entry
 
     manifest["files"][category] = sorted(
         existing_entries,
@@ -447,6 +456,48 @@ def render_workspace_panel(*, paths: UploadStatePaths | None = None) -> None:
 def _upload_item_id(category: str, cache_name: str) -> str:
     digest = hashlib.sha256(f"{category}/{cache_name}".encode("utf-8")).hexdigest()[:16]
     return f"{UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, 'unknown')}:{digest}"
+
+
+def _exact_upload_key(entry: dict[str, Any]) -> tuple[str, str] | None:
+    digest = str(entry.get("content_sha256") or "").strip()
+    if not digest:
+        return None
+    original = str(entry.get("original_filename") or entry.get("display_name") or entry.get("file_name") or "").strip()
+    if not original:
+        return None
+    return (Path(original).name, digest)
+
+
+def _dedupe_exact_upload_entries(
+    category: str,
+    entries: list[dict[str, Any]],
+    *,
+    category_dir: Path,
+) -> list[dict[str, Any]]:
+    retained: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        key = _exact_upload_key(entry)
+        if key is None or key not in seen:
+            retained.append(entry)
+            if key is not None:
+                seen.add(key)
+            continue
+        _delete_duplicate_upload_file(category, entry, category_dir=category_dir)
+    return retained
+
+
+def _delete_duplicate_upload_file(category: str, entry: dict[str, Any], *, category_dir: Path) -> None:
+    path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / str(entry.get("cache_name") or "")))
+    try:
+        resolved = path.resolve()
+        root = category_dir.resolve()
+    except OSError:
+        return
+    if not _is_relative_to(resolved, root):
+        return
+    if resolved.exists() and resolved.is_file():
+        resolved.unlink()
 
 
 def _unique_cache_name(base_name: str, existing_names: set[str]) -> str:
