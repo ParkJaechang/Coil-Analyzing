@@ -211,27 +211,43 @@ def _render_review_plots(case: ActualDriveReviewCase) -> None:
     st.plotly_chart(
         _line_figure(
             frame,
-            [("physical_target_output_mT", "Physical Target"), ("measured_field_mT", "Measured HallBz")],
-            "Target vs Measured Field",
-            "mT inferred",
+            [
+                ("normalized_physical_target_output_mT", "Physical Target normalized"),
+                ("normalized_measured_field_mT", "Measured HallBz normalized"),
+            ],
+            "Target vs Measured Field (review-normalized)",
+            "review-normalized mT",
         ),
-        use_container_width=True,
-    )
-    st.plotly_chart(
-        _line_figure(frame, [("first_voltage_v", "First Command Voltage")], "First Command Voltage", "V"),
         use_container_width=True,
     )
     st.plotly_chart(
         _line_figure(
             frame,
-            [("command_voltage_v", "Command Voltage"), ("actual_drive_voltage_v", "Actual Drive Voltage")],
-            "Command vs Actual Drive Voltage",
-            "V",
+            [("normalized_first_voltage_v", "First Command Voltage normalized")],
+            "First Command Voltage (review-normalized)",
+            "review-normalized V",
         ),
         use_container_width=True,
     )
     st.plotly_chart(
-        _line_figure(frame, [("measured_residual_mT", "Target - Measured")], "Residual", "mT inferred"),
+        _line_figure(
+            frame,
+            [
+                ("normalized_first_voltage_v", "Command Voltage normalized"),
+                ("normalized_actual_drive_voltage_v", "Actual Drive Voltage normalized"),
+            ],
+            "Command vs Actual Drive Voltage (review-normalized)",
+            "review-normalized V",
+        ),
+        use_container_width=True,
+    )
+    st.plotly_chart(
+        _line_figure(
+            frame,
+            [("measured_residual_normalized_mT", "Target - Measured normalized")],
+            "Residual (review-normalized)",
+            "normalized residual mT",
+        ),
         use_container_width=True,
     )
     if "current_a" in frame.columns:
@@ -245,17 +261,17 @@ def _render_all_actual_drive_overlay(parse_result: ActualDriveReviewParseResult)
     figure = go.Figure()
     for case in parse_result.cases:
         frame = case.review_frame
-        if "measured_field_mT" not in frame.columns:
+        if "normalized_measured_field_mT" not in frame.columns:
             continue
         figure.add_trace(
-            go.Scatter(x=frame["time_s"], y=frame["measured_field_mT"], mode="lines", name=case.label, line={"width": 1.0})
+            go.Scatter(x=frame["time_s"], y=frame["normalized_measured_field_mT"], mode="lines", name=case.label, line={"width": 1.0})
         )
     figure.update_layout(
         template="plotly_white",
         height=420,
-        title="All Actual-Drive Measured Fields",
+        title="All Actual-Drive Measured Fields (review-normalized)",
         xaxis_title="time_s",
-        yaxis_title="mT inferred",
+        yaxis_title="review-normalized mT",
     )
     st.plotly_chart(figure, use_container_width=True)
 
@@ -280,6 +296,14 @@ def _render_metrics_panel(case: ActualDriveReviewCase) -> None:
         "measured_terminal_error_mT",
         "measured_tail_residual",
         "measured_startup_residual_mT",
+        "raw_field_peak_mT",
+        "field_normalization_scale_factor",
+        "raw_voltage_peak_v",
+        "voltage_normalization_scale_factor",
+        "normalized_shape_corr",
+        "normalized_nrmse",
+        "terminal_peak_time_error_s",
+        "shape_review_only",
         "alignment_confidence",
         "possible_polarity_flip_suggested",
     ]

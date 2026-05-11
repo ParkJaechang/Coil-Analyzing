@@ -68,6 +68,22 @@ def test_uploaded_lut_parse_and_diagnostics_cover_timebase_warnings() -> None:
     assert diagnostics["time_axis_status"] == "warning_time_s_may_be_ms"
 
 
+def test_uploaded_lut_review_preserves_raw_voltage_and_adds_review_normalized_voltage() -> None:
+    csv_bytes = b"sample_index,time_s,voltage_v\n0,0,-12.0\n1,0.1,0.0\n2,0.2,6.0\n"
+
+    parsed = parse_voltage_lut_upload("finite_recommended_voltage_lut_sine_1Hz_1cycle.csv", csv_bytes)
+    diagnostics = build_lut_diagnostics(parsed.frame)
+
+    assert parsed.ok is True
+    assert parsed.frame["raw_voltage_v"].tolist() == [-12.0, 0.0, 6.0]
+    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) <= 5.0 + 1e-12
+    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) == 5.0
+    assert diagnostics["voltage_normalization_enabled"] is True
+    assert diagnostics["voltage_normalization_mode"] == "peak_to_5V"
+    assert diagnostics["voltage_normalization_source_peak_v"] == 12.0
+    assert diagnostics["shape_review_only"] is True
+
+
 def test_uploaded_lut_missing_required_columns_reports_unavailable() -> None:
     parsed = parse_voltage_lut_upload("bad.csv", b"time_s,limited_voltage_v\n0,1\n")
 

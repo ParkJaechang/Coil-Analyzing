@@ -163,6 +163,13 @@ def build_lut_diagnostics(frame: pd.DataFrame) -> dict[str, object]:
         "duplicated_time_count": duplicated_time_count,
         "voltage_min_v": _float_or_nan(np.nanmin(finite_voltage)) if finite_voltage.size else float("nan"),
         "voltage_max_v": _float_or_nan(np.nanmax(finite_voltage)) if finite_voltage.size else float("nan"),
+        "voltage_normalization_enabled": bool(frame.attrs.get("voltage_normalization_enabled", False)),
+        "voltage_normalization_mode": frame.attrs.get("voltage_normalization_mode"),
+        "voltage_normalization_status": frame.attrs.get("voltage_normalization_status"),
+        "voltage_normalization_source_peak_v": frame.attrs.get("voltage_normalization_source_peak_v"),
+        "voltage_normalization_scale_factor": frame.attrs.get("voltage_normalization_scale_factor"),
+        "absolute_gain_evaluation_disabled": bool(frame.attrs.get("absolute_gain_evaluation_disabled", False)),
+        "shape_review_only": bool(frame.attrs.get("shape_review_only", False)),
         "suspected_time_unit": suspected_time_unit,
         "time_axis_status": time_axis_status,
     }
@@ -314,13 +321,25 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
 
 
 def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    raw_voltage = pd.to_numeric(frame["voltage_v"], errors="coerce")
+    normalized_voltage, voltage_peak, voltage_scale, voltage_status = _review_normalize_voltage(raw_voltage)
     normalized = pd.DataFrame(
         {
             "sample_index": np.arange(len(frame), dtype=int),
             "time_s": pd.to_numeric(frame["time_s"], errors="coerce"),
-            "voltage_v": pd.to_numeric(frame["voltage_v"], errors="coerce"),
+            "voltage_v": raw_voltage,
+            "raw_voltage_v": raw_voltage,
+            "normalized_voltage_v": normalized_voltage,
+            "voltage_normalization_scale_factor": voltage_scale,
         }
     )
+    normalized.attrs["voltage_normalization_enabled"] = True
+    normalized.attrs["voltage_normalization_mode"] = "peak_to_5V"
+    normalized.attrs["voltage_normalization_status"] = voltage_status
+    normalized.attrs["voltage_normalization_source_peak_v"] = voltage_peak
+    normalized.attrs["voltage_normalization_scale_factor"] = voltage_scale
+    normalized.attrs["absolute_gain_evaluation_disabled"] = True
+    normalized.attrs["shape_review_only"] = True
     for column in DEBUG_VOLTAGE_COLUMNS:
         if column in frame.columns:
             normalized[column] = pd.to_numeric(frame[column], errors="coerce")
@@ -328,27 +347,28 @@ def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _render_lut_plots(frame: pd.DataFrame) -> None:
+    voltage_column = "normalized_voltage_v" if "normalized_voltage_v" in frame.columns else "voltage_v"
     time_figure = go.Figure()
-    time_figure.add_trace(go.Scatter(x=frame["time_s"], y=frame["voltage_v"], mode="lines", name="voltage_v"))
+    time_figure.add_trace(go.Scatter(x=frame["time_s"], y=frame[voltage_column], mode="lines", name=voltage_column))
     time_figure.update_layout(
         template="plotly_white",
         height=360,
         title="LUT Voltage vs time_s",
         xaxis_title="time_s",
-        yaxis_title="voltage_v",
+        yaxis_title=voltage_column,
     )
     st.plotly_chart(time_figure, use_container_width=True)
 
     sample_figure = go.Figure()
     sample_figure.add_trace(
-        go.Scatter(x=frame["sample_index"], y=frame["voltage_v"], mode="lines", name="voltage_v")
+        go.Scatter(x=frame["sample_index"], y=frame[voltage_column], mode="lines", name=voltage_column)
     )
     sample_figure.update_layout(
         template="plotly_white",
         height=320,
         title="LUT Voltage vs sample_index",
         xaxis_title="sample_index",
-        yaxis_title="voltage_v",
+        yaxis_title=voltage_column,
     )
     st.plotly_chart(sample_figure, use_container_width=True)
 
@@ -368,6 +388,13 @@ def _render_lut_diagnostics(diagnostics: dict[str, object]) -> None:
         "duplicated_time_count",
         "voltage_min_v",
         "voltage_max_v",
+        "voltage_normalization_enabled",
+        "voltage_normalization_mode",
+        "voltage_normalization_status",
+        "voltage_normalization_source_peak_v",
+        "voltage_normalization_scale_factor",
+        "absolute_gain_evaluation_disabled",
+        "shape_review_only",
         "suspected_time_unit",
         "time_axis_status",
     )
@@ -483,6 +510,17 @@ def _format_range(start: object, end: object) -> str:
     if not np.isfinite(start_number) or not np.isfinite(end_number):
         return ""
     return f"{start_number:g} .. {end_number:g}"
+
+
+def _review_normalize_voltage(values: pd.Series) -> tuple[pd.Series, float, float, str]:
+    numeric = pd.to_numeric(values, errors="coerce")
+    finite = numeric.to_numpy(dtype=float)
+    finite = finite[np.isfinite(finite)]
+    peak = float(np.nanmax(np.abs(finite))) if finite.size else float("nan")
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return pd.Series(np.zeros(len(numeric), dtype=float), index=numeric.index), peak, float("nan"), "unavailable_zero_peak"
+    scale = 5.0 / peak
+    return numeric * scale, peak, scale, "ok"
 
 
 def _bytes_to_buffer(data: bytes) -> object:
