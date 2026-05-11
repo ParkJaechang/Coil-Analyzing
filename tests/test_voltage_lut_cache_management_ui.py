@@ -10,6 +10,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from field_analysis.ui_upload_cache import add_upload_cache_bytes
+from field_analysis.ui_upload_cache import build_upload_cache_records
+from field_analysis.ui_upload_cache import build_upload_cache_selection_options
+from field_analysis.ui_upload_cache import delete_upload_cache_item
+from field_analysis.ui_upload_cache import edit_upload_cache_metadata
 from field_analysis.ui_voltage_lut_cache import add_lut_cache_bytes
 from field_analysis.ui_voltage_lut_cache import build_lut_cache_records
 from field_analysis.ui_voltage_lut_cache import build_lut_cache_selection_options
@@ -43,7 +48,7 @@ def test_lut_cache_uses_stable_internal_id_separate_from_display_name() -> None:
         display_name="Initial label",
     )
 
-    assert cache_id.startswith("lut:")
+    assert cache_id.startswith("final_voltage_lut:")
     assert cache_state[cache_id]["display_name"] == "Initial label"
 
     assert edit_lut_cache_metadata(cache_state, cache_id, display_name="Reviewed label", user_note="operator ok")
@@ -52,6 +57,8 @@ def test_lut_cache_uses_stable_internal_id_separate_from_display_name() -> None:
     assert records[0].id == cache_id
     assert records[0].display_name == "Reviewed label"
     assert records[0].user_note == "operator ok"
+    assert records[0].metadata["cache_item_id"] == cache_id
+    assert records[0].metadata["cache_type"] == "final_voltage_lut"
     assert records[0].metadata["original_filename"] == "finite_recommended_voltage_lut_sine_1Hz_1cycle.csv"
 
 
@@ -66,10 +73,44 @@ def test_lut_cache_metadata_is_scalar_and_dataframe_stays_out_of_session_state()
     assert options == [first_id, second_id]
     assert all(isinstance(option, str) for option in options)
     assert all(isinstance(label, str) for label in labels_by_id.values())
-    assert records_by_id[first_id].metadata["sample_count"] == 2
+    assert records_by_id[first_id].metadata["row_count"] == 2
     assert records_by_id[first_id].metadata["duration_s"] == 0.1
     assert records_by_id[first_id].metadata["time_start_s"] == 0.0
     assert records_by_id[second_id].metadata["voltage_max_v"] == 4.0
+    assert _contains_dataframe(cache_state) is False
+
+
+def test_upload_cache_supports_multiple_cache_types_and_duplicate_visible_items() -> None:
+    cache_state: dict[str, dict[str, object]] = {}
+    first_id = add_upload_cache_bytes(
+        cache_state,
+        "finite_recommended_voltage_lut_sine_1Hz_1cycle.csv",
+        _csv_bytes(1.0),
+        cache_type="final_voltage_lut",
+        upload_time="2026-05-11T00:00:00",
+    )
+    duplicate_id = add_upload_cache_bytes(
+        cache_state,
+        "finite_recommended_voltage_lut_sine_1Hz_1cycle.csv",
+        _csv_bytes(1.0),
+        cache_type="final_voltage_lut",
+        upload_time="2026-05-11T00:00:00",
+    )
+    actual_drive_id = add_upload_cache_bytes(
+        cache_state,
+        "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv",
+        b"Row,TimeMs,HallBz,Voltage1_V\n0,0,0,0\n",
+        cache_type="actual_drive_validation",
+    )
+
+    assert duplicate_id != first_id
+    records = build_upload_cache_records(cache_state)
+    options, records_by_id, labels_by_id = build_upload_cache_selection_options(records)
+
+    assert options == [actual_drive_id, first_id, duplicate_id]
+    assert records_by_id[duplicate_id].duplicate_of == first_id
+    assert records_by_id[actual_drive_id].cache_type == "actual_drive_validation"
+    assert "duplicate_of=" in labels_by_id[duplicate_id]
     assert _contains_dataframe(cache_state) is False
 
 
@@ -84,9 +125,25 @@ def test_lut_cache_delete_removes_item_and_selection_falls_back() -> None:
 
     assert options == [second_id]
     assert first_id not in records_by_id
+    assert records_by_id[second_id].source_name == "second.csv"
     assert fallback_lut_cache_selection(options, first_id) == second_id
     assert fallback_lut_cache_selection([], second_id) is None
     assert delete_lut_cache_item(cache_state, "missing") is False
+
+
+def test_upload_cache_edit_and_delete_are_metadata_only() -> None:
+    cache_state: dict[str, dict[str, object]] = {}
+    cache_id = add_upload_cache_bytes(cache_state, "raw.csv", b"a,b\n1,2\n", cache_type="raw_waveform")
+    original_bytes = cache_state[cache_id]["csv_bytes"]
+
+    assert edit_upload_cache_metadata(cache_state, cache_id, display_name="Renamed", user_note="session-only")
+    records = build_upload_cache_records(cache_state)
+
+    assert records[0].cache_item_id == cache_id
+    assert records[0].display_name == "Renamed"
+    assert cache_state[cache_id]["csv_bytes"] == original_bytes
+    assert delete_upload_cache_item(cache_state, cache_id) is True
+    assert cache_state == {}
 
 
 def test_lut_cache_empty_broken_and_missing_file_entries_are_unavailable() -> None:
@@ -94,9 +151,11 @@ def test_lut_cache_empty_broken_and_missing_file_entries_are_unavailable() -> No
     assert build_lut_cache_records(cache_state) == []
 
     broken_id = add_lut_cache_bytes(cache_state, "broken.csv", b"time_s,voltage_v\n0,1\n")
-    missing_id = "lut:missing"
+    missing_id = "final_voltage_lut:missing"
     cache_state[missing_id] = {
         "id": missing_id,
+        "cache_item_id": missing_id,
+        "cache_type": "final_voltage_lut",
         "original_filename": "missing.csv",
         "display_name": "missing.csv",
         "user_note": "",
@@ -132,11 +191,13 @@ def test_lut_cache_management_source_has_user_visible_markers_and_no_mojibake() 
 
     expected = [
         "업로드된 LUT 캐시",
-        "display name",
-        "user note",
+        "표시 이름",
+        "메모",
+        "원본 파일명",
         "선택한 LUT 캐시 삭제",
         "삭제 확인",
-        "Internal ID",
+        "내부 ID",
+        "앱 캐시 목록에서만 제거합니다",
         "읽을 수 없음",
     ]
     missing = [marker for marker in expected if marker not in source]

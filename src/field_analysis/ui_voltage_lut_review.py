@@ -284,7 +284,7 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
         key="voltage_lut_cache_selected_id",
     )
     selected_record = cache_records_by_id[selected_cache_id]
-    st.caption(f"Internal ID: {selected_record.id}")
+    st.caption(f"내부 ID: {selected_record.id}")
     _render_lut_cache_metadata_editor(cache_state, selected_record)
     _render_lut_cache_delete_panel(cache_state, selected_record)
 
@@ -417,8 +417,8 @@ def _render_lut_cache_summary(records: list[object]) -> None:
         diagnostics = record.diagnostics
         rows.append(
             {
-                "display label": record.display_name,
-                "original filename": record.original_filename,
+                "표시 이름": record.display_name,
+                "원본 파일명": record.original_filename,
                 "uploaded/created time": record.metadata.get("created_time"),
                 "sample count": diagnostics.get("sample_count") if record.parsed.ok else None,
                 "duration": diagnostics.get("duration_s") if record.parsed.ok else None,
@@ -429,7 +429,7 @@ def _render_lut_cache_summary(records: list[object]) -> None:
                 if record.parsed.ok
                 else "",
                 "timebase status": diagnostics.get("time_axis_status") if record.parsed.ok else "읽을 수 없음",
-                "user note": record.user_note,
+                "메모": record.user_note,
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
@@ -443,12 +443,12 @@ def _render_lut_cache_metadata_editor(
 
     with st.expander("LUT 캐시 metadata 편집", expanded=False):
         display_name = st.text_input(
-            "display name",
+            "표시 이름",
             value=record.display_name,
             key=f"voltage_lut_cache_display_name_{record.id}",
         )
         user_note = st.text_area(
-            "user note",
+            "메모",
             value=record.user_note,
             key=f"voltage_lut_cache_user_note_{record.id}",
         )

@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
 
 APP_UI_SNAPSHOT = REPO_ROOT / "src" / "field_analysis" / "app_ui_snapshot.py"
 REVIEW_UI = REPO_ROOT / "src" / "field_analysis" / "ui_finite_actual_drive_review.py"
+ACTUAL_DRIVE_CACHE_UI = REPO_ROOT / "src" / "field_analysis" / "ui_actual_drive_cache.py"
 
 
 def _write_actual_drive_csv(path: Path, *, include_voltage: bool = True) -> None:
@@ -85,6 +86,51 @@ def test_hash_prefixed_upload_filename_parses_to_review_case(tmp_path: Path) -> 
     assert case.canonical_source_filename == "finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
     assert case.label == "sine | 0.5 Hz | 1.25 cycle | finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
     assert {"time_s", "first_voltage_v", "command_voltage_v", "actual_drive_voltage_v", "physical_target_output_mT", "measured_field_mT", "measured_residual_mT"}.issubset(case.review_frame.columns)
+
+
+def test_actual_drive_upload_cache_uses_scalar_ids_and_preserves_shape_normalized_payload(tmp_path: Path) -> None:
+    from field_analysis.ui_finite_actual_drive_review import build_actual_drive_review_cases_from_cache_state
+    from field_analysis.ui_upload_cache import add_upload_cache_bytes
+    from field_analysis.ui_upload_cache import build_upload_cache_records
+    from field_analysis.ui_upload_cache import build_upload_cache_selection_options
+    from field_analysis.ui_upload_cache import delete_upload_cache_item
+    from field_analysis.ui_upload_cache import edit_upload_cache_metadata
+    from field_analysis.ui_upload_cache import fallback_upload_cache_selection
+
+    path = tmp_path / "finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
+    _write_actual_drive_csv(path)
+    cache_state: dict[str, dict[str, object]] = {}
+    first_id = add_upload_cache_bytes(
+        cache_state,
+        path.name,
+        path.read_bytes(),
+        cache_type="actual_drive_validation",
+        display_name="First validation",
+    )
+    duplicate_id = add_upload_cache_bytes(
+        cache_state,
+        path.name,
+        path.read_bytes(),
+        cache_type="actual_drive_validation",
+        display_name="Duplicate validation",
+    )
+
+    records = build_upload_cache_records(cache_state)
+    options, records_by_id, labels_by_id = build_upload_cache_selection_options(records)
+    result = build_actual_drive_review_cases_from_cache_state(cache_state)
+
+    assert options == [first_id, duplicate_id]
+    assert all(isinstance(option, str) for option in options)
+    assert records_by_id[duplicate_id].duplicate_of == first_id
+    assert "duplicate_of=" in labels_by_id[duplicate_id]
+    assert result.parsed_count == 2
+    assert "normalized_measured_field_mT" in result.cases[0].review_frame.columns
+    assert "normalized_first_voltage_v" in result.cases[0].review_frame.columns
+    assert result.cases[0].metadata["shape_review_only"] is True
+    assert edit_upload_cache_metadata(cache_state, first_id, display_name="Renamed", user_note="keep")
+    assert build_upload_cache_records(cache_state)[0].cache_item_id == first_id
+    assert delete_upload_cache_item(cache_state, first_id) is True
+    assert fallback_upload_cache_selection([duplicate_id], first_id) == duplicate_id
 
 
 def test_missing_required_columns_are_reported(tmp_path: Path) -> None:
@@ -187,3 +233,28 @@ def test_review_ui_text_has_no_mojibake_patterns() -> None:
     )
 
     assert not any(pattern in helper for pattern in mojibake_patterns)
+
+
+def test_actual_drive_cache_management_source_has_user_visible_korean_markers() -> None:
+    helper = ACTUAL_DRIVE_CACHE_UI.read_text(encoding="utf-8")
+
+    expected = [
+        "업로드된 validation 캐시",
+        "표시 이름",
+        "메모",
+        "원본 파일명",
+        "내부 ID",
+        "삭제 전 확인",
+        "선택한 validation 캐시 항목 삭제",
+        "앱 캐시 목록에서 제거합니다",
+    ]
+    missing = [marker for marker in expected if marker not in helper]
+    forbidden = [
+        "Delete selected actual-drive cache item",
+        "Save actual-drive cache metadata",
+        "display name",
+        "user note",
+    ]
+
+    assert not missing
+    assert not any(marker in helper for marker in forbidden)

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
+from .ui_upload_cache import add_upload_cache_bytes
+from .ui_upload_cache import build_upload_cache_records
+from .ui_upload_cache import delete_upload_cache_item
+from .ui_upload_cache import edit_upload_cache_metadata
+from .ui_upload_cache import fallback_upload_cache_selection
 from .ui_voltage_lut_review import ParsedVoltageLut
 from .ui_voltage_lut_review import build_lut_diagnostics
 from .ui_voltage_lut_review import parse_voltage_lut_upload
@@ -23,6 +27,7 @@ class VoltageLutCacheRecord:
     parsed: ParsedVoltageLut
     diagnostics: dict[str, object]
     metadata: dict[str, object]
+    duplicate_of: str | None = None
 
     @property
     def source_name(self) -> str:
@@ -38,38 +43,38 @@ def add_lut_cache_bytes(
     display_name: str | None = None,
     user_note: str = "",
 ) -> str:
-    content = bytes(data)
-    digest = hashlib.sha256(content).hexdigest()[:16]
-    stem = _safe_name_part(Path(original_filename).stem) or "lut"
-    timestamp = _safe_name_part(created_time) if created_time else "no_time"
-    cache_id = f"lut:{stem}:{timestamp}:{digest}"
-    if cache_id not in cache_state:
-        cache_state[cache_id] = {
-            "id": cache_id,
-            "original_filename": str(original_filename),
-            "display_name": display_name or str(original_filename),
-            "user_note": str(user_note),
-            "created_time": created_time,
-            "content_sha256": digest,
-            "csv_bytes": content,
-        }
-    return cache_id
+    return add_upload_cache_bytes(
+        cache_state,
+        original_filename,
+        data,
+        cache_type="final_voltage_lut",
+        upload_time=created_time,
+        display_name=display_name,
+        user_note=user_note,
+        allow_duplicate=False,
+    )
 
 
 def build_lut_cache_records(cache_state: dict[str, dict[str, object]]) -> list[VoltageLutCacheRecord]:
     records: list[VoltageLutCacheRecord] = []
-    for cache_id, item in cache_state.items():
-        original_filename = str(item.get("original_filename") or item.get("source_name") or cache_id)
-        parsed = _parse_cache_item(original_filename, item)
+    for cache_record in build_upload_cache_records(cache_state):
+        cache_id = cache_record.cache_item_id
+        item = cache_state.get(cache_id, {})
+        parsed = _parse_cache_item(cache_record.original_filename, item)
         diagnostics = build_lut_diagnostics(parsed.frame) if parsed.ok else _empty_lut_diagnostics()
-        display_name = str(item.get("display_name") or original_filename)
-        user_note = str(item.get("user_note") or "")
         metadata = {
-            "id": str(item.get("id") or cache_id),
-            "original_filename": original_filename,
-            "display_name": display_name,
-            "user_note": user_note,
-            "created_time": item.get("created_time"),
+            "cache_item_id": cache_id,
+            "id": cache_id,
+            "cache_type": "final_voltage_lut",
+            "original_filename": cache_record.original_filename,
+            "display_name": cache_record.display_name,
+            "user_note": cache_record.user_note,
+            "upload_time": cache_record.upload_time,
+            "created_time": cache_record.upload_time,
+            "discovered_time": cache_record.discovered_time,
+            "source_path": cache_record.source_path,
+            "duplicate_of": cache_record.duplicate_of,
+            "row_count": diagnostics.get("sample_count"),
             "sample_count": diagnostics.get("sample_count"),
             "duration": diagnostics.get("duration_s"),
             "duration_s": diagnostics.get("duration_s"),
@@ -81,19 +86,24 @@ def build_lut_cache_records(cache_state: dict[str, dict[str, object]]) -> list[V
             "voltage_min_v": diagnostics.get("voltage_min_v"),
             "voltage_max": diagnostics.get("voltage_max_v"),
             "voltage_max_v": diagnostics.get("voltage_max_v"),
+            "dt_median_s": diagnostics.get("dt_median_s"),
+            "sample_rate_hz": _sample_rate_from_diagnostics(diagnostics),
             "timebase_status": diagnostics.get("time_axis_status"),
+            "validation_status": "ok" if parsed.ok else "unavailable",
             "parse_status": "ok" if parsed.ok else "unavailable",
             "parse_error": parsed.error,
+            "normalization_status": diagnostics.get("voltage_normalization_status"),
         }
         records.append(
             VoltageLutCacheRecord(
                 id=cache_id,
-                original_filename=original_filename,
-                display_name=display_name,
-                user_note=user_note,
+                original_filename=cache_record.original_filename,
+                display_name=cache_record.display_name,
+                user_note=cache_record.user_note,
                 parsed=parsed,
                 diagnostics=diagnostics,
                 metadata=metadata,
+                duplicate_of=cache_record.duplicate_of,
             )
         )
     return sorted(records, key=lambda record: record.id)
@@ -115,33 +125,22 @@ def edit_lut_cache_metadata(
     display_name: str | None = None,
     user_note: str | None = None,
 ) -> bool:
-    item = cache_state.get(cache_id)
-    if item is None:
-        return False
-    if display_name is not None:
-        item["display_name"] = str(display_name)
-    if user_note is not None:
-        item["user_note"] = str(user_note)
-    return True
+    return edit_upload_cache_metadata(cache_state, cache_id, display_name=display_name, user_note=user_note)
 
 
 def delete_lut_cache_item(cache_state: dict[str, dict[str, object]], cache_id: str) -> bool:
-    return cache_state.pop(cache_id, None) is not None
+    return delete_upload_cache_item(cache_state, cache_id)
 
 
 def fallback_lut_cache_selection(options: list[str], selected_id: str | None) -> str | None:
-    if not options:
-        return None
-    if selected_id in options:
-        return selected_id
-    return options[0]
+    return fallback_upload_cache_selection(options, selected_id)
 
 
 def _parse_cache_item(original_filename: str, item: dict[str, object]) -> ParsedVoltageLut:
     raw_bytes = item.get("csv_bytes")
     if isinstance(raw_bytes, bytes):
         return parse_voltage_lut_upload(original_filename, raw_bytes)
-    file_path = item.get("file_path")
+    file_path = item.get("file_path") or item.get("source_path")
     if file_path:
         path = Path(str(file_path))
         if path.exists() and path.is_file():
@@ -162,7 +161,8 @@ def _parse_cache_item(original_filename: str, item: dict[str, object]) -> Parsed
 
 def _lut_cache_label(record: VoltageLutCacheRecord) -> str:
     status = "ok" if record.parsed.ok else "읽을 수 없음"
-    return f"{record.display_name} · {status} · samples={record.metadata.get('sample_count')}"
+    duplicate = f" duplicate_of={record.duplicate_of}" if record.duplicate_of else ""
+    return f"{record.display_name} · {status} · samples={record.metadata.get('sample_count')}{duplicate}"
 
 
 def _empty_lut_diagnostics() -> dict[str, object]:
@@ -181,9 +181,13 @@ def _empty_lut_diagnostics() -> dict[str, object]:
         "voltage_max_v": float("nan"),
         "suspected_time_unit": "unknown",
         "time_axis_status": "unavailable",
+        "voltage_normalization_status": "unavailable",
     }
 
 
-def _safe_name_part(value: object | None) -> str:
-    text = "" if value is None else str(value).strip().lower()
-    return "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in text).strip("_")
+def _sample_rate_from_diagnostics(diagnostics: dict[str, object]) -> float:
+    try:
+        dt = float(diagnostics.get("dt_median_s", float("nan")))
+    except (TypeError, ValueError):
+        return float("nan")
+    return 1.0 / dt if dt > 0 else float("nan")

@@ -13,6 +13,8 @@ from .finite_actual_drive import build_finite_actual_drive_review_dataset
 
 
 DEFAULT_VALIDATION_UPLOAD_DIR = Path("outputs") / "field_analysis_app_state" / "uploads" / "validation"
+ACTUAL_DRIVE_CACHE_STATE_KEY = "actual_drive_validation_cache_items"
+ACTUAL_DRIVE_SELECTED_CACHE_KEY = "actual_drive_validation_selected_cache_id"
 
 
 @dataclass(frozen=True)
@@ -74,7 +76,53 @@ def build_actual_drive_review_cases_from_uploads(uploaded_files: Iterable[Any]) 
         return build_actual_drive_review_cases_from_paths(paths)
 
 
+def build_actual_drive_review_cases_from_cache_state(cache_state: dict[str, dict[str, object]]) -> ActualDriveReviewParseResult:
+    from .ui_upload_cache import build_upload_cache_records
+
+    records = [
+        record
+        for record in build_upload_cache_records(cache_state)
+        if record.cache_type == "actual_drive_validation"
+    ]
+    if not records:
+        return ActualDriveReviewParseResult(cases=[], failures=[], summary=pd.DataFrame())
+    with TemporaryDirectory(prefix="finite_actual_drive_review_cache_") as tmp_dir:
+        tmp_root = Path(tmp_dir)
+        paths: list[Path] = []
+        failures: list[dict[str, Any]] = []
+        for record in records:
+            item = cache_state.get(record.cache_item_id, {})
+            content = item.get("csv_bytes")
+            if not isinstance(content, bytes):
+                failures.append(
+                    {
+                        "source_file": record.original_filename,
+                        "cache_item_id": record.cache_item_id,
+                        "parse_status": "error",
+                        "parse_error": "cached actual-drive bytes unavailable",
+                    }
+                )
+                continue
+            target_path = tmp_root / f"{record.cache_item_id.replace(':', '_').replace('#', '_')}_{Path(record.original_filename).name}"
+            target_path.write_bytes(content)
+            paths.append(target_path)
+        result = build_actual_drive_review_cases_from_paths(paths) if paths else ActualDriveReviewParseResult([], [], pd.DataFrame())
+        return ActualDriveReviewParseResult(
+            cases=result.cases,
+            failures=[*failures, *result.failures],
+            summary=result.summary,
+        )
+
+
 def render_finite_actual_drive_review_section() -> None:
+    from .ui_upload_cache import add_upload_cache_bytes
+    from .ui_upload_cache import build_upload_cache_records
+    from .ui_upload_cache import build_upload_cache_selection_options
+    from .ui_upload_cache import delete_upload_cache_item
+    from .ui_upload_cache import edit_upload_cache_metadata
+    from .ui_upload_cache import fallback_upload_cache_selection
+    from .ui_actual_drive_cache import render_actual_drive_cache_manager
+
     st.markdown("### 실구동 결과 리뷰 / Finite Actual-Drive Review")
     st.caption("이 섹션은 1차 추천 전압을 실제 장비에 넣은 결과를 확인하기 위한 리뷰 화면입니다.")
     st.caption("아직 2차 보정 전압은 계산하지 않습니다.")
@@ -99,6 +147,18 @@ def render_finite_actual_drive_review_section() -> None:
         help="hash/internal id prefix가 붙은 finite_recommended_voltage_lut_*_result.csv 파일도 지원합니다.",
         key="finite_actual_drive_review_upload",
     )
+    cache_state = st.session_state.setdefault(ACTUAL_DRIVE_CACHE_STATE_KEY, {})
+    if not isinstance(cache_state, dict):
+        cache_state = {}
+        st.session_state[ACTUAL_DRIVE_CACHE_STATE_KEY] = cache_state
+    for uploaded_file in uploaded_files or []:
+        add_upload_cache_bytes(
+            cache_state,
+            uploaded_file.name,
+            uploaded_file.getvalue(),
+            cache_type="actual_drive_validation",
+            allow_duplicate=False,
+        )
     use_cached_validation = st.checkbox(
         "캐시된 validation 결과 불러오기",
         value=False,
@@ -106,7 +166,30 @@ def render_finite_actual_drive_review_section() -> None:
         key="finite_actual_drive_use_cached_validation",
     )
     cached_paths = cached_validation_result_paths() if use_cached_validation else []
-    if not uploaded_files and not cached_paths:
+    for cached_path in cached_paths:
+        add_upload_cache_bytes(
+            cache_state,
+            cached_path.name,
+            cached_path.read_bytes(),
+            cache_type="actual_drive_validation",
+            source_path=str(cached_path),
+            allow_duplicate=False,
+        )
+    cache_records = [
+        record
+        for record in build_upload_cache_records(cache_state)
+        if record.cache_type == "actual_drive_validation"
+    ]
+    render_actual_drive_cache_manager(
+        cache_state,
+        cache_records,
+        build_upload_cache_selection_options,
+        fallback_upload_cache_selection,
+        edit_upload_cache_metadata,
+        delete_upload_cache_item,
+        selected_cache_key=ACTUAL_DRIVE_SELECTED_CACHE_KEY,
+    )
+    if not cache_records:
         st.info(
             "파일을 업로드하거나 캐시된 validation 결과를 불러오면 target vs measured / first voltage / residual 그래프를 앱 안에서 바로 볼 수 있습니다."
         )
@@ -114,12 +197,7 @@ def render_finite_actual_drive_review_section() -> None:
             st.warning("캐시된 validation 결과 파일을 찾지 못했습니다.")
         return
 
-    parse_result = _combine_parse_results(
-        [
-            build_actual_drive_review_cases_from_uploads(uploaded_files) if uploaded_files else None,
-            build_actual_drive_review_cases_from_paths(cached_paths) if cached_paths else None,
-        ]
-    )
+    parse_result = build_actual_drive_review_cases_from_cache_state(cache_state)
     _render_parse_summary(parse_result)
     if parse_result.failures:
         st.warning("일부 파일을 파싱하지 못했습니다. 아래 parse error를 확인하십시오.")
