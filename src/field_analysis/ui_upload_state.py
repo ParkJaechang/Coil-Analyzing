@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 
+from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_STATE_DIRNAME = "field_analysis_app_state"
@@ -26,6 +25,13 @@ UPLOADER_SESSION_KEYS = {
     "validation": "validation_uploads",
     "lcr": "lcr_uploads",
 }
+UPLOAD_MEMORY_LABEL_BY_CATEGORY = {
+    "continuous": "continuous_cycle",
+    "transient": "finite_cycle",
+    "validation": "actual_drive_validation_run",
+    "lcr": "lcr",
+}
+UPLOAD_MEMORY_CATEGORY_BY_LABEL = {value: key for key, value in UPLOAD_MEMORY_LABEL_BY_CATEGORY.items()}
 
 
 @dataclass(frozen=True)
@@ -94,15 +100,32 @@ def _stable_cache_name(file_name: str, raw_bytes: bytes) -> str:
     return f"{digest}_{leaf}"
 
 
-def _manifest_record(*, category: str, display_name: str, cache_name: str, size_bytes: int, path: Path, source: str) -> dict[str, Any]:
+def _manifest_record(
+    *,
+    category: str,
+    display_name: str,
+    cache_name: str,
+    size_bytes: int,
+    path: Path,
+    source: str,
+    upload_item_id: str | None = None,
+    duplicate_of: str | None = None,
+) -> dict[str, Any]:
     return {
+        "upload_item_id": upload_item_id or _upload_item_id(category, cache_name),
+        "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
         "category": category,
+        "original_filename": display_name,
         "display_name": display_name,
         "file_name": display_name,
         "cache_name": cache_name,
+        "stored_filename": cache_name,
         "size_bytes": int(size_bytes),
+        "file_size": int(size_bytes),
         "path": str(path),
+        "stored_path": str(path),
         "source": source,
+        "duplicate_of": duplicate_of,
     }
 
 
@@ -129,6 +152,8 @@ def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = No
                 size_bytes=int(entry.get("size_bytes") or path.stat().st_size),
                 path=path,
                 source="manifest",
+                upload_item_id=str(entry.get("upload_item_id") or _upload_item_id(category, cache_name)),
+                duplicate_of=str(entry.get("duplicate_of")) if entry.get("duplicate_of") else None,
             )
         )
         seen_cache_names.add(cache_name)
@@ -145,6 +170,7 @@ def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = No
                     size_bytes=path.stat().st_size,
                     path=path,
                     source="scan",
+                    upload_item_id=_upload_item_id(category, path.name),
                 )
             )
 
@@ -161,28 +187,46 @@ def persist_uploaded_files(
     category_dir = resolved_paths.category_dir(category)
     category_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_upload_manifest(paths=resolved_paths)
-    existing_entries = {
-        str(entry.get("cache_name") or ""): dict(entry)
-        for entry in manifest["files"].get(category, [])
-        if isinstance(entry, dict) and entry.get("cache_name")
+    existing_entries = [dict(entry) for entry in manifest["files"].get(category, []) if isinstance(entry, dict)]
+    existing_cache_names = {str(entry.get("cache_name") or "") for entry in existing_entries if entry.get("cache_name")}
+    existing_digest_to_id = {
+        str(entry.get("content_sha256")): str(entry.get("upload_item_id") or _upload_item_id(category, str(entry.get("cache_name") or "")))
+        for entry in existing_entries
+        if entry.get("content_sha256") and entry.get("cache_name")
     }
 
     for uploaded in uploaded_files or []:
         display_name = Path(str(getattr(uploaded, "name", "") or "")).name or "upload.bin"
         raw_bytes = bytes(uploaded.getvalue())
-        cache_name = _stable_cache_name(display_name, raw_bytes)
+        digest = hashlib.sha256(raw_bytes).hexdigest()
+        cache_name = _unique_cache_name(_stable_cache_name(display_name, raw_bytes), existing_cache_names)
         target_path = category_dir / cache_name
         if not target_path.exists() or target_path.read_bytes() != raw_bytes:
             target_path.write_bytes(raw_bytes)
-        existing_entries[cache_name] = {
-            "file_name": display_name,
-            "display_name": display_name,
-            "cache_name": cache_name,
-            "size_bytes": len(raw_bytes),
-        }
+        upload_item_id = _upload_item_id(category, cache_name)
+        existing_entries.append(
+            {
+                "upload_item_id": upload_item_id,
+                "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
+                "category": category,
+                "file_name": display_name,
+                "original_filename": display_name,
+                "display_name": display_name,
+                "cache_name": cache_name,
+                "stored_filename": cache_name,
+                "path": str(target_path),
+                "stored_path": str(target_path),
+                "size_bytes": len(raw_bytes),
+                "file_size": len(raw_bytes),
+                "content_sha256": digest,
+                "duplicate_of": existing_digest_to_id.get(digest),
+            }
+        )
+        existing_cache_names.add(cache_name)
+        existing_digest_to_id.setdefault(digest, upload_item_id)
 
     manifest["files"][category] = sorted(
-        existing_entries.values(),
+        existing_entries,
         key=lambda item: (str(item.get("display_name") or item.get("file_name") or ""), str(item.get("cache_name") or "")),
     )
     _write_json(resolved_paths.upload_manifest_path, manifest)
@@ -207,15 +251,17 @@ def category_payloads(
 
 def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
+    item_summary = build_upload_memory_group_summary(build_upload_memory_items(paths=resolved_paths))
     rows: list[dict[str, Any]] = []
     for category in UPLOAD_CATEGORIES:
-        records = list_persisted_uploads(category, paths=resolved_paths)
+        memory_label = UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, category)
+        group = item_summary.get(memory_label, {"count": 0, "files": []})
         rows.append(
             {
                 "category": category,
                 "label": CATEGORY_LABELS.get(category, category),
-                "count": int(len(records)),
-                "files": ", ".join(str(record["display_name"]) for record in records[:4]),
+                "count": int(group["count"]),
+                "files": ", ".join(str(file_name) for file_name in group["files"][:4]),
                 "dir": str(resolved_paths.category_dir(category)),
             }
         )
@@ -223,19 +269,147 @@ def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict
 
 
 def clear_category_uploads(category: str, *, paths: UploadStatePaths | None = None) -> None:
-    resolved_paths = paths or build_upload_state_paths()
-    category_dir = resolved_paths.category_dir(category)
-    if category_dir.exists():
-        shutil.rmtree(category_dir)
-    manifest = load_upload_manifest(paths=resolved_paths)
-    manifest["files"][category] = []
-    _write_json(resolved_paths.upload_manifest_path, manifest)
+    delete_upload_memory_group(category, paths=paths)
 
 
 def clear_all_uploads(*, paths: UploadStatePaths | None = None) -> None:
     resolved_paths = paths or build_upload_state_paths()
     for category in UPLOAD_CATEGORIES:
         clear_category_uploads(category, paths=resolved_paths)
+
+
+def build_upload_memory_items(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
+    resolved_paths = paths or build_upload_state_paths()
+    manifest = load_upload_manifest(paths=resolved_paths)
+    items: list[dict[str, Any]] = []
+    for category in UPLOAD_CATEGORIES:
+        category_dir = resolved_paths.category_dir(category)
+        seen_cache_names: set[str] = set()
+        for entry in manifest["files"].get(category, []):
+            if not isinstance(entry, dict):
+                continue
+            item = _upload_memory_item_from_entry(category, entry, category_dir=category_dir)
+            if item is not None:
+                items.append(item)
+                seen_cache_names.add(str(item["stored_filename"]))
+        if category_dir.exists():
+            for path in sorted(child for child in category_dir.iterdir() if child.is_file()):
+                if path.name in seen_cache_names:
+                    continue
+                item = _upload_memory_item_from_entry(
+                    category,
+                    {
+                        "cache_name": path.name,
+                        "file_name": path.name,
+                        "display_name": path.name,
+                        "path": str(path),
+                        "size_bytes": path.stat().st_size,
+                    },
+                    category_dir=category_dir,
+                )
+                if item is not None:
+                    items.append(item)
+    return sorted(
+        items,
+        key=lambda item: (
+            str(item["label"]),
+            str(item["original_filename"]),
+            bool(item.get("duplicate_of")),
+            str(item["stored_filename"]),
+            str(item["upload_item_id"]),
+        ),
+    )
+
+
+def build_upload_memory_group_summary(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    summary = {
+        label: {"label": label, "count": 0, "files": [], "items": []}
+        for label in UPLOAD_MEMORY_CATEGORY_BY_LABEL
+    }
+    for item in items:
+        label = str(item.get("label") or "unknown")
+        group = summary.setdefault(label, {"label": label, "count": 0, "files": [], "items": []})
+        group["items"].append(item)
+        group["files"].append(str(item.get("original_filename") or item.get("stored_filename") or "unknown"))
+        group["count"] = int(group["count"]) + 1
+    return summary
+
+
+def delete_upload_memory_item(
+    upload_item_id: str,
+    *,
+    paths: UploadStatePaths | None = None,
+    delete_physical: bool = True,
+) -> dict[str, Any]:
+    return delete_upload_memory_items([upload_item_id], paths=paths, delete_physical=delete_physical)
+
+
+def delete_upload_memory_items(
+    upload_item_ids: list[str] | tuple[str, ...] | set[str],
+    *,
+    paths: UploadStatePaths | None = None,
+    delete_physical: bool = True,
+) -> dict[str, Any]:
+    resolved_paths = paths or build_upload_state_paths()
+    target_ids = {str(item_id) for item_id in upload_item_ids if str(item_id)}
+    if not target_ids:
+        return _delete_result([], [], [])
+    manifest = load_upload_manifest(paths=resolved_paths)
+    deleted: list[dict[str, Any]] = []
+    retained_by_category: dict[str, list[dict[str, Any]]] = {}
+    for category in UPLOAD_CATEGORIES:
+        retained: list[dict[str, Any]] = []
+        category_dir = resolved_paths.category_dir(category)
+        manifest_cache_names: set[str] = set()
+        for entry in manifest["files"].get(category, []):
+            if not isinstance(entry, dict):
+                continue
+            item = _upload_memory_item_from_entry(category, entry, category_dir=category_dir)
+            if item is not None:
+                manifest_cache_names.add(str(item["stored_filename"]))
+            if item is not None and item["upload_item_id"] in target_ids:
+                deleted.append(item)
+            else:
+                retained.append(entry)
+        if category_dir.exists():
+            for path in sorted(child for child in category_dir.iterdir() if child.is_file()):
+                if path.name in manifest_cache_names:
+                    continue
+                item = _upload_memory_item_from_entry(
+                    category,
+                    {
+                        "cache_name": path.name,
+                        "file_name": path.name,
+                        "display_name": path.name,
+                        "path": str(path),
+                        "size_bytes": path.stat().st_size,
+                    },
+                    category_dir=category_dir,
+                )
+                if item is not None and item["upload_item_id"] in target_ids:
+                    deleted.append(item)
+        retained_by_category[category] = retained
+    for category, retained in retained_by_category.items():
+        manifest["files"][category] = retained
+    _write_json(resolved_paths.upload_manifest_path, manifest)
+    physical_deleted = _delete_physical_files(deleted, resolved_paths=resolved_paths, delete_physical=delete_physical)
+    invalidated = sorted({UPLOADER_SESSION_KEYS.get(str(item.get("category")), "") for item in deleted} - {""})
+    return _delete_result(deleted, physical_deleted, invalidated)
+
+
+def delete_upload_memory_group(
+    label_or_category: str,
+    *,
+    paths: UploadStatePaths | None = None,
+    delete_physical: bool = True,
+) -> dict[str, Any]:
+    category = UPLOAD_MEMORY_CATEGORY_BY_LABEL.get(label_or_category, label_or_category)
+    ids = [
+        str(item["upload_item_id"])
+        for item in build_upload_memory_items(paths=paths)
+        if item.get("category") == category or item.get("label") == label_or_category
+    ]
+    return delete_upload_memory_items(ids, paths=paths, delete_physical=delete_physical)
 
 
 def reset_uploader_session_state(*, session_keys: tuple[str, ...] = ()) -> None:
@@ -245,26 +419,14 @@ def reset_uploader_session_state(*, session_keys: tuple[str, ...] = ()) -> None:
 
 
 def render_sidebar_memory_panel(*, paths: UploadStatePaths | None = None) -> None:
-    resolved_paths = paths or build_upload_state_paths()
-    st.caption("업로드 기억")
-    action_left, action_right = st.columns(2)
-    if action_left.button("기억 초기화", use_container_width=True, key="upload_memory_reset"):
-        reset_uploader_session_state()
-        st.rerun()
-    if action_right.button("전체삭제", use_container_width=True, key="upload_memory_delete"):
-        clear_all_uploads(paths=resolved_paths)
-        reset_uploader_session_state()
-        st.rerun()
+    from .ui_upload_memory_management import render_upload_memory_management
 
-    rows = category_summary_rows(paths=resolved_paths)
-    if any(row["count"] for row in rows):
-        summary_frame = pd.DataFrame(rows)[["label", "count", "files"]]
-        st.dataframe(summary_frame, hide_index=True, use_container_width=True)
-    else:
-        st.caption("기억된 업로드가 없습니다.")
+    render_upload_memory_management(paths=paths)
 
 
 def render_workspace_panel(*, paths: UploadStatePaths | None = None) -> None:
+    import pandas as pd
+
     resolved_paths = paths or build_upload_state_paths()
     with st.expander("작업 공간 / 기기별 데이터 / 업로드 폴더", expanded=False):
         summary_frame = pd.DataFrame(category_summary_rows(paths=resolved_paths))[["label", "count", "dir"]]
@@ -280,6 +442,109 @@ def render_workspace_panel(*, paths: UploadStatePaths | None = None) -> None:
                 ]
             )
         )
+
+
+def _upload_item_id(category: str, cache_name: str) -> str:
+    digest = hashlib.sha256(f"{category}/{cache_name}".encode("utf-8")).hexdigest()[:16]
+    return f"{UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, 'unknown')}:{digest}"
+
+
+def _unique_cache_name(base_name: str, existing_names: set[str]) -> str:
+    if base_name not in existing_names:
+        return base_name
+    path = Path(base_name)
+    stem = path.stem
+    suffix = path.suffix
+    index = 2
+    while True:
+        candidate = f"{stem}_{index}{suffix}"
+        if candidate not in existing_names:
+            return candidate
+        index += 1
+
+
+def _upload_memory_item_from_entry(category: str, entry: dict[str, Any], *, category_dir: Path) -> dict[str, Any] | None:
+    cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "").strip()
+    if not cache_name:
+        return None
+    stored_path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
+    original_filename = str(entry.get("original_filename") or entry.get("display_name") or entry.get("file_name") or cache_name)
+    file_exists = stored_path.exists() and stored_path.is_file()
+    size = int(entry.get("file_size") or entry.get("size_bytes") or (stored_path.stat().st_size if file_exists else 0))
+    filename_meta = infer_new_dataset_filename_metadata(original_filename)
+    row_count = _row_count(stored_path) if file_exists else None
+    parse_status = str(entry.get("parse_status") or ("ok" if file_exists else "missing_file"))
+    return {
+        "upload_item_id": str(entry.get("upload_item_id") or _upload_item_id(category, cache_name)),
+        "label": str(entry.get("label") or UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown")),
+        "category": category,
+        "original_filename": original_filename,
+        "stored_filename": cache_name,
+        "stored_path": str(stored_path),
+        "uploaded_at": entry.get("uploaded_at"),
+        "discovered_at": entry.get("discovered_at"),
+        "file_size": size,
+        "parse_status": parse_status,
+        "detected_format": str(entry.get("detected_format") or filename_meta.get("source_type") or "unknown"),
+        "source_type": str(entry.get("source_type") or filename_meta.get("source_type") or "unknown"),
+        "waveform_family": entry.get("waveform_family") or filename_meta.get("waveform_type"),
+        "freq_hz": entry.get("freq_hz") if entry.get("freq_hz") is not None else filename_meta.get("freq_hz"),
+        "cycle_count": entry.get("cycle_count") if entry.get("cycle_count") is not None else filename_meta.get("cycle_count"),
+        "row_count": row_count,
+        "validation_status": str(entry.get("validation_status") or ("available" if file_exists else "unavailable")),
+        "duplicate_of": entry.get("duplicate_of"),
+        "content_sha256": entry.get("content_sha256"),
+        "file_exists": file_exists,
+    }
+
+
+def _row_count(path: Path) -> int | None:
+    try:
+        return max(len(path.read_text(encoding="utf-8-sig").splitlines()) - 1, 0)
+    except OSError:
+        return None
+
+
+def _delete_physical_files(
+    items: list[dict[str, Any]],
+    *,
+    resolved_paths: UploadStatePaths,
+    delete_physical: bool,
+) -> list[str]:
+    deleted: list[str] = []
+    if not delete_physical:
+        return deleted
+    upload_root = resolved_paths.uploads_dir.resolve()
+    for item in items:
+        path = Path(str(item.get("stored_path") or ""))
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if not _is_relative_to(resolved, upload_root):
+            continue
+        if resolved.exists() and resolved.is_file():
+            resolved.unlink()
+            deleted.append(str(resolved))
+    return deleted
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _delete_result(deleted: list[dict[str, Any]], physical_deleted: list[str], invalidated: list[str]) -> dict[str, Any]:
+    return {
+        "deleted_count": len(deleted),
+        "deleted_item_ids": [str(item.get("upload_item_id")) for item in deleted],
+        "physical_deleted_count": len(physical_deleted),
+        "physical_deleted_paths": physical_deleted,
+        "invalidated_session_keys": invalidated,
+    }
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]
