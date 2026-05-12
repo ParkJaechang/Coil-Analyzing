@@ -84,6 +84,19 @@ def generate_second_modeled_voltage_lut(
         }
     time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
     first_voltage = _first_voltage(profile)
+    active_mask = _active_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
+    if not _source_covers_target_active_window(review["time_s"], time_s[active_mask]):
+        return profile, {
+            **base_metadata,
+            **_review_diagnostic_metadata(review_meta),
+            "second_modeling_available": False,
+            "second_modeling_status": "actual_drive_time_range_insufficient",
+            "second_modeling_unavailable_reason": "actual_drive_source_time_does_not_cover_target_active_window",
+            "interpolation_status": "source_time_range_insufficient_no_extrapolation",
+            "second_correction_delta_v_generated": False,
+            "second_voltage_v_generated": False,
+            "second_lut_generated": False,
+        }
     target = _target(profile, review, time_s)
     measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
@@ -91,7 +104,6 @@ def generate_second_modeled_voltage_lut(
     effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
     baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s)
     normalized_field = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
-    active_mask = _active_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
     residual = target - measured
     delta = (residual / 50.0) * float(voltage_limit_v) * float(correction_gain)
     delta[~active_mask | ~np.isfinite(delta)] = 0.0
@@ -164,7 +176,9 @@ def _review_diagnostic_metadata(review_meta: dict[str, Any]) -> dict[str, Any]:
         "selected_time_unit_reason": review_meta.get("selected_time_unit_reason"),
         "dt_median_s": review_meta.get("dt_median_s"),
         "voltage_nonzero_duration_s": review_meta.get("voltage_nonzero_duration_s"),
+        "actual_voltage_active_duration_s": review_meta.get("actual_voltage_active_duration_s"),
         "expected_active_duration_s": review_meta.get("expected_active_duration_s"),
+        "active_duration_ratio": review_meta.get("active_duration_ratio"),
         "timebase_status": review_meta.get("timebase_status"),
         "source_time_monotonic": review_meta.get("source_time_monotonic"),
         "duplicate_time_count": review_meta.get("duplicate_time_count"),
@@ -204,6 +218,16 @@ def _interp(source_time: Any, source_values: Any, target_time: Any) -> np.ndarra
         return np.full(len(t), np.nan)
     order = np.argsort(x[finite])
     return np.interp(t, x[finite][order], y[finite][order], left=np.nan, right=np.nan)
+
+
+def _source_covers_target_active_window(source_time: Any, target_active_time: np.ndarray) -> bool:
+    source = pd.to_numeric(pd.Series(source_time), errors="coerce").to_numpy(dtype=float)
+    target = np.asarray(target_active_time, dtype=float)
+    source = source[np.isfinite(source)]
+    target = target[np.isfinite(target)]
+    if source.size < 2 or target.size < 1:
+        return False
+    return bool(np.nanmin(source) <= np.nanmin(target) + 1e-12 and np.nanmax(source) >= np.nanmax(target) - 1e-12)
 
 
 def _smooth(values: np.ndarray, window: int = 7) -> np.ndarray:

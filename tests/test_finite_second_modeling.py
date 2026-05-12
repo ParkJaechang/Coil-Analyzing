@@ -101,6 +101,21 @@ def test_second_modeling_blocks_actual_drive_freq_cycle_mismatch(tmp_path: Path)
     assert "second_limited_voltage_v" not in frame.columns
 
 
+def test_second_modeling_blocks_when_actual_drive_time_range_does_not_cover_target(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+    profile["time_s"] = profile["time_s"] + 2.0
+
+    frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
+
+    assert frame.equals(profile)
+    assert metadata["second_modeling_available"] is False
+    assert metadata["second_modeling_status"] == "actual_drive_time_range_insufficient"
+    assert metadata["interpolation_status"] == "source_time_range_insufficient_no_extrapolation"
+    assert "second_limited_voltage_v" not in frame.columns
+
+
 def test_final_lut_export_prefers_second_limited_voltage_when_available(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
     _write_actual_drive_csv(actual)

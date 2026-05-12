@@ -159,6 +159,26 @@ def test_actual_drive_feedback_candidate_does_not_auto_select_multiple_exact_mat
     assert metadata["selection_reason"] == "multiple_exact_matches"
 
 
+def test_actual_drive_feedback_candidate_does_not_auto_select_single_mismatch_for_production() -> None:
+    from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
+
+    selected, metadata = choose_actual_drive_feedback_candidate(
+        [
+            {
+                "filename": "finite_recommended_voltage_lut_sine_0.25Hz_1.5cycle_result.csv",
+                "csv_bytes": b"Row,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n",
+            }
+        ],
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert selected is None
+    assert metadata["selection_status"] == "needs_manual_selection"
+    assert metadata["selection_reason"] == "single_candidate_mismatch_raw_preview_only"
+
+
 def test_actual_drive_feedback_candidate_identifies_final_lut_as_wrong_file_type() -> None:
     from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
 

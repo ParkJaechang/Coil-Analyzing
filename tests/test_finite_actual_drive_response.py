@@ -73,6 +73,7 @@ def test_actual_drive_filename_and_preamble_parse(tmp_path: Path) -> None:
     assert record.metadata["time_unit"] == "ms"
     assert record.metadata["actual_drive_time_unit_detected"] == "milliseconds"
     assert record.metadata["timebase_status"] == "ok"
+    assert np.isclose(record.metadata["active_duration_ratio"], 1.0, atol=0.03)
     assert record.metadata["voltage_unit"] == "V"
     assert record.metadata["field_unit"] == "mT_inferred_from_HallBz"
     assert {
@@ -100,6 +101,7 @@ def test_actual_drive_timebase_detects_seconds_encoded_time_column(tmp_path: Pat
     assert metadata["actual_drive_time_unit_detected"] == "seconds"
     assert np.isclose(float(record.frame["time_s_abs"].iloc[-1]), 1.4)
     assert np.isclose(metadata["voltage_nonzero_duration_s"], 1.0, atol=0.03)
+    assert np.isclose(metadata["active_duration_ratio"], 1.0, atol=0.03)
     assert np.all(np.diff(review["time_s"].to_numpy(dtype=float)) > 0.0)
     assert np.isclose(float(record.frame["hallbz_raw_mT"].iloc[0]), 1.5)
     assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), 1.5)

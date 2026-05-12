@@ -70,11 +70,11 @@ def choose_actual_drive_feedback_candidate(
             "exact_match_count": len(exact),
         }
     if len(actual_candidates) == 1:
-        return actual_candidates[0], {
-            "selection_status": "auto_selected",
-            "selection_reason": "single_candidate_fallback",
+        return None, {
+            "selection_status": "needs_manual_selection",
+            "selection_reason": "single_candidate_mismatch_raw_preview_only",
             "candidate_count": 1,
-            "warning": "현재 설정과 파일명이 완전히 일치하지 않지만, 업로드된 실구동 결과가 1개뿐이므로 이 파일을 사용합니다.",
+            "warning": "?? target? ??? ?? ??? ???/cycle? ???? ?? 2? ???? ??? ? ????. ?? ???/cycle? ?? ??? result CSV? ???????.",
         }
     if not actual_candidates and final_lut_count:
         return None, {

@@ -50,7 +50,13 @@ def detect_actual_drive_timebase(
         "selected_time_unit_reason": "voltage_nonzero_duration_closest_to_expected_active_duration",
         "dt_median_s": dt_median,
         "voltage_nonzero_duration_s": best_duration,
+        "actual_voltage_active_duration_s": best_duration,
         "expected_active_duration_s": float(expected_active_duration_s),
+        "active_duration_ratio": (
+            best_duration / max(abs(float(expected_active_duration_s)), 1e-12)
+            if np.isfinite(best_duration)
+            else float("nan")
+        ),
         "timebase_status": status,
         "timebase_duration_relative_error": rel_error,
         "source_time_monotonic": monotonic,

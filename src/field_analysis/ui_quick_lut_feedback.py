@@ -106,20 +106,45 @@ def render_quick_lut_feedback_input_section(
         freq_hz=freq_hz,
         cycle_count=cycle_count,
     )
+    selection_widget_rendered = False
     if auto_selected is not None:
         selected_id = str(auto_selected.get("cache_id"))
     else:
-        selected_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
+        previous_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
+        previous_record = records_by_id.get(previous_id) if previous_id else None
+        previous_info = (
+            classify_feedback_csv_candidate(previous_record.original_filename, cache_item_bytes(cache_state, previous_id))
+            if previous_record is not None
+            else {}
+        )
+        selected_id = (
+            previous_id
+            if previous_record is not None
+            and candidate_matches(previous_info, waveform_type=waveform_type, freq_hz=freq_hz, cycle_count=cycle_count)
+            else None
+        )
     if selected_id is None:
-        st.info("캐시된 실구동 결과 파일 선택 항목이 없습니다.")
-        return None
+        st.info("?? target? ??? ???? ??? ?? CSV? ????. ??? ???? ???? Raw preview? ????? production 2? ???? ???????.")
+        if auto_meta.get("warning"):
+            st.warning(str(auto_meta["warning"]))
+        selected_id = st.selectbox(
+            "??? ??? ?? ??",
+            options=options,
+            format_func=lambda cache_id: labels_by_id[cache_id],
+            index=None,
+            key=FEEDBACK_SELECTED_CACHE_KEY,
+        )
+        selection_widget_rendered = True
+        if selected_id is None:
+            return None
     st.session_state[FEEDBACK_SELECTED_CACHE_KEY] = selected_id
-    selected_id = st.selectbox(
-        "캐시된 실구동 결과 파일",
-        options=options,
-        format_func=lambda cache_id: labels_by_id[cache_id],
-        key=FEEDBACK_SELECTED_CACHE_KEY,
-    )
+    if not selection_widget_rendered:
+        selected_id = st.selectbox(
+            "??? ??? ?? ??",
+            options=options,
+            format_func=lambda cache_id: labels_by_id[cache_id],
+            key=FEEDBACK_SELECTED_CACHE_KEY,
+        )
     selected = records_by_id[selected_id]
     source_bytes = cache_item_bytes(cache_state, selected_id)
     parse_status = "available" if source_bytes else "missing_bytes"
