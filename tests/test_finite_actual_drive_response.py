@@ -22,15 +22,21 @@ from field_analysis.finite_actual_drive import (
 )
 
 
-def _write_actual_drive_csv(path: Path) -> None:
+def _write_actual_drive_csv(path: Path, *, encoded_time_unit: str = "milliseconds") -> None:
     rows = []
     time_ms = np.linspace(0.0, 1400.0, 101)
     voltage = np.zeros_like(time_ms)
     active = (time_ms >= 200.0) & (time_ms <= 1200.0)
     voltage[active] = 2.0 * np.sin(np.pi * (time_ms[active] - 200.0) / 1000.0)
     hall = 1.5 + 40.0 * np.sin(np.pi * np.clip((time_ms - 200.0) / 1000.0, 0.0, 1.0))
-    for index, (t_ms, v, h) in enumerate(zip(time_ms, voltage, hall, strict=False)):
-        rows.append(f"{index},{t_ms:.3f},0.0,0.0,{h:.6f},0.1,0.0,{v:.6f},0.0")
+    if encoded_time_unit == "seconds":
+        encoded_time = time_ms / 1000.0
+    elif encoded_time_unit == "microseconds":
+        encoded_time = time_ms * 1000.0
+    else:
+        encoded_time = time_ms
+    for index, (t_raw, v, h) in enumerate(zip(encoded_time, voltage, hall, strict=False)):
+        rows.append(f"{index},{t_raw:.6f},0.0,0.0,{h:.6f},0.1,0.0,{v:.6f},0.0")
     preamble = [
         "# Date,2026-05-06 16:00:02",
         "# Frequency(Hz),0.000",
@@ -65,12 +71,39 @@ def test_actual_drive_filename_and_preamble_parse(tmp_path: Path) -> None:
     assert record.metadata["post_delay_s"] == 1.0
     assert record.metadata["auto_sync_hall_lag_ms"] == 70.0
     assert record.metadata["time_unit"] == "ms"
+    assert record.metadata["actual_drive_time_unit_detected"] == "milliseconds"
+    assert record.metadata["timebase_status"] == "ok"
     assert record.metadata["voltage_unit"] == "V"
     assert record.metadata["field_unit"] == "mT_inferred_from_HallBz"
-    assert {"time_s_abs", "first_voltage_v", "actual_drive_voltage_v", "measured_field_raw", "hallbz_raw_mT", "current_a"}.issubset(record.frame.columns)
+    assert {
+        "time_s_abs",
+        "first_voltage_v",
+        "actual_drive_voltage_v",
+        "measured_field_raw",
+        "hallbz_raw_mT",
+        "raw_hallbz_mT",
+        "measured_field_effective_mT",
+        "current_a",
+    }.issubset(record.frame.columns)
     assert np.isclose(float(record.frame["time_s_abs"].iloc[-1]), 1.4)
+
+
+def test_actual_drive_timebase_detects_seconds_encoded_time_column(tmp_path: Path) -> None:
+    path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(path, encoded_time_unit="seconds")
+
+    record = read_actual_drive_result(path)
+    review, metadata = build_actual_drive_review_case(record)
+
+    assert record.metadata["actual_drive_time_unit_detected"] == "seconds"
+    assert record.metadata["timebase_status"] == "ok"
+    assert metadata["actual_drive_time_unit_detected"] == "seconds"
+    assert np.isclose(float(record.frame["time_s_abs"].iloc[-1]), 1.4)
+    assert np.isclose(metadata["voltage_nonzero_duration_s"], 1.0, atol=0.03)
+    assert np.all(np.diff(review["time_s"].to_numpy(dtype=float)) > 0.0)
     assert np.isclose(float(record.frame["hallbz_raw_mT"].iloc[0]), 1.5)
-    assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), -1.5)
+    assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), 1.5)
+    assert np.isclose(float(record.frame["measured_field_effective_mT"].iloc[0]), -1.5)
     assert record.metadata["hallbz_sign_inverted"] is True
 
 
@@ -113,6 +146,11 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
         "first_voltage_v",
         "command_voltage_v",
         "actual_drive_voltage_v",
+        "raw_hallbz_mT",
+        "measured_field_effective_mT",
+        "baseline_removed_effective_field_mT",
+        "measured_field_baseline_removed_mT",
+        "normalized_effective_field_mT",
         "physical_target_output_mT",
         "measured_field_mT",
         "measured_residual_mT",
@@ -133,6 +171,35 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert metadata["continuous_touched"] is False
     assert metadata["command_voltage_source"] == "Voltage1_V_no_separate_command_reference"
     assert metadata["actual_drive_voltage_source"] == "Voltage1_V"
+    assert metadata["actual_drive_time_unit"] == "milliseconds"
+    assert metadata["source_time_monotonic"] is True
+    assert metadata["duplicate_time_count"] == 0
+    assert metadata["double_sign_flip_detected"] is False
+    assert metadata["field_convention"] == "raw_hallbz -> effective=-raw -> baseline_removed -> normalized"
+    assert np.allclose(review["raw_hallbz_mT"], -review["measured_field_effective_mT"], atol=1e-12)
+    assert np.allclose(
+        review["measured_field_baseline_removed_mT"],
+        review["baseline_removed_effective_field_mT"],
+        atol=1e-12,
+    )
+
+
+def test_hallbz_raw_effective_normalized_shape_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1cycle_result.csv"
+    _write_actual_drive_csv(path)
+    record = read_actual_drive_result(path)
+
+    review, metadata = build_actual_drive_review_case(record)
+
+    active = review["time_s"].between(0.0, metadata["target_active_end_s"])
+    raw = review.loc[active, "raw_hallbz_mT"].to_numpy(dtype=float)
+    effective = review.loc[active, "measured_field_effective_mT"].to_numpy(dtype=float)
+    baseline_removed = review.loc[active, "baseline_removed_effective_field_mT"].to_numpy(dtype=float)
+    normalized = review.loc[active, "normalized_effective_field_mT"].to_numpy(dtype=float)
+
+    assert np.allclose(effective, -raw, atol=1e-12)
+    assert np.corrcoef(effective[np.isfinite(effective)], baseline_removed[np.isfinite(baseline_removed)])[0, 1] > 0.99
+    assert np.corrcoef(baseline_removed[np.isfinite(baseline_removed)], normalized[np.isfinite(normalized)])[0, 1] > 0.99
 
 
 def test_actual_drive_review_payload_contract_for_in_app_upload(tmp_path: Path) -> None:

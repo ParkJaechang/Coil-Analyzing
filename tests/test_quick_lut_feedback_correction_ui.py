@@ -90,6 +90,94 @@ def test_feedback_export_source_falls_back_to_baseline_when_unavailable() -> Non
     )
 
 
+def test_feedback_correction_wrong_file_type_returns_unavailable_without_crash() -> None:
+    from field_analysis.ui_quick_lut_feedback import apply_feedback_correction_from_selection
+
+    command_profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.1],
+            "limited_voltage_v": [0.0, 1.0],
+            "physical_target_output_mT": [0.0, 50.0],
+        }
+    )
+    selection = {
+        "filename": "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv",
+        "csv_bytes": b"sample_index,time_s,voltage_v\n0,0,0\n1,0.1,1\n",
+        "run_label": "first_run",
+    }
+
+    returned_profile, metadata = apply_feedback_correction_from_selection(
+        command_profile,
+        selection,
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert returned_profile.equals(command_profile)
+    assert metadata["feedback_correction_available"] is False
+    assert metadata["feedback_correction_status"] == "feedback_source_invalid"
+    assert metadata["feedback_correction_unavailable_reason"] == "unsupported_actual_drive_result_file"
+    assert metadata["feedback_used_for_correction"] is False
+    assert "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv" in str(metadata["feedback_source_file"])
+
+
+def test_actual_drive_feedback_candidate_auto_selects_single_exact_match() -> None:
+    from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
+
+    selected, metadata = choose_actual_drive_feedback_candidate(
+        [
+            {
+                "filename": "finite_recommended_voltage_lut_sine_2Hz_1.5cycle_result.csv",
+                "csv_bytes": b"Row,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n",
+            }
+        ],
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert selected is not None
+    assert selected["filename"] == "finite_recommended_voltage_lut_sine_2Hz_1.5cycle_result.csv"
+    assert metadata["selection_reason"] == "exact_match"
+
+
+def test_actual_drive_feedback_candidate_does_not_auto_select_multiple_exact_matches() -> None:
+    from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
+
+    selected, metadata = choose_actual_drive_feedback_candidate(
+        [
+            {"filename": "a_finite_recommended_voltage_lut_sine_2Hz_1.5cycle_result.csv", "csv_bytes": b""},
+            {"filename": "b_finite_recommended_voltage_lut_sine_2Hz_1.5cycle_result.csv", "csv_bytes": b""},
+        ],
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert selected is None
+    assert metadata["selection_reason"] == "multiple_exact_matches"
+
+
+def test_actual_drive_feedback_candidate_identifies_final_lut_as_wrong_file_type() -> None:
+    from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
+
+    selected, metadata = choose_actual_drive_feedback_candidate(
+        [
+            {
+                "filename": "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv",
+                "csv_bytes": b"sample_index,time_s,voltage_v\n0,0,0\n",
+            }
+        ],
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert selected is None
+    assert metadata["selection_reason"] == "final_voltage_lut_not_actual_drive_result"
+
+
 def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() -> None:
     sources = "\n".join(
         [
@@ -109,6 +197,7 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "second_run",
         "unknown",
         "HallBz 부호 보정 적용",
+        "1차 실구동 데이터 원본 확인",
         "실측 자기장 peak를 ±50mT 기준으로 정규화",
         "전압을 ±5V 기준으로 정규화/제한",
         "보정 전압 변화량",
@@ -173,7 +262,12 @@ def test_feedback_plot_dataframe_accepts_optional_prediction() -> None:
 
 
 def test_user_facing_quick_lut_feedback_default_copy_is_korean() -> None:
-    source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
+    source = "\n".join(
+        [
+            (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8"),
+            (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8"),
+        ]
+    )
 
     expected = [
         "목표 자기장 vs 실측 자기장",
@@ -184,6 +278,10 @@ def test_user_facing_quick_lut_feedback_default_copy_is_korean() -> None:
         "1차 모델링 전압",
         "2차 모델링 전압",
         "최종 적합성은 사용자가 그래프를 보고 판단합니다.",
+        "현재 추출 대상",
+        "1차 모델링 결과",
+        "2차 모델링 결과",
+        "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장합니다.",
     ]
     missing = [marker for marker in expected if marker not in source]
     assert not missing
@@ -199,3 +297,11 @@ def test_user_facing_quick_lut_feedback_default_copy_is_korean() -> None:
     ]
     found = [marker for marker in forbidden_default_copy if marker in source]
     assert not found
+
+
+def test_final_lut_export_hides_internal_metadata_from_default_screen() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8")
+
+    default_region = source.split('with st.expander("상세 진단"', maxsplit=1)[0]
+    assert "exported_voltage_source_column" not in default_region
+    assert 'st.info("현재 추출 대상' in source

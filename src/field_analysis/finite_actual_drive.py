@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit, peak_abs
+from field_analysis.finite_actual_drive_timebase import detect_actual_drive_timebase
 
 RESULT_FILENAME_RE = re.compile(
     r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv)$",
@@ -71,17 +72,26 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"Missing actual-drive result columns in {source_path.name}: {missing}")
+    raw_time = pd.to_numeric(frame["TimeMs"], errors="coerce").to_numpy(dtype=float)
     hallbz_raw = pd.to_numeric(frame["HallBz"], errors="coerce")
     voltage1_v = pd.to_numeric(frame["Voltage1_V"], errors="coerce")
+    filename_expected_duration_s = float(filename_meta["cycle_count"]) / max(float(filename_meta["freq_hz"]), 1e-12)
+    timebase_meta = detect_actual_drive_timebase(
+        raw_time,
+        voltage1_v.to_numpy(dtype=float),
+        expected_active_duration_s=filename_expected_duration_s,
+    )
     normalized = pd.DataFrame(
         {
             "sample_index": np.arange(len(frame), dtype=int),
-            "time_s_abs": pd.to_numeric(frame["TimeMs"], errors="coerce") / 1000.0,
+            "time_s_abs": raw_time * float(timebase_meta["time_scale_to_seconds"]),
             "first_voltage_v": voltage1_v,
             "command_voltage_v": voltage1_v,
             "actual_drive_voltage_v": voltage1_v,
             "hallbz_raw_mT": hallbz_raw,
-            "measured_field_raw": -hallbz_raw,
+            "raw_hallbz_mT": hallbz_raw,
+            "measured_field_raw": hallbz_raw,
+            "measured_field_effective_mT": -hallbz_raw,
         }
     )
     if "Current1_A" in frame.columns:
@@ -98,11 +108,14 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
         "auto_sync_hall_lag_ms": _parse_auto_sync_lag_ms(preamble),
         "field_unit": "mT_inferred_from_HallBz",
         "field_units": "mT",
+        "hallbz_sign_applied": True,
         "hallbz_sign_inverted": True,
+        "effective_field_convention": "effective_field_mT = -HallBz_raw",
         "voltage_unit": "V",
         "command_voltage_source": "Voltage1_V_no_separate_command_reference",
         "actual_drive_voltage_source": "Voltage1_V",
-        "time_unit": "ms",
+        "time_unit": timebase_meta["legacy_time_unit"],
+        **timebase_meta,
         "raw_preamble": preamble,
     }
     return ActualDriveRecord(
@@ -176,15 +189,25 @@ def build_actual_drive_review_case(
     frame = record.frame.copy()
     time_abs = frame["time_s_abs"].to_numpy(dtype=float)
     first_voltage = frame["first_voltage_v"].to_numpy(dtype=float)
-    raw_field = frame["measured_field_raw"].to_numpy(dtype=float)
+    raw_hallbz = frame["hallbz_raw_mT"].to_numpy(dtype=float)
+    effective_field = (
+        frame["measured_field_effective_mT"].to_numpy(dtype=float)
+        if "measured_field_effective_mT" in frame.columns
+        else -raw_hallbz
+    )
     command_start_s, command_end_s = _nonzero_window(time_abs, first_voltage)
     if not np.isfinite(command_start_s):
         command_start_s = float(np.nanmin(time_abs))
     pre_mask = time_abs < command_start_s
-    baseline = float(np.nanmedian(raw_field[pre_mask])) if pre_mask.any() else float(np.nanmedian(raw_field))
-    measured_field = raw_field - baseline
-    field_start_s = _field_motion_start(time_abs, raw_field, baseline)
+    baseline_source = "pre_command_window" if pre_mask.any() else "median_fallback_no_pre_command_window"
+    baseline = float(np.nanmedian(effective_field[pre_mask])) if pre_mask.any() else float(np.nanmedian(effective_field))
+    measured_field = effective_field - baseline
+    field_start_s = _field_motion_start(time_abs, effective_field, baseline)
     relative_time = time_abs - float(command_start_s)
+    finite_time = time_abs[np.isfinite(time_abs)]
+    diffs = np.diff(finite_time) if finite_time.size > 1 else np.array([], dtype=float)
+    duplicate_time_count = int(np.sum(np.isfinite(diffs) & np.isclose(diffs, 0.0, atol=1e-15)))
+    source_time_monotonic = bool(finite_time.size > 1 and np.all(diffs > 0.0))
     target_duration_s = float(record.cycle_count / record.freq_hz)
     active_mask = (relative_time >= 0.0) & (relative_time <= target_duration_s + 1e-12)
     physical_target = _finite_target_template(
@@ -252,8 +275,15 @@ def build_actual_drive_review_case(
             "normalized_first_voltage_v": normalized_first_voltage,
             "raw_actual_drive_voltage_v": frame["actual_drive_voltage_v"].to_numpy(dtype=float),
             "normalized_actual_drive_voltage_v": normalized_actual_drive_voltage,
-            "raw_measured_field_mT": raw_field,
+            "raw_hallbz_mT": raw_hallbz,
+            "hallbz_raw_mT": raw_hallbz,
+            "raw_measured_field_mT": raw_hallbz,
+            "measured_field_effective_mT": effective_field,
+            "baseline_removed_effective_field_mT": measured_field,
+            "measured_field_baseline_removed_mT": measured_field,
+            "normalized_effective_field_mT": normalized_measured_field,
             "normalized_measured_field_mT": normalized_measured_field,
+            "measured_field_normalized_mT": normalized_measured_field,
             "normalized_physical_target_output_mT": normalized_target,
             "measured_residual_normalized_mT": normalized_residual,
             "modeled_cycle_count": float(record.cycle_count),
@@ -284,6 +314,25 @@ def build_actual_drive_review_case(
         "voltage_nonzero_start_s": command_start_s,
         "field_motion_start_s": field_start_s,
         "field_baseline_mT": baseline,
+        "baseline_source": baseline_source,
+        "baseline_mT": baseline,
+        "actual_drive_time_unit": record.metadata.get("actual_drive_time_unit_detected", "milliseconds"),
+        "actual_drive_time_unit_detected": record.metadata.get("actual_drive_time_unit_detected", "milliseconds"),
+        "selected_time_unit_reason": record.metadata.get("selected_time_unit_reason", "voltage_duration_closest_to_expected"),
+        "dt_median_s": record.metadata.get("dt_median_s"),
+        "voltage_nonzero_duration_s": record.metadata.get("voltage_nonzero_duration_s"),
+        "expected_active_duration_s": record.metadata.get("expected_active_duration_s"),
+        "timebase_status": record.metadata.get("timebase_status", "ok"),
+        "time_s_abs_min": float(np.nanmin(time_abs)) if np.isfinite(time_abs).any() else float("nan"),
+        "time_s_abs_max": float(np.nanmax(time_abs)) if np.isfinite(time_abs).any() else float("nan"),
+        "relative_time_s_min": float(np.nanmin(relative_time)) if np.isfinite(relative_time).any() else float("nan"),
+        "relative_time_s_max": float(np.nanmax(relative_time)) if np.isfinite(relative_time).any() else float("nan"),
+        "source_time_monotonic": source_time_monotonic,
+        "duplicate_time_count": duplicate_time_count,
+        "interpolation_status": "not_interpolated_review_native_timebase",
+        "hallbz_sign_applied": True,
+        "double_sign_flip_detected": False,
+        "field_convention": "raw_hallbz -> effective=-raw -> baseline_removed -> normalized",
         "field_normalization_enabled": True,
         "field_normalization_mode": "peak_to_50mT",
         "field_normalization_status": field_norm_meta["status"],
@@ -307,7 +356,7 @@ def build_actual_drive_review_case(
             "Modeled cycle count is not rewritten; user may use this LUT as a drive candidate "
             "for a different intended cycle."
         ),
-        "raw_field_peak_mT": peak_abs(raw_field[active_mask]),
+        "raw_field_peak_mT": peak_abs(raw_hallbz[active_mask]),
         "raw_voltage_peak_v": peak_abs(first_voltage),
         "normalized_peak_mT": normalized_peak,
         "normalized_voltage_peak_v": normalized_voltage_peak,
@@ -329,7 +378,7 @@ def build_actual_drive_review_case(
         "possible_polarity_flip_suggested": possible_polarity_flip,
         "baseline_ok": bool(pre_mask.any() and np.isfinite(baseline)),
         "nonzero_start_ok": bool(np.isfinite(command_start_s) and command_start_s >= 0.0),
-        "clipping_or_spike_suspected": bool(_clipping_or_spike_suspected(first_voltage, raw_field)),
+        "clipping_or_spike_suspected": bool(_clipping_or_spike_suspected(first_voltage, raw_hallbz)),
         "truncation_suspected": bool(np.isfinite(command_end_s) and command_end_s < command_start_s + target_duration_s * 0.75),
         "tail_present": bool(tail_mask.any() and np.isfinite(measured_tail_residual) and measured_tail_residual > 0.05),
         "alignment_status": "ok",
@@ -368,6 +417,10 @@ def _case_payload(record: ActualDriveRecord, review: pd.DataFrame, metadata: dic
         "alignment_offset_s": metadata["alignment_offset_s"],
         "alignment_confidence": metadata["alignment_confidence"],
         "possible_polarity_flip_suggested": metadata["possible_polarity_flip_suggested"],
+        "source_time_monotonic": metadata["source_time_monotonic"],
+        "duplicate_time_count": metadata["duplicate_time_count"],
+        "double_sign_flip_detected": metadata["double_sign_flip_detected"],
+        "interpolation_status": metadata["interpolation_status"],
     }
     status = {
         "baseline_ok": metadata["baseline_ok"],

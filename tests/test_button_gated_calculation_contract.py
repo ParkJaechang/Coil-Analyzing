@@ -43,7 +43,7 @@ def test_second_modeling_user_trigger_contract_is_visible() -> None:
     assert "사용자가 버튼을 눌렀을 때만 생성합니다" in source
     assert "업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다" in source
     assert "Raw peak 값은 참고용입니다" in source
-    assert "자동 pass/fail 판정은 하지 않습니다" in source
+    assert "자동 합격/불합격 판정은 하지 않습니다" in source
 
 
 def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:
@@ -58,5 +58,5 @@ def test_actual_drive_feedback_review_is_button_gated_and_plotted() -> None:
     assert "실구동 결과 검토" in source
     assert "quick_lut_actual_drive_review_result" in source
     assert "목표 자기장 vs 실측 자기장" in source
-    assert "Raw 실구동 데이터" in source
+    assert "1차 실구동 데이터 원본 확인" in source
     assert "부호 보정 자기장 (-HallBz)" in source

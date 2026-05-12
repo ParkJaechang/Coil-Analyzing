@@ -16,6 +16,7 @@ from field_analysis.final_modeled_lut import (
     final_modeled_voltage_lut_to_csv_bytes,
     load_final_modeled_voltage_lut,
 )
+from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_filename
 
 
 def _command_profile() -> pd.DataFrame:
@@ -136,3 +137,10 @@ def test_export_one_point_five_cycle_reports_supported_finite_production_cycle()
     assert metadata["finite_production_cycle_supported"] is True
     assert metadata["finite_production_export_status"] == "ok"
     assert metadata["production_supported_cycles"] == [1.0, 1.5]
+    assert metadata["cycle_count"] == 1.5
+
+
+def test_one_point_five_final_lut_filename_uses_actual_cycle() -> None:
+    filename = build_final_voltage_lut_filename(waveform_type="sine", freq_hz=2.0, cycle_count=1.5)
+
+    assert filename == "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv"

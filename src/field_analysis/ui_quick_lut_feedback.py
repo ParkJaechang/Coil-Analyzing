@@ -12,6 +12,9 @@ import streamlit as st
 from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_feedback_peak_correction import apply_finite_feedback_peak_correction
+from .ui_quick_lut_feedback_selection import candidate_matches
+from .ui_quick_lut_feedback_selection import choose_actual_drive_feedback_candidate
+from .ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 from .ui_upload_cache import add_upload_cache_bytes
 from .ui_upload_cache import build_upload_cache_records
@@ -37,7 +40,13 @@ BASELINE_VOLTAGE_LABEL = "1차 추천/제한 전압"
 FEEDBACK_LIMITED_LABEL = "피드백 보정 후 제한 전압"
 
 
-def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[str, object] | None:
+def render_quick_lut_feedback_input_section(
+    *,
+    finite_cycle_mode: bool,
+    waveform_type: str | None = None,
+    freq_hz: float | None = None,
+    cycle_count: float | None = None,
+) -> dict[str, object] | None:
     st.markdown("#### Quick LUT 피드백 보정")
     st.caption("목표 자기장은 유지하고, 실제 구동 결과로 전압 명령만 보정합니다.")
     st.caption("Raw/absolute gain 평가는 하지 않고, ±50mT / ±5V 정규화 기준으로 개형과 타이밍을 봅니다.")
@@ -74,7 +83,7 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         options=["first_run", "second_run", "unknown"],
         index=0,
         key=FEEDBACK_RUN_LABEL_KEY,
-        help="피드백 source가 1차/2차/unknown run 중 어느 단계인지 구분하는 metadata입니다.",
+        help="피드백 원본이 1차/2차/unknown run 중 어느 단계인지 구분하는 metadata입니다.",
     )
     records = [record for record in build_upload_cache_records(cache_state) if record.cache_type == "actual_drive_validation"]
     if not records:
@@ -82,7 +91,25 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         return None
 
     options, records_by_id, labels_by_id = build_upload_cache_selection_options(records)
-    selected_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
+    candidate_payloads = [
+        {
+            "cache_id": record.cache_item_id,
+            "filename": record.original_filename,
+            "csv_bytes": cache_item_bytes(cache_state, record.cache_item_id),
+            "run_label": run_label,
+        }
+        for record in records
+    ]
+    auto_selected, auto_meta = choose_actual_drive_feedback_candidate(
+        candidate_payloads,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    if auto_selected is not None:
+        selected_id = str(auto_selected.get("cache_id"))
+    else:
+        selected_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
     if selected_id is None:
         st.info("캐시된 실구동 결과 파일 선택 항목이 없습니다.")
         return None
@@ -97,6 +124,14 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
     source_bytes = cache_item_bytes(cache_state, selected_id)
     parse_status = "available" if source_bytes else "missing_bytes"
     parsed = infer_new_dataset_filename_metadata(selected.original_filename)
+    selected_payload = {
+        "cache_id": selected_id,
+        "filename": selected.original_filename,
+        "csv_bytes": source_bytes,
+        "run_label": run_label,
+    }
+    selected_classification = classify_feedback_csv_candidate(selected.original_filename, source_bytes)
+    match_status = "match" if candidate_matches(selected_classification, waveform_type=waveform_type, freq_hz=freq_hz, cycle_count=cycle_count) else "mismatch_or_unknown"
 
     st.caption(f"파일: `{selected.original_filename}`")
     st.caption(
@@ -105,9 +140,18 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         f"`{parsed.get('freq_hz', 'unknown')}` Hz / "
         f"`{parsed.get('cycle_count', 'unknown')}` cycle"
     )
-    st.caption(f"parse status: `{parse_status}` · alignment status: `pending_until_run` · run label: `{run_label}`")
+    st.caption(f"파싱 상태: `{parse_status}` · 정렬 상태: `pending_until_run` · run 단계: `{run_label}`")
+    st.caption(
+        "자동 선택 상태: "
+        f"`{auto_meta.get('selection_status')}` / `{auto_meta.get('selection_reason')}` · "
+        f"match 상태: `{match_status}`"
+    )
+    if selected_classification.get("file_type") == "final_voltage_lut":
+        st.warning("이 파일은 최종 전압 LUT CSV입니다. 실구동 결과 CSV가 아닙니다. 피드백 보정에는 TimeMs / Voltage1_V / HallBz 컬럼이 있는 장비 측정 CSV가 필요합니다.")
+    elif auto_meta.get("warning"):
+        st.warning(str(auto_meta["warning"]))
     with st.expander("파일/캐시 상세", expanded=False):
-        st.caption(f"internal id: `{selected.cache_item_id}`")
+        st.caption(f"내부 ID: `{selected.cache_item_id}`")
         st.caption("실구동 결과 CSV: TimeMs / Voltage1_V / HallBz")
         st.caption("최종 전압 LUT CSV: sample_index / time_s / voltage_v")
     return {
@@ -117,6 +161,10 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         "run_label": run_label,
         "parse_status": parse_status,
         "alignment_status": "pending_until_run",
+        "file_type": selected_classification.get("file_type"),
+        "schema_status": selected_classification.get("schema_status"),
+        "match_status": match_status,
+        "selection_reason": auto_meta.get("selection_reason"),
     }
 
 
@@ -156,6 +204,23 @@ def apply_feedback_correction_from_selection(
             freq_hz=float(freq_hz),
             cycle_count=float(cycle_count),
         )
+    except ValueError as exc:
+        message = str(exc)
+        reason = "unsupported_actual_drive_result_file" if "Unsupported finite actual-drive result filename" in message else "invalid_actual_drive_result"
+        return command_profile, {
+            "feedback_route": "finite_actual_feedback_peak_correction",
+            "feedback_source_file": feedback_selection.get("filename"),
+            "feedback_run_label": feedback_selection.get("run_label") or "unknown",
+            "feedback_correction_available": False,
+            "feedback_correction_status": "feedback_source_invalid",
+            "feedback_correction_unavailable_reason": reason,
+            "feedback_parse_error": message,
+            "feedback_used_for_correction": False,
+            "target_unchanged": True,
+            "correction_delta_v_generated": False,
+            "second_voltage_v_generated": False,
+            "second_lut_generated": False,
+        }
     finally:
         try:
             temp_path.unlink(missing_ok=True)
@@ -246,7 +311,7 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     }
     st.success("실구동 결과 검토 완료")
     st.caption("Raw peak 값은 참고용입니다. 최종 적합성은 사용자가 그래프를 보고 판단합니다.")
-    st.caption("자동 pass/fail 판정은 하지 않습니다.")
+    st.caption("자동 합격/불합격 판정은 하지 않습니다.")
     with st.expander("상세 진단", expanded=False):
         st.dataframe(pd.DataFrame([status]), use_container_width=True)
 
@@ -280,18 +345,20 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     )
 
     raw_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
-    raw_frame["Raw HallBz"] = -pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
-    raw_frame["부호 보정 자기장 (-HallBz)"] = pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
-    raw_frame["정규화 자기장"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    raw_hallbz = frame.get("raw_hallbz_mT", frame.get("raw_measured_field_mT"))
+    raw_frame["Raw HallBz"] = pd.to_numeric(raw_hallbz, errors="coerce")
+    raw_frame["부호 보정 자기장 (-HallBz)"] = pd.to_numeric(frame.get("measured_field_effective_mT"), errors="coerce")
+    raw_frame["기준선 제거 후 자기장"] = pd.to_numeric(frame.get("baseline_removed_effective_field_mT", frame.get("measured_field_mT")), errors="coerce")
+    raw_frame["정규화 자기장 (±50mT)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
     raw_frame["Raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
-    raw_frame["정규화 전압"] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
+    raw_frame["정규화 전압 (±5V)"] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
     if "current_a" in frame.columns:
         raw_frame["전류"] = pd.to_numeric(frame["current_a"], errors="coerce")
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         _render_plot(
             raw_frame,
-            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "정규화 자기장", "Raw Voltage1_V", "정규화 전압", "전류"],
-            "Raw 실구동 데이터",
+            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "기준선 제거 후 자기장", "정규화 자기장 (±50mT)", "Raw Voltage1_V", "정규화 전압 (±5V)", "전류"],
+            "1차 실구동 데이터 원본 확인",
             yaxis_title="측정값",
         )
 
@@ -387,7 +454,7 @@ def build_feedback_plot_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
 
 def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
     st.markdown("#### Quick LUT 피드백 보정 결과")
-    st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 자동 pass/fail 판정은 하지 않습니다.")
+    st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 자동 합격/불합격 판정은 하지 않습니다.")
     st.caption("화면에 표시된 전압 명령과 같은 column을 저장합니다.")
 
     if not bool(metadata.get("feedback_correction_available", False)):

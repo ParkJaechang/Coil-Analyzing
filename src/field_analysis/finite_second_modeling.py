@@ -56,14 +56,41 @@ def generate_second_modeled_voltage_lut(
         }
     record = actual_drive_source if isinstance(actual_drive_source, ActualDriveRecord) else read_actual_drive_result(actual_drive_source)
     review, review_meta = build_actual_drive_review_case(record)
+    if str(review_meta.get("timebase_status", "ok")) != "ok":
+        return profile, {
+            **base_metadata,
+            **_review_diagnostic_metadata(review_meta),
+            "second_modeling_available": False,
+            "second_modeling_status": "actual_drive_timebase_not_ok",
+            "second_modeling_unavailable_reason": str(review_meta.get("timebase_status", "unknown")),
+            "second_correction_delta_v_generated": False,
+            "second_voltage_v_generated": False,
+            "second_lut_generated": False,
+        }
+    if abs(float(record.freq_hz) - float(freq_hz)) > 1e-9 or abs(float(record.cycle_count) - float(cycle_count)) > 1e-9:
+        return profile, {
+            **base_metadata,
+            **_review_diagnostic_metadata(review_meta),
+            "second_modeling_available": False,
+            "second_modeling_status": "actual_drive_target_mismatch",
+            "second_modeling_unavailable_reason": "actual_drive_file_freq_or_cycle_mismatch",
+            "target_freq_hz": float(freq_hz),
+            "target_cycle_count": float(cycle_count),
+            "file_freq_hz": float(record.freq_hz),
+            "file_cycle_count": float(record.cycle_count),
+            "second_correction_delta_v_generated": False,
+            "second_voltage_v_generated": False,
+            "second_lut_generated": False,
+        }
     time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
     first_voltage = _first_voltage(profile)
     target = _target(profile, review, time_s)
     measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
-    raw_field = _interp(review["time_s"], review["raw_measured_field_mT"], time_s)
+    raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
+    effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
+    baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s)
     normalized_field = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
-    effective_field = -raw_field
     active_mask = _active_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
     residual = target - measured
     delta = (residual / 50.0) * float(voltage_limit_v) * float(correction_gain)
@@ -80,9 +107,14 @@ def generate_second_modeled_voltage_lut(
             "first_modeled_voltage_v": first_voltage,
             "actual_drive_voltage_v": actual_voltage,
             "actual_drive_voltage_normalized_v": actual_voltage,
-            "measured_field_raw_mT": raw_field,
+            "raw_hallbz_mT": raw_hallbz,
+            "hallbz_raw_mT": raw_hallbz,
+            "measured_field_raw_mT": raw_hallbz,
             "measured_field_effective_mT": effective_field,
+            "baseline_removed_effective_field_mT": baseline_removed_effective,
+            "measured_field_baseline_removed_mT": baseline_removed_effective,
             "measured_field_normalized_mT": normalized_field,
+            "normalized_effective_field_mT": normalized_field,
             "first_model_residual_mT": residual,
             "second_correction_delta_v": delta,
             "second_modeled_voltage_v": second_voltage,
@@ -104,6 +136,10 @@ def generate_second_modeled_voltage_lut(
         "hallbz_sign_applied": True,
         "field_normalization_mode": "peak_to_50mT",
         "voltage_normalization_mode": "peak_to_5V_or_limit",
+        **_review_diagnostic_metadata(review_meta),
+        "interpolation_status": "ok" if np.isfinite(measured).any() else "unavailable",
+        "double_sign_flip_detected": False,
+        "field_convention": "raw_hallbz -> effective=-raw -> baseline_removed -> normalized",
         "correction_delta_peak_v": peak_abs(delta),
         "voltage_limit_status": "clamped" if np.any(np.abs(second_voltage - second_limited) > 1e-9) else "ok",
         "final_export_voltage_source_column": "second_limited_voltage_v",
@@ -117,6 +153,23 @@ def generate_second_modeled_voltage_lut(
         "voltage_normalization_scale_factor": review_meta.get("voltage_normalization_scale_factor"),
     }
     return result, metadata
+
+
+def _review_diagnostic_metadata(review_meta: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "baseline_source": review_meta.get("baseline_source"),
+        "baseline_mT": review_meta.get("baseline_mT"),
+        "actual_drive_time_unit": review_meta.get("actual_drive_time_unit"),
+        "actual_drive_time_unit_detected": review_meta.get("actual_drive_time_unit_detected"),
+        "selected_time_unit_reason": review_meta.get("selected_time_unit_reason"),
+        "dt_median_s": review_meta.get("dt_median_s"),
+        "voltage_nonzero_duration_s": review_meta.get("voltage_nonzero_duration_s"),
+        "expected_active_duration_s": review_meta.get("expected_active_duration_s"),
+        "timebase_status": review_meta.get("timebase_status"),
+        "source_time_monotonic": review_meta.get("source_time_monotonic"),
+        "duplicate_time_count": review_meta.get("duplicate_time_count"),
+        "field_convention": review_meta.get("field_convention"),
+    }
 
 
 def _is_supported_cycle(cycle_count: float) -> bool:

@@ -143,8 +143,8 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
     expected_markers = [
         "LUT 검수 / LUT Review",
         "최종 전압 LUT 추출",
-        "Fourier 재합성 또는 harmonic coefficient export가 아닙니다",
-        "voltage_v는 선택한 모델링 결과의 최종 전압 샘플입니다",
+        "Fourier 재합성 또는 harmonic 계수 내보내기가 아닙니다",
+        "저장 컬럼: sample_index, time_s, voltage_v",
         "최종 전압 LUT 추출 사용 불가",
         "사용자 시간축/전압 파형 검수용",
         "장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다",

@@ -2242,7 +2242,12 @@ def _render_quick_lut_tab_v2(
             f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
         )
 
-    feedback_selection = render_quick_lut_feedback_input_section(finite_cycle_mode=bool(finite_cycle_mode))
+    feedback_selection = render_quick_lut_feedback_input_section(
+        finite_cycle_mode=bool(finite_cycle_mode),
+        waveform_type=str(target_waveform) if target_waveform is not None else None,
+        freq_hz=float(target_freq) if target_freq is not None else None,
+        cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+    )
 
     if not estimate_clicked and not compensation_clicked:
         st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
@@ -2445,7 +2450,6 @@ def _render_quick_lut_tab_v2(
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
-                render_actual_drive_review_from_selection(command_profile, feedback_selection)
                 render_feedback_correction_review(command_profile, feedback_metadata or {})
                 render_second_modeling_controls(
                     command_profile=command_profile,
