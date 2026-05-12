@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import numpy as np
 import pandas as pd
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
+from field_analysis.finite_actual_drive_io import numeric_metadata
+from field_analysis.finite_actual_drive_io import parse_auto_sync_lag_ms
+from field_analysis.finite_actual_drive_io import parse_finite_actual_drive_filename
+from field_analysis.finite_actual_drive_io import parse_preamble
+from field_analysis.finite_actual_drive_io import resolve_actual_drive_metadata
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit, peak_abs
 from field_analysis.finite_actual_drive_timebase import detect_actual_drive_timebase
 
-RESULT_FILENAME_RE = re.compile(
-    r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv)$",
-    re.IGNORECASE,
-)
 EXPECTED_ACTUAL_DRIVE_FREQS_HZ, EXPECTED_ACTUAL_DRIVE_CYCLES = (0.5, 1.25, 2.0), (1.0, 1.25, 1.5, 1.75)
 PHASE_ONE_NO_SECOND_CORRECTION_CONTRACT = {
     "correction_delta_v_generated": False,
@@ -33,26 +33,6 @@ class ActualDriveRecord:
 def parse_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     return parse_finite_actual_drive_filename(path)
 
-def parse_finite_actual_drive_filename(path: str | Path) -> dict[str, Any]:
-    name = Path(path).name
-    match = RESULT_FILENAME_RE.search(name)
-    if match is None:
-        raise ValueError(f"Unsupported finite actual-drive result filename: {name}")
-    prefix = name[: match.start("canonical")]
-    if prefix.endswith("_"):
-        prefix = prefix[:-1]
-    waveform = match.group("waveform").lower()
-    return {
-        "source_type": "finite_actual_drive_result",
-        "source_file": name,
-        "canonical_source_filename": match.group("canonical"),
-        "upload_internal_id": prefix or None,
-        "waveform": waveform,
-        "waveform_type": waveform,
-        "freq_hz": float(match.group("freq")),
-        "cycle_count": float(match.group("cycle")),
-    }
-
 
 def expected_actual_drive_result_filenames() -> list[str]:
     return [
@@ -62,16 +42,28 @@ def expected_actual_drive_result_filenames() -> list[str]:
     ]
 
 
-def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
+def read_actual_drive_result(
+    path: str | Path,
+    *,
+    waveform_type: str | None = None,
+    freq_hz: float | None = None,
+    cycle_count: float | None = None,
+) -> ActualDriveRecord:
     source_path = Path(path)
-    filename_meta = parse_actual_drive_filename(source_path)
     lines = source_path.read_text(encoding="utf-8-sig").splitlines()
-    preamble, header_index = _parse_preamble(lines)
+    preamble, header_index = parse_preamble(lines)
     frame = pd.read_csv(source_path, skiprows=header_index)
     required = {"TimeMs", "Voltage1_V", "HallBz"}
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"Missing actual-drive result columns in {source_path.name}: {missing}")
+    filename_meta = resolve_actual_drive_metadata(
+        source_path,
+        preamble,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
     raw_time = pd.to_numeric(frame["TimeMs"], errors="coerce").to_numpy(dtype=float)
     hallbz_raw = pd.to_numeric(frame["HallBz"], errors="coerce")
     voltage1_v = pd.to_numeric(frame["Voltage1_V"], errors="coerce")
@@ -99,13 +91,13 @@ def read_actual_drive_result(path: str | Path) -> ActualDriveRecord:
     metadata: dict[str, Any] = {
         **filename_meta,
         "source_file": source_path.name,
-        "canonical_source_filename": filename_meta["canonical_source_filename"],
-        "upload_internal_id": filename_meta["upload_internal_id"],
+        "canonical_source_filename": filename_meta.get("canonical_source_filename"),
+        "upload_internal_id": filename_meta.get("upload_internal_id"),
         "source_type": "finite_actual_drive_result",
         "source_path": str(source_path),
-        "pre_delay_s": _numeric_metadata(preamble, "PreDelay(s)"),
-        "post_delay_s": _numeric_metadata(preamble, "PostDelay(s)"),
-        "auto_sync_hall_lag_ms": _parse_auto_sync_lag_ms(preamble),
+        "pre_delay_s": numeric_metadata(preamble, "PreDelay(s)"),
+        "post_delay_s": numeric_metadata(preamble, "PostDelay(s)"),
+        "auto_sync_hall_lag_ms": parse_auto_sync_lag_ms(preamble),
         "field_unit": "mT_inferred_from_HallBz",
         "field_units": "mT",
         "hallbz_sign_applied": True,
@@ -464,43 +456,6 @@ def process_actual_drive_review_folder(input_dir: str | Path, output_dir: str | 
     from field_analysis.finite_actual_drive_review_export import process_actual_drive_review_folder as _impl
 
     return _impl(input_dir, output_dir)
-
-
-def _parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:
-    metadata: dict[str, Any] = {}
-    header_index = -1
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("Row,"):
-            header_index = index
-            break
-        if not stripped.startswith("#"):
-            continue
-        parts = [part.strip() for part in stripped[1:].split(",")]
-        if not parts or not parts[0]:
-            continue
-        metadata[parts[0]] = parts[1] if len(parts) == 2 else parts[1:]
-    if header_index < 0:
-        raise ValueError("Could not find actual-drive result table header")
-    return metadata, header_index
-
-
-def _numeric_metadata(metadata: dict[str, Any], key: str) -> float | None:
-    value = metadata.get(key)
-    if isinstance(value, list):
-        value = value[0] if value else None
-    if value is None:
-        return None
-    match = re.search(r"[-+]?[0-9]*\.?[0-9]+", str(value))
-    return float(match.group(0)) if match else None
-
-
-def _parse_auto_sync_lag_ms(metadata: dict[str, Any]) -> float | None:
-    value = metadata.get("AutoSyncHallLag")
-    if value is None:
-        return None
-    match = re.search(r"applied\s+([-+]?[0-9]*\.?[0-9]+)ms", str(value), flags=re.IGNORECASE)
-    return float(match.group(1)) if match else None
 
 
 def _nonzero_window(time_s: np.ndarray, values: np.ndarray, threshold_fraction: float = 0.02) -> tuple[float, float]:

@@ -12,6 +12,20 @@ import streamlit as st
 from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_feedback_peak_correction import apply_finite_feedback_peak_correction
+from .ui_quick_lut_feedback_contract import ACTIVE_COMMAND_LABEL
+from .ui_quick_lut_feedback_contract import ACTUAL_VOLTAGE_LABEL
+from .ui_quick_lut_feedback_contract import BASELINE_VOLTAGE_LABEL
+from .ui_quick_lut_feedback_contract import CORRECTION_DELTA_LABEL
+from .ui_quick_lut_feedback_contract import FEEDBACK_LIMITED_LABEL
+from .ui_quick_lut_feedback_contract import FIELD_TARGET_LABEL
+from .ui_quick_lut_feedback_contract import FIRST_VOLTAGE_LABEL
+from .ui_quick_lut_feedback_contract import MEASURED_FIELD_LABEL
+from .ui_quick_lut_feedback_contract import RESIDUAL_LABEL
+from .ui_quick_lut_feedback_contract import SECOND_VOLTAGE_LABEL
+from .ui_quick_lut_feedback_contract import build_command_source_rows
+from .ui_quick_lut_feedback_contract import build_feedback_plot_frame
+from .ui_quick_lut_feedback_contract import build_feedback_status_rows
+from .ui_quick_lut_feedback_contract import feedback_export_source_column
 from .ui_quick_lut_feedback_selection import candidate_matches
 from .ui_quick_lut_feedback_selection import choose_actual_drive_feedback_candidate
 from .ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
@@ -28,18 +42,6 @@ FEEDBACK_SELECTED_CACHE_KEY = "quick_lut_feedback_selected_cache_id"
 FEEDBACK_RUN_LABEL_KEY = "quick_lut_feedback_run_label"
 
 
-FIELD_TARGET_LABEL = "목표 자기장 (±50mT)"
-MEASURED_FIELD_LABEL = "실측 자기장 (HallBz 부호 보정, ±50mT)"
-RESIDUAL_LABEL = "오차 (목표 - 실측)"
-FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
-ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
-SECOND_VOLTAGE_LABEL = "2차 모델링 전압"
-CORRECTION_DELTA_LABEL = "보정 전압 변화량"
-ACTIVE_COMMAND_LABEL = "현재 표시 중인 전압 명령"
-BASELINE_VOLTAGE_LABEL = "1차 추천/제한 전압"
-FEEDBACK_LIMITED_LABEL = "피드백 보정 후 제한 전압"
-
-
 def render_quick_lut_feedback_input_section(
     *,
     finite_cycle_mode: bool,
@@ -49,6 +51,7 @@ def render_quick_lut_feedback_input_section(
 ) -> dict[str, object] | None:
     st.markdown("#### Quick LUT 피드백 보정")
     st.caption("목표 자기장은 유지하고, 실제 구동 결과로 전압 명령만 보정합니다.")
+    st.caption("TimeMs / Voltage1_V / HallBz 컬럼이 있으면 실구동 결과 후보로 사용할 수 있습니다.")
     st.caption("Raw/absolute gain 평가는 하지 않고, ±50mT / ±5V 정규화 기준으로 개형과 타이밍을 봅니다.")
     st.caption("Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.")
     st.caption("1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다.")
@@ -124,11 +127,11 @@ def render_quick_lut_feedback_input_section(
             else None
         )
     if selected_id is None:
-        st.info("?? target? ??? ???? ??? ?? CSV? ????. ??? ???? ???? Raw preview? ????? production 2? ???? ???????.")
+        st.info("현재 target과 정확히 일치하는 실구동 결과 CSV가 없습니다. 파일을 수동으로 선택하면 Raw preview는 가능하지만 production 2차 모델링은 비활성화됩니다.")
         if auto_meta.get("warning"):
             st.warning(str(auto_meta["warning"]))
         selected_id = st.selectbox(
-            "??? ??? ?? ??",
+            "캐시된 실구동 결과 파일",
             options=options,
             format_func=lambda cache_id: labels_by_id[cache_id],
             index=None,
@@ -140,7 +143,7 @@ def render_quick_lut_feedback_input_section(
     st.session_state[FEEDBACK_SELECTED_CACHE_KEY] = selected_id
     if not selection_widget_rendered:
         selected_id = st.selectbox(
-            "??? ??? ?? ??",
+            "캐시된 실구동 결과 파일",
             options=options,
             format_func=lambda cache_id: labels_by_id[cache_id],
             key=FEEDBACK_SELECTED_CACHE_KEY,
@@ -157,6 +160,32 @@ def render_quick_lut_feedback_input_section(
     }
     selected_classification = classify_feedback_csv_candidate(selected.original_filename, source_bytes)
     match_status = "match" if candidate_matches(selected_classification, waveform_type=waveform_type, freq_hz=freq_hz, cycle_count=cycle_count) else "mismatch_or_unknown"
+    metadata_source = str(selected_classification.get("metadata_source") or "")
+    can_use_current_metadata = (
+        selected_classification.get("file_type") == "actual_drive_result"
+        and metadata_source in {"unavailable", ""}
+        and waveform_type is not None
+        and freq_hz is not None
+        and cycle_count is not None
+    )
+    use_current_metadata = False
+    if can_use_current_metadata:
+        use_current_metadata = st.checkbox(
+            "현재 Quick LUT 설정의 실구동 결과로 사용",
+            value=False,
+            key="quick_lut_feedback_use_current_metadata",
+            help="파일명/프리앰블에서 주파수와 cycle을 읽지 못한 경우에만 사용합니다.",
+        )
+        if use_current_metadata:
+            st.warning("파일명에서 주파수/cycle을 읽지 못해 현재 Quick LUT 설정으로 귀속했습니다. 현재 설정과 다른 실구동 결과 파일이면 2차 보정이 잘못될 수 있습니다.")
+            selected_classification = {
+                **selected_classification,
+                "metadata_source": "current_quick_lut_selection",
+                "waveform_type": waveform_type,
+                "freq_hz": float(freq_hz),
+                "cycle_count": float(cycle_count),
+            }
+            match_status = "match"
 
     st.caption(f"파일: `{selected.original_filename}`")
     st.caption(
@@ -188,6 +217,8 @@ def render_quick_lut_feedback_input_section(
         "alignment_status": "pending_until_run",
         "file_type": selected_classification.get("file_type"),
         "schema_status": selected_classification.get("schema_status"),
+        "metadata_source": selected_classification.get("metadata_source"),
+        "use_current_quick_lut_metadata": use_current_metadata,
         "match_status": match_status,
         "selection_reason": auto_meta.get("selection_reason"),
     }
@@ -217,14 +248,40 @@ def apply_feedback_correction_from_selection(
             "feedback_used_for_correction": False,
             "target_unchanged": True,
         }
+    source_classification = classify_feedback_csv_candidate(
+        str(feedback_selection.get("filename") or "feedback.csv"),
+        feedback_selection.get("csv_bytes") if isinstance(feedback_selection.get("csv_bytes"), bytes) else None,
+    )
+    if source_classification.get("file_type") == "final_voltage_lut":
+        return command_profile, {
+            "feedback_route": "finite_actual_feedback_peak_correction",
+            "feedback_source_file": feedback_selection.get("filename"),
+            "feedback_run_label": feedback_selection.get("run_label") or "unknown",
+            "feedback_correction_available": False,
+            "feedback_correction_status": "feedback_source_invalid",
+            "feedback_correction_unavailable_reason": "unsupported_actual_drive_result_file",
+            "feedback_used_for_correction": False,
+            "target_unchanged": True,
+            "next_action": "TimeMs / Voltage1_V / HallBz 컬럼이 있는 측정 데이터를 업로드하십시오.",
+        }
     suffix = "_" + Path(str(feedback_selection.get("filename") or "feedback.csv")).name
     with NamedTemporaryFile(prefix="quick_lut_feedback_", suffix=suffix, delete=False) as handle:
         temp_path = Path(handle.name)
         handle.write(bytes(feedback_selection["csv_bytes"]))
     try:
+        feedback_source: Any = temp_path
+        if bool(feedback_selection.get("use_current_quick_lut_metadata")):
+            feedback_source = {
+                "record": read_actual_drive_result(
+                    temp_path,
+                    waveform_type=str(waveform_type),
+                    freq_hz=float(freq_hz),
+                    cycle_count=float(cycle_count),
+                )
+            }
         corrected, metadata = apply_finite_feedback_peak_correction(
             command_profile,
-            temp_path,
+            feedback_source,
             waveform_type=str(waveform_type),
             freq_hz=float(freq_hz),
             cycle_count=float(cycle_count),
@@ -398,83 +455,6 @@ def _interp_command_column(command_profile: pd.DataFrame, target_time_s: pd.Seri
     if finite.sum() < 2:
         return np.full(len(target_time), np.nan)
     return np.interp(target_time, source_time[finite], source_value[finite], left=np.nan, right=np.nan)
-
-
-def feedback_export_source_column(command_profile: pd.DataFrame) -> str:
-    if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
-        return "limited_voltage_v"
-    if "feedback_correction_status" in command_profile.columns and len(command_profile):
-        if str(command_profile["feedback_correction_status"].iloc[0]) != "ok":
-            return "limited_voltage_v"
-    if "feedback_correction_available" in command_profile.columns and len(command_profile):
-        if not bool(command_profile["feedback_correction_available"].iloc[0]):
-            return "limited_voltage_v"
-    return "feedback_corrected_limited_voltage_v"
-
-
-def build_command_source_rows(command_profile: pd.DataFrame, metadata: dict[str, object] | None = None) -> list[dict[str, object]]:
-    metadata = metadata or {}
-    active_source = feedback_export_source_column(command_profile)
-    predicted_valid = bool(
-        metadata.get("predicted_from_plotted_command", False)
-        and "feedback_corrected_predicted_field_mT" in command_profile.columns
-    )
-    return [
-        {"field": "active_command_source", "value": active_source},
-        {"field": "plotted_command_source", "value": active_source},
-        {"field": "exported_voltage_source_column", "value": active_source},
-        {"field": "run_waveform_voltage_source", "value": active_source},
-        {"field": "feedback_used_for_correction", "value": bool(metadata.get("feedback_used_for_correction", False))},
-        {"field": "predicted_from_plotted_command", "value": bool(metadata.get("predicted_from_plotted_command", False))},
-        {"field": "displayed_predicted_valid", "value": predicted_valid},
-        {
-            "field": "command_prediction_consistency_status",
-            "value": metadata.get(
-                "command_prediction_consistency_status",
-                "ok" if predicted_valid else "forward_prediction_unavailable_for_feedback_corrected_command",
-            ),
-        },
-        {"field": "correction_method", "value": metadata.get("correction_method", "residual_proportional_feedback")},
-    ]
-
-
-def build_feedback_status_rows(metadata: dict[str, object]) -> list[dict[str, object]]:
-    route = metadata.get("feedback_route") or "finite_actual_feedback_peak_correction"
-    if route == "finite_feedback_symmetric_peak_correction":
-        route = "finite_actual_feedback_peak_correction"
-    fields = [
-        ("route", route),
-        ("feedback_correction_available", metadata.get("feedback_correction_available", False)),
-        ("feedback_correction_status", metadata.get("feedback_correction_status", "unavailable")),
-        ("supported cycles", "1.0, 1.5"),
-        ("unsupported cycles", "1.25, 1.75, 2.0"),
-        ("unsupported reason", "unsupported_cycle_policy_1p0_1p5_only"),
-        ("production cycle policy", "1p0_1p5_cycles"),
-        ("filename", metadata.get("feedback_source_file", "unavailable")),
-        ("parse status", metadata.get("feedback_schema_status", "unavailable")),
-        ("alignment status", metadata.get("feedback_alignment_status") or metadata.get("alignment_status", "unavailable")),
-        ("target_unchanged", metadata.get("target_unchanged", True)),
-    ]
-    return [{"field": field, "value": value} for field, value in fields]
-
-
-def build_feedback_plot_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
-    frame = pd.DataFrame({"time_s": pd.to_numeric(command_profile["time_s"], errors="coerce")})
-    columns = {
-        "physical_target_output_mT": FIELD_TARGET_LABEL,
-        "measured_field_normalized_mT": MEASURED_FIELD_LABEL,
-        "limited_voltage_v": ACTIVE_COMMAND_LABEL,
-        "baseline_limited_voltage_v": BASELINE_VOLTAGE_LABEL,
-        "feedback_correction_delta_v": CORRECTION_DELTA_LABEL,
-        "feedback_corrected_limited_voltage_v": FEEDBACK_LIMITED_LABEL,
-        "feedback_corrected_predicted_field_mT": "피드백 보정 예측 자기장",
-    }
-    for source, label in columns.items():
-        if source in command_profile.columns:
-            frame[label] = pd.to_numeric(command_profile[source], errors="coerce")
-    if {FIELD_TARGET_LABEL, MEASURED_FIELD_LABEL}.issubset(frame.columns):
-        frame[RESIDUAL_LABEL] = frame[FIELD_TARGET_LABEL] - frame[MEASURED_FIELD_LABEL]
-    return frame
 
 
 def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:

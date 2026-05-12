@@ -36,6 +36,7 @@ def render_second_modeling_controls(
     feedback_selection: dict[str, object] | None,
     freq_hz: float,
     cycle_count: float,
+    waveform_type: str | None = None,
 ) -> None:
     st.markdown("#### 2차 모델링")
     st.caption("사용자가 버튼을 눌렀을 때만 생성합니다. 업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다.")
@@ -89,13 +90,20 @@ def render_second_modeling_controls(
         handle.write(bytes(feedback_selection["csv_bytes"]))
     native_review_frame: pd.DataFrame | None = None
     try:
-        native_record = read_actual_drive_result(temp_path)
+        use_current_metadata = bool(feedback_selection.get("use_current_quick_lut_metadata"))
+        native_record = read_actual_drive_result(
+            temp_path,
+            waveform_type=waveform_type if use_current_metadata else None,
+            freq_hz=freq_hz if use_current_metadata else None,
+            cycle_count=cycle_count if use_current_metadata else None,
+        )
         native_review_frame, native_review_metadata = build_actual_drive_review_case(native_record)
         second_profile, metadata = generate_second_modeled_voltage_lut(
             command_profile,
             native_record,
             freq_hz=freq_hz,
             cycle_count=cycle_count,
+            waveform_type=waveform_type if use_current_metadata else None,
             correction_gain=gain,
         )
         metadata = {

@@ -2456,6 +2456,7 @@ def _render_quick_lut_tab_v2(
                     feedback_selection=feedback_selection,
                     freq_hz=float(target_freq),
                     cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
                 )
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")

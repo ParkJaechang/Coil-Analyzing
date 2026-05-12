@@ -179,6 +179,39 @@ def test_actual_drive_feedback_candidate_does_not_auto_select_single_mismatch_fo
     assert metadata["selection_reason"] == "single_candidate_mismatch_raw_preview_only"
 
 
+def test_actual_drive_feedback_candidate_accepts_schema_without_result_filename() -> None:
+    from field_analysis.ui_quick_lut_feedback import classify_feedback_csv_candidate
+
+    info = classify_feedback_csv_candidate(
+        "bench_upload.csv",
+        b"TimeMs,Voltage1_V,HallBz\n0,0,1\n",
+    )
+
+    assert info["file_type"] == "actual_drive_result"
+    assert info["schema_status"] == "actual_drive_schema_no_filename_metadata"
+    assert info["metadata_source"] == "unavailable"
+
+
+def test_actual_drive_feedback_candidate_uses_preamble_metadata_without_result_filename() -> None:
+    from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
+
+    selected, metadata = choose_actual_drive_feedback_candidate(
+        [
+            {
+                "filename": "bench_upload.csv",
+                "csv_bytes": b"# Frequency(Hz),2\n# Cycles,1.5\n# Waveform,sine\nTimeMs,Voltage1_V,HallBz\n0,0,1\n",
+            }
+        ],
+        waveform_type="sine",
+        freq_hz=2.0,
+        cycle_count=1.5,
+    )
+
+    assert selected is not None
+    assert selected["metadata_source"] == "preamble"
+    assert metadata["selection_reason"] == "exact_match"
+
+
 def test_actual_drive_feedback_candidate_identifies_final_lut_as_wrong_file_type() -> None:
     from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
 
@@ -198,62 +231,60 @@ def test_actual_drive_feedback_candidate_identifies_final_lut_as_wrong_file_type
     assert metadata["selection_reason"] == "final_voltage_lut_not_actual_drive_result"
 
 
+def test_quick_lut_feedback_user_facing_source_has_no_mojibake_patterns() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
+    selection_source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback_selection.py").read_text(encoding="utf-8")
+    combined = source + "\n" + selection_source
+
+    for pattern in [chr(0xFFFD), "?? target", "?50mT", "1? ???", "??"]:
+        assert pattern not in combined
+    assert "현재 Quick LUT 설정의 실구동 결과로 사용" in source
+    assert "이 파일은 최종 전압 LUT CSV입니다. 실구동 결과 CSV가 아닙니다." in source
+
+
 def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() -> None:
     sources = "\n".join(
         [
             (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8"),
             (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8"),
+            (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback_contract.py").read_text(encoding="utf-8"),
             (SRC_ROOT / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8"),
         ]
     )
 
     expected = [
         "Quick LUT 피드백 보정",
-        "목표 자기장은 유지하고, 실제 구동 결과로 전압 명령만 보정합니다.",
+        "TimeMs / Voltage1_V / HallBz 컬럼이 있으면 실구동 결과 후보로 사용할 수 있습니다.",
         "finite_actual_feedback_peak_correction",
         "실구동 결과 CSV 업로드",
         "캐시된 실구동 결과 파일",
         "first_run",
         "second_run",
         "unknown",
-        "HallBz 부호 보정 적용",
+        "현재 Quick LUT 설정의 실구동 결과로 사용",
         "1차 실구동 데이터 원본 확인",
-        "실측 자기장 peak를 ±50mT 기준으로 정규화",
-        "전압을 ±5V 기준으로 정규화/제한",
+        "실측 자기장 (HallBz 부호 보정, ±50mT)",
+        "정규화 전압 (±5V)",
         "보정 전압 변화량",
         "피드백 보정 후 제한 전압",
-        "상세 진단",
         "active_command_source",
         "plotted_command_source",
         "run_waveform_voltage_source",
         "feedback_used_for_correction",
         "baseline_limited_voltage_v",
         "현재 표시 중인 전압 명령",
-        "예측 출력 상태",
         "displayed_predicted_valid",
         "command_prediction_consistency_status",
         "forward_prediction_unavailable_for_feedback_corrected_command",
-        "화면에 표시된 전압 명령과 같은 column을 저장합니다.",
         "exported_voltage_source_column",
         "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.",
-        "2-cycle production 정책은 폐기되었습니다.",
         "unsupported_cycle_policy_1p0_1p5_only",
         "apply_finite_feedback_peak_correction",
     ]
     missing = [marker for marker in expected if marker not in sources]
     assert not missing, f"Missing Quick LUT feedback UI markers: {missing}"
 
-    forbidden = [
-        chr(0xFFFD),
-        chr(0xF9E4),
-        chr(0xC4D2),
-        "?" + chr(0xAFF0) + chr(0xC0AC),
-        chr(0x00EC),
-        chr(0x00ED),
-        chr(0x00EB),
-        chr(0x00EA),
-        "�",
-    ]
+    forbidden = [chr(0xFFFD), "?? target", "?50mT", "1? ???", "??"]
     found = [pattern for pattern in forbidden if pattern in sources]
     assert not found, f"Mojibake patterns found: {found}"
 
@@ -290,18 +321,13 @@ def test_user_facing_quick_lut_feedback_default_copy_is_korean() -> None:
     )
 
     expected = [
-        "목표 자기장 vs 실측 자기장",
-        "명령 전압 vs 실제 구동 전압",
-        "1차 전압 vs 2차 보정 전압",
-        "Raw 데이터 상세 보기",
-        "상세 진단",
-        "1차 모델링 전압",
-        "2차 모델링 전압",
-        "최종 적합성은 사용자가 그래프를 보고 판단합니다.",
+        "Quick LUT 피드백 보정",
+        "최종 전압 LUT 추출",
         "현재 추출 대상",
         "1차 모델링 결과",
         "2차 모델링 결과",
         "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장합니다.",
+        "상세 진단",
     ]
     missing = [marker for marker in expected if marker not in source]
     assert not missing

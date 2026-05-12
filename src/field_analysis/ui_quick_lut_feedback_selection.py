@@ -21,9 +21,20 @@ def classify_feedback_csv_candidate(filename: str, csv_bytes: bytes | None) -> d
             ),
         }
     if {"TimeMs", "Voltage1_V", "HallBz"}.issubset(columns):
+        preamble = _preamble_metadata(csv_bytes)
+        if preamble.get("freq_hz") is not None and preamble.get("cycle_count") is not None:
+            return {
+                "file_type": "actual_drive_result",
+                "schema_status": "actual_drive_schema_with_preamble_metadata",
+                "metadata_source": "preamble",
+                "waveform_type": preamble.get("waveform_type"),
+                "freq_hz": preamble.get("freq_hz"),
+                "cycle_count": preamble.get("cycle_count"),
+            }
         return {
             "file_type": "actual_drive_result",
             "schema_status": "actual_drive_schema_no_filename_metadata",
+            "metadata_source": "unavailable",
             "waveform_type": None,
             "freq_hz": None,
             "cycle_count": None,
@@ -74,7 +85,7 @@ def choose_actual_drive_feedback_candidate(
             "selection_status": "needs_manual_selection",
             "selection_reason": "single_candidate_mismatch_raw_preview_only",
             "candidate_count": 1,
-            "warning": "?? target? ??? ?? ??? ???/cycle? ???? ?? 2? ???? ??? ? ????. ?? ???/cycle? ?? ??? result CSV? ???????.",
+            "warning": "현재 target과 실구동 결과 파일의 주파수/cycle이 일치하지 않아 2차 모델링에 사용할 수 없습니다. 해당 주파수/cycle로 실제 구동한 result CSV를 업로드하십시오.",
         }
     if not actual_candidates and final_lut_count:
         return None, {
@@ -111,3 +122,29 @@ def _first_csv_header(csv_bytes: bytes | None) -> str:
         if stripped and not stripped.startswith("#"):
             return stripped
     return ""
+
+
+def _preamble_metadata(csv_bytes: bytes | None) -> dict[str, object]:
+    if not csv_bytes:
+        return {}
+    text = bytes(csv_bytes).decode("utf-8-sig", errors="ignore")
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            continue
+        parts = [part.strip() for part in stripped[1:].split(",")]
+        if len(parts) >= 2 and parts[0]:
+            values[parts[0]] = parts[1]
+    return {
+        "waveform_type": (values.get("Waveform") or values.get("WaveformFamily") or "sine").lower(),
+        "freq_hz": _float_or_none(values.get("Frequency(Hz)")),
+        "cycle_count": _float_or_none(values.get("Cycles")),
+    }
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None

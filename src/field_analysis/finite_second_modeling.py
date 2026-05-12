@@ -23,6 +23,7 @@ def generate_second_modeled_voltage_lut(
     *,
     freq_hz: float,
     cycle_count: float,
+    waveform_type: str | None = None,
     correction_gain: float = 0.25,
     voltage_limit_v: float = 5.0,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -54,7 +55,16 @@ def generate_second_modeled_voltage_lut(
             "second_modeling_status": "missing_first_command_columns",
             "second_modeling_unavailable_reason": ",".join(missing),
         }
-    record = actual_drive_source if isinstance(actual_drive_source, ActualDriveRecord) else read_actual_drive_result(actual_drive_source)
+    record = (
+        actual_drive_source
+        if isinstance(actual_drive_source, ActualDriveRecord)
+        else read_actual_drive_result(
+            actual_drive_source,
+            waveform_type=waveform_type,
+            freq_hz=freq_hz if waveform_type is not None else None,
+            cycle_count=cycle_count if waveform_type is not None else None,
+        )
+    )
     review, review_meta = build_actual_drive_review_case(record)
     if str(review_meta.get("timebase_status", "ok")) != "ok":
         return profile, {

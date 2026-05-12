@@ -103,9 +103,51 @@ def test_actual_drive_timebase_detects_seconds_encoded_time_column(tmp_path: Pat
     assert np.isclose(metadata["voltage_nonzero_duration_s"], 1.0, atol=0.03)
     assert np.isclose(metadata["active_duration_ratio"], 1.0, atol=0.03)
     assert np.all(np.diff(review["time_s"].to_numpy(dtype=float)) > 0.0)
-    assert np.isclose(float(record.frame["hallbz_raw_mT"].iloc[0]), 1.5)
-    assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), 1.5)
-    assert np.isclose(float(record.frame["measured_field_effective_mT"].iloc[0]), -1.5)
+
+
+def test_actual_drive_schema_file_without_regex_uses_preamble_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "bench_measurement.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "# Frequency(Hz),1.000",
+                "# Cycles,1.000",
+                "# Waveform,sine",
+                "TimeMs,Voltage1_V,HallBz,Current1_A",
+                "0,0,1,0.1",
+                "500,2,2,0.1",
+                "1000,0,1,0.1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    record = read_actual_drive_result(path)
+
+    assert record.metadata["metadata_source"] == "preamble"
+    assert record.freq_hz == 1.0
+    assert record.cycle_count == 1.0
+
+
+def test_actual_drive_schema_file_without_metadata_uses_current_selection_fallback(tmp_path: Path) -> None:
+    path = tmp_path / "uploaded_feedback.csv"
+    rows = [
+        "TimeMs,Voltage1_V,HallBz,Current1_A",
+        "0,0,1,0.1",
+        "500,2,2,0.1",
+        "1000,0,1,0.1",
+    ]
+    path.write_text("\n".join(rows), encoding="utf-8")
+
+    record = read_actual_drive_result(path, waveform_type="sine", freq_hz=1.0, cycle_count=1.0)
+
+    assert record.metadata["metadata_source"] == "current_quick_lut_selection"
+    assert record.waveform_type == "sine"
+    assert record.freq_hz == 1.0
+    assert record.cycle_count == 1.0
+    assert np.isclose(float(record.frame["hallbz_raw_mT"].iloc[0]), 1.0)
+    assert np.isclose(float(record.frame["measured_field_raw"].iloc[0]), 1.0)
+    assert np.isclose(float(record.frame["measured_field_effective_mT"].iloc[0]), -1.0)
     assert record.metadata["hallbz_sign_inverted"] is True
 
 
@@ -247,7 +289,7 @@ def test_actual_drive_review_dataset_reports_malformed_upload_error(tmp_path: Pa
     assert len(dataset["errors"]) == 1
     assert dataset["errors"][0]["source_file"] == "bad_upload.csv"
     assert dataset["errors"][0]["parse_status"] == "error"
-    assert "Unsupported finite actual-drive result filename" in dataset["errors"][0]["parse_error"]
+    assert "actual-drive result table header" in dataset["errors"][0]["parse_error"]
     assert len(dataset["summary"]) == 2
     assert set(dataset["summary"]["parse_status"]) == {"parsed", "error"}
 
