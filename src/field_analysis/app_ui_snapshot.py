@@ -63,6 +63,7 @@ from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_sec
 from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
+from .ui_second_modeling import render_second_modeling_controls
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
@@ -385,12 +386,28 @@ def _run_app_shell(
             manual_period_s = ""
 
     if usage_mode == "간단 LUT":
+        advanced_sections = [
+            "Run Readiness",
+            "Field Model Diagnostics",
+            "Validation / Retune",
+            "Catalogs / Diagnostics",
+            "Finite Runs",
+            "Data Import",
+            "Export",
+        ]
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "LUT Review", "Data Import", "Export"],
+            options=["Quick LUT", "Raw Waveforms", "LUT Review", "Data / Cache Status"],
             horizontal=True,
             key="quick_section_nav",
         )
+        with st.expander("Advanced / Debug", expanded=False):
+            if st.checkbox("Show Advanced / Debug tabs", value=False, key="show_advanced_debug_tabs"):
+                active_section = st.selectbox(
+                    "Advanced / Debug tab",
+                    options=advanced_sections,
+                    key="advanced_debug_section_nav",
+                )
     else:
         active_section = st.radio(
             "분석 화면",
@@ -427,14 +444,29 @@ def _run_app_shell(
         continuous_library_payloads=continuous_library_payloads,
         finite_library_payloads=transient_library_payloads,
     )
-
-    if active_section == "Run Readiness":
-        render_run_readiness_section()
+    if active_section == "Data / Cache Status":
+        render_workspace_panel()
+        render_dataset_library_panel()
+        render_sidebar_memory_panel()
         return
     if active_section == "LUT Review":
         render_voltage_lut_review_section()
         return
 
+    active_payload_hash = _payload_snapshot_hash(uploaded_payloads + transient_payloads + validation_payloads + lcr_payloads)
+    loaded_hash = st.session_state.get("active_payload_snapshot_hash")
+    if active_payload_hash and active_payload_hash != loaded_hash:
+        if loaded_hash is not None:
+            st.warning("Settings changed. Press Run Calculation to update results.")
+        if not st.button("Load / Analyze LUT Data", key="load_analyze_lut_data"):
+            st.info("Press Load / Analyze LUT Data to parse/analyze the active payload snapshot.")
+            return
+        st.session_state["active_payload_snapshot_hash"] = active_payload_hash
+        st.session_state["quick_lut_dirty"] = False
+
+    if active_section == "Run Readiness":
+        render_run_readiness_section()
+        return
     if not uploaded_payloads and not transient_payloads and not validation_payloads and not lcr_payloads:
         if usage_mode == "간단 LUT" and active_section == "Quick LUT":
             _render_field_only_quick_lut_banner()
@@ -1900,6 +1932,14 @@ def _dedupe_payloads(payloads: list[tuple[str, bytes]]) -> list[tuple[str, bytes
     return deduped
 
 
+def _payload_snapshot_hash(payloads: list[tuple[str, bytes]]) -> str:
+    digest = hashlib.sha256()
+    for file_name, file_bytes in payloads:
+        digest.update(str(file_name).encode("utf-8", errors="ignore"))
+        digest.update(hashlib.sha256(file_bytes).digest())
+    return digest.hexdigest() if payloads else ""
+
+
 def _render_quick_lut_cache_status(
     *,
     continuous_payloads: list[tuple[str, bytes]],
@@ -2088,8 +2128,22 @@ def _render_quick_lut_tab_v2(
             preview_tail_cycles = 0.25
     with right:
         st.caption("Both actions below use the same fixed target: FIELD-ONLY, rounded triangle, 100pp fixed.")
+        quick_config_snapshot = {
+            "target_waveform": target_waveform,
+            "target_freq": target_freq,
+            "use_frequency_trend": use_frequency_trend,
+            "finite_cycle_mode": finite_cycle_mode,
+            "target_cycle_count": target_cycle_count,
+            "preview_tail_cycles": preview_tail_cycles,
+        }
+        if st.button("Apply Quick LUT Settings", use_container_width=True, key="apply_quick_lut_settings"):
+            st.session_state["quick_lut_applied_config"] = quick_config_snapshot
+            st.session_state["quick_lut_dirty"] = False
+        elif st.session_state.get("quick_lut_applied_config") not in (None, quick_config_snapshot):
+            st.session_state["quick_lut_dirty"] = True
+            st.warning("Settings changed. Press Run Calculation to update results.")
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
-        compensation_button_label = f"{main_field_axis} 파형 보정 계산"
+        compensation_button_label = "Run 1st Modeling"
         compensation_clicked = st.button(
             compensation_button_label,
             use_container_width=True,
@@ -2304,6 +2358,12 @@ def _render_quick_lut_tab_v2(
                 render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
                 render_feedback_correction_review(command_profile, feedback_metadata or {})
+                render_second_modeling_controls(
+                    command_profile=command_profile,
+                    feedback_selection=feedback_selection,
+                    freq_hz=float(target_freq),
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),
+                )
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
                 render_startup_compensation_review(compensation, command_profile)

@@ -39,6 +39,11 @@ def _number_input_labels(app: AppTest) -> list[str]:
     return [str(item.label) for item in app.number_input]
 
 
+def _click_load_analyze(app: AppTest) -> None:
+    button_by_key = {getattr(item, "key", None): item for item in app.button}
+    button_by_key["load_analyze_lut_data"].click().run()
+
+
 def _clear_field_analysis_modules() -> None:
     for module_name in list(sys.modules):
         if module_name == "field_analysis" or module_name.startswith("field_analysis."):
@@ -201,6 +206,7 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         _clear_field_analysis_modules()
         app = AppTest.from_file(str(APP_PATH), default_timeout=180)
         app.run()
+        _click_load_analyze(app)
 
         text_values = _collect_text_values(app)
         selectbox_labels = _selectbox_labels(app)

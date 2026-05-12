@@ -197,7 +197,16 @@ def render_finite_actual_drive_review_section() -> None:
             st.warning("캐시된 validation 결과 파일을 찾지 못했습니다.")
         return
 
-    parse_result = build_actual_drive_review_cases_from_cache_state(cache_state)
+    if not st.button("Review Actual-drive Result", key="review_actual_drive_result_button"):
+        cached = st.session_state.get("actual_drive_applied_review_result")
+        if isinstance(cached, ActualDriveReviewParseResult):
+            parse_result = cached
+        else:
+            st.info("Actual-drive upload cached. Press Review Actual-drive Result to parse and render plots.")
+            return
+    else:
+        parse_result = build_actual_drive_review_cases_from_cache_state(cache_state)
+        st.session_state["actual_drive_applied_review_result"] = parse_result
     _render_parse_summary(parse_result)
     if parse_result.failures:
         st.warning("일부 파일을 파싱하지 못했습니다. 아래 parse error를 확인하십시오.")

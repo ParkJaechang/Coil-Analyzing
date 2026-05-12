@@ -163,11 +163,14 @@ def test_raw_waveforms_runtime_selector_uses_label_options_without_hash_prefix()
         _clear_field_analysis_modules()
         app = AppTest.from_file(str(APP_PATH), default_timeout=180)
         app.run()
+        {getattr(item, "key", None): item for item in app.button}["load_analyze_lut_data"].click().run()
         for radio in app.radio:
             if getattr(radio, "key", None) == "quick_section_nav":
                 radio.set_value("Raw Waveforms")
                 app.run()
                 break
+        {getattr(item, "key", None): item for item in app.button}["apply_raw_waveform_selection"].click().run()
+        {getattr(item, "key", None): item for item in app.button}["render_raw_waveform_plot_button"].click().run()
 
     selectbox_by_key = {getattr(item, "key", None): item for item in app.selectbox}
     raw_selector = selectbox_by_key["raw_test_audit"]

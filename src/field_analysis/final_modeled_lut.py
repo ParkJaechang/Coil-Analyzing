@@ -197,6 +197,15 @@ def _finite_production_cycle_policy(cycle_count: float | None) -> dict[str, Any]
 
 
 def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
+    if "second_limited_voltage_v" in command_profile.columns:
+        status = None
+        if "second_modeling_status" in command_profile.columns and len(command_profile):
+            status = str(command_profile["second_modeling_status"].iloc[0])
+        available = True
+        if "second_modeling_available" in command_profile.columns and len(command_profile):
+            available = bool(command_profile["second_modeling_available"].iloc[0])
+        if available and status in {None, "ok"}:
+            return "second_limited_voltage_v"
     if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
         return "limited_voltage_v"
     status = None

@@ -170,6 +170,11 @@ def render_raw_waveforms_tab(
     selected_test_id = id_by_label[selected_label]
     selected_record = next(record for record in filtered_records if record.test_id == selected_test_id)
     selected_item = next(item for item in data_items if item.record.test_id == selected_test_id)
+    if st.button("Apply Raw Waveform Selection", key="apply_raw_waveform_selection"):
+        st.session_state["raw_waveform_applied_test_id"] = selected_test_id
+    if st.session_state.get("raw_waveform_applied_test_id") != selected_test_id:
+        st.warning("Selection changed. Press Render Raw Waveform Plot.")
+        return
 
     dataset_mode = st.radio(
         "Waveform data view",
@@ -178,6 +183,12 @@ def render_raw_waveforms_tab(
         horizontal=True,
         key="raw_dataset_audit",
     )
+    render_key = f"{selected_test_id}:{dataset_mode}"
+    if st.button("Render Raw Waveform Plot", key="render_raw_waveform_plot_button"):
+        st.session_state["raw_waveform_render_key"] = render_key
+    if st.session_state.get("raw_waveform_render_key") != render_key:
+        st.warning("Selection changed. Press Render Raw Waveform Plot.")
+        return
     display_frame = selected_item.corrected_frame if dataset_mode == "corrected" else selected_item.raw_frame
     display_frame, normalization_metadata = normalize_raw_waveform_frame(
         display_frame,

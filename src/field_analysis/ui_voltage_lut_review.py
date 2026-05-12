@@ -8,7 +8,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-
 REQUIRED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
 DEBUG_VOLTAGE_COLUMNS = (
     "recommended_voltage_v",
@@ -30,7 +29,6 @@ def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame
     missing = [column for column in ("time_s", voltage_source_column) if column not in command_profile.columns]
     if missing:
         raise ValueError(f"Missing final voltage LUT source columns: {missing}")
-
     lut_frame = pd.DataFrame(
         {
             "sample_index": np.arange(len(command_profile), dtype=int),
@@ -42,7 +40,6 @@ def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame
         if column in command_profile.columns:
             lut_frame[column] = pd.to_numeric(command_profile[column], errors="coerce")
     return lut_frame
-
 
 def build_final_voltage_lut_filename(
     *,
@@ -57,10 +54,8 @@ def build_final_voltage_lut_filename(
         return f"finite_recommended_voltage_lut_{waveform}_{freq}Hz_{cycle}cycle.csv"
     return "finite_recommended_voltage_lut.csv"
 
-
 def build_final_voltage_lut_csv_bytes(command_profile: pd.DataFrame) -> bytes:
     return build_final_voltage_lut_frame(command_profile).to_csv(index=False).encode("utf-8-sig")
-
 
 def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
     if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
@@ -72,7 +67,6 @@ def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
         if not bool(command_profile["feedback_correction_available"].iloc[0]):
             return "limited_voltage_v"
     return "feedback_corrected_limited_voltage_v"
-
 
 def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     try:
@@ -91,7 +85,6 @@ def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     normalized = _normalize_lut_frame(frame)
     return ParsedVoltageLut(source_name=source_name, frame=normalized, ok=True)
 
-
 def build_lut_review_options(
     records: list[ParsedVoltageLut],
 ) -> tuple[list[str], dict[str, ParsedVoltageLut], dict[str, str]]:
@@ -106,36 +99,30 @@ def build_lut_review_options(
         labels_by_id[option_id] = record.source_name
     return options, records_by_id, labels_by_id
 
-
 def add_lut_cache_bytes(*args: object, **kwargs: object) -> str:
     from .ui_voltage_lut_cache import add_lut_cache_bytes as _impl
 
     return _impl(*args, **kwargs)
-
 
 def build_lut_cache_records(*args: object, **kwargs: object) -> list[object]:
     from .ui_voltage_lut_cache import build_lut_cache_records as _impl
 
     return _impl(*args, **kwargs)
 
-
 def build_lut_cache_selection_options(*args: object, **kwargs: object) -> tuple[list[str], dict[str, object], dict[str, str]]:
     from .ui_voltage_lut_cache import build_lut_cache_selection_options as _impl
 
     return _impl(*args, **kwargs)
-
 
 def edit_lut_cache_metadata(*args: object, **kwargs: object) -> bool:
     from .ui_voltage_lut_cache import edit_lut_cache_metadata as _impl
 
     return _impl(*args, **kwargs)
 
-
 def delete_lut_cache_item(*args: object, **kwargs: object) -> bool:
     from .ui_voltage_lut_cache import delete_lut_cache_item as _impl
 
     return _impl(*args, **kwargs)
-
 
 def fallback_lut_cache_selection(*args: object, **kwargs: object) -> str | None:
     from .ui_voltage_lut_cache import fallback_lut_cache_selection as _impl
@@ -287,6 +274,13 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
                 selected_cache = cached_by_id[selected_cache_id]
                 add_lut_cache_bytes(cache_state, selected_cache.name, selected_cache.read_bytes())
 
+    if not st.button("Load LUT CSV", key="load_lut_csv_for_review"):
+        if not st.session_state.get("voltage_lut_review_loaded"):
+            st.info("LUT upload/cache selection changed. Press Load LUT CSV to parse diagnostics.")
+            return
+    else:
+        st.session_state["voltage_lut_review_loaded"] = True
+
     records = build_lut_cache_records(cache_state)
     st.markdown("#### 업로드된 LUT 캐시")
     if not records:
@@ -324,7 +318,12 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
 
     selected = selected_record.parsed
     diagnostics = build_lut_diagnostics(selected.frame)
-    _render_lut_plots(selected.frame)
+    if st.button("Render LUT Plot", key="render_lut_plot_button"):
+        st.session_state["voltage_lut_render_plot_id"] = selected_record.id
+    if st.session_state.get("voltage_lut_render_plot_id") == selected_record.id:
+        _render_lut_plots(selected.frame)
+    else:
+        st.info("Press Render LUT Plot to draw voltage plots.")
     _render_lut_diagnostics(diagnostics)
     _render_lut_warnings(diagnostics)
     st.download_button(
