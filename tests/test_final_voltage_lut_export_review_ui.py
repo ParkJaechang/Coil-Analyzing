@@ -39,7 +39,24 @@ def test_final_voltage_lut_export_uses_limited_voltage_without_fourier() -> None
     assert list(frame.columns[:3]) == ["sample_index", "time_s", "voltage_v"]
     assert frame["sample_index"].tolist() == [0, 1, 2]
     assert np.allclose(frame["voltage_v"], command_profile["limited_voltage_v"])
-    assert "recommended_voltage_v" in frame.columns
+    assert list(frame.columns) == ["sample_index", "time_s", "voltage_v"]
+
+
+def test_final_voltage_lut_export_can_select_second_model_voltage() -> None:
+    command_profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.1],
+            "limited_voltage_v": [1.0, 2.0],
+            "second_limited_voltage_v": [3.0, 4.0],
+            "second_modeling_status": ["ok", "ok"],
+            "second_modeling_available": [True, True],
+        }
+    )
+
+    frame = build_final_voltage_lut_frame(command_profile)
+
+    assert list(frame.columns) == ["sample_index", "time_s", "voltage_v"]
+    assert np.allclose(frame["voltage_v"], command_profile["second_limited_voltage_v"])
 
 
 def test_final_voltage_lut_filename_has_finite_case_identity() -> None:
@@ -116,16 +133,27 @@ def test_app_ui_contract_connects_export_and_lut_review_section() -> None:
 
 
 def test_lut_review_helper_source_contains_user_visible_review_markers() -> None:
-    source = (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8")
+    source = "\n".join(
+        [
+            (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8"),
+            (REPO_ROOT / "src" / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8"),
+        ]
+    )
 
     expected_markers = [
         "LUT 검수 / LUT Review",
-        "최종 모델링 전압 LUT CSV 다운로드",
-        "Fourier 재합성 없이 그대로 저장합니다",
-        "voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다",
-        "finite compensation LUT unavailable",
+        "최종 전압 LUT 추출",
+        "Fourier 재합성 또는 harmonic coefficient export가 아닙니다",
+        "voltage_v는 선택한 모델링 결과의 최종 전압 샘플입니다",
+        "최종 전압 LUT 추출 사용 불가",
         "사용자 시간축/전압 파형 검수용",
         "장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다",
+        "추출 대상",
+        "1차 모델링 결과",
+        "2차 모델링 결과",
+        "현재 추출 대상: 1차 모델링 결과",
+        "현재 추출 대상: 2차 모델링 결과",
+        "2차 모델링 결과가 아직 없습니다",
         "LUT Voltage vs time_s",
         "LUT Voltage vs sample_index",
         "dt_irregularity_ratio",
@@ -168,7 +196,12 @@ def test_lut_review_duplicate_source_names_still_use_scalar_unique_ids() -> None
 
 
 def test_lut_review_render_path_uses_scalar_selectbox_options() -> None:
-    source = (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8")
+    source = "\n".join(
+        [
+            (REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8"),
+            (REPO_ROOT / "src" / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8"),
+        ]
+    )
 
     assert "options=successes" not in source
     assert "options=cached_files" not in source

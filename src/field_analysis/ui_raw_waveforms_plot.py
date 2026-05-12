@@ -23,7 +23,7 @@ METADATA_HIDDEN_COLUMNS = {"source_file", "sheet_name", "test_id", "notes", "par
 def render_waveform_normalization_summary(metadata: dict[str, Any]) -> None:
     if not metadata:
         return
-    st.markdown("#### Normalization panel")
+    st.markdown("#### 정규화 요약")
     st.caption("Raw data는 보존하고 normalized data는 review/modeling용입니다.")
     if "finite_normalization_mode" in metadata:
         st.caption("finite: active segment 기준 정규화입니다. pre/post rest는 scale 계산에서 제외합니다.")
@@ -62,7 +62,7 @@ def render_waveform_normalization_summary(metadata: dict[str, Any]) -> None:
 def render_finite_symmetric_peak_review(display_frame: pd.DataFrame, metadata: dict[str, Any] | None) -> None:
     if metadata is None:
         return
-    st.markdown("#### Finite symmetric peak review")
+    st.markdown("#### Finite 대칭 peak 검토")
     st.caption("절대 gain 평가가 아니라 개형/대칭성 검토용입니다.")
     st.caption("지원 cycles: 1.0 / 1.5")
     st.caption("미지원 cycles: 1.25 / 1.75")
@@ -72,7 +72,7 @@ def render_finite_symmetric_peak_review(display_frame: pd.DataFrame, metadata: d
     if status == "unsupported_cycle":
         st.warning("unsupported_cycle: phase-delay peak correction disabled")
     elif status != "ok":
-        st.info(f"finite symmetric peak review unavailable: {status}")
+        st.info(f"Finite 대칭 peak 검토 사용 불가: {status}")
     rows = [
         {"field": "finite_symmetric_peak_modeling_enabled", "value": metadata.get("finite_symmetric_peak_modeling_enabled")},
         {"field": "finite_symmetric_peak_cycle_supported", "value": metadata.get("finite_symmetric_peak_cycle_supported")},
@@ -86,7 +86,7 @@ def render_finite_symmetric_peak_review(display_frame: pd.DataFrame, metadata: d
     ]
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
     st.caption(
-        "Graphs: normalized physical target, normalized field/predicted field, positive/negative lobe markers, "
+        "그래프: 정규화 목표 자기장, 정규화 field/predicted field, 양/음 lobe marker, "
         "baseline command, symmetric peak command candidate, command delta, residual / lobe error."
     )
     _render_symmetric_peak_graphs(display_frame)
@@ -118,7 +118,7 @@ def render_raw_waveform_plot(
         if column not in METADATA_HIDDEN_COLUMNS and pd.api.types.is_numeric_dtype(display_frame[column])
     ]
     selected_channels = st.multiselect(
-        "Signals to inspect",
+        "검토할 신호",
         options=plottable_columns,
         default=[channel for channel in default_channels if channel in plottable_columns],
         key="raw_channels_audit",
@@ -127,9 +127,9 @@ def render_raw_waveform_plot(
         f"Plot view: {dataset_mode} | source={record.source_file_label or 'unknown'} | "
         f"signals={', '.join(selected_channels) if selected_channels else 'none selected'}"
     )
-    st.caption("Raw vs normalized field traces are shown when both raw_* and normalized_* field columns are available.")
+    st.caption("raw_* 및 normalized_* field column이 함께 있으면 raw/정규화 field trace를 같이 표시합니다.")
     if not selected_channels:
-        st.warning("Select at least one numeric signal to plot.")
+        st.warning("plot할 numeric signal을 하나 이상 선택하십시오.")
         return
     marker_channel = preferred_marker_channel(display_frame, selected_channels)
     marker_times = build_finite_marker_times(display_frame, marker_channel)
@@ -166,9 +166,9 @@ def _render_symmetric_peak_graphs(frame: pd.DataFrame) -> None:
         ("positive_lobe_mask", "positive lobe marker"),
         ("negative_lobe_mask", "negative lobe marker"),
     ]
-    _line_chart(frame, field_columns, "Normalized physical target / field review", "mT")
-    _line_chart(frame, command_columns, "Symmetric peak command review", "V")
-    _line_chart(frame, residual_columns, "Positive/negative lobe markers", "mask")
+    _line_chart(frame, field_columns, "정규화 목표 자기장 / field 검토", "mT")
+    _line_chart(frame, command_columns, "대칭 peak command 검토", "V")
+    _line_chart(frame, residual_columns, "양/음 lobe marker", "mask")
 
 
 def _line_chart(frame: pd.DataFrame, columns: list[tuple[str, str]], title: str, yaxis_title: str) -> None:
@@ -179,16 +179,16 @@ def _line_chart(frame: pd.DataFrame, columns: list[tuple[str, str]], title: str,
         figure.add_trace(go.Scatter(x=frame["time_s"], y=frame[column], mode="lines", name=label))
     if not figure.data:
         return
-    figure.update_layout(template="plotly_white", height=300, title=title, xaxis_title="time_s", yaxis_title=yaxis_title)
+    figure.update_layout(template="plotly_white", height=300, title=title, xaxis_title="시간 (s)", yaxis_title=yaxis_title)
     st.plotly_chart(figure, use_container_width=True)
 
 
 def _normalization_label(key: str) -> str:
     labels = {
-        "waveform_normalization_enabled": "normalization enabled",
-        "finite_normalization_enabled": "normalization enabled",
-        "waveform_normalization_mode": "normalization mode",
-        "finite_normalization_mode": "normalization mode",
+        "waveform_normalization_enabled": "정규화 사용",
+        "finite_normalization_enabled": "정규화 사용",
+        "waveform_normalization_mode": "정규화 방식",
+        "finite_normalization_mode": "정규화 방식",
         "waveform_normalization_source_peak_mT": "source peak",
         "finite_normalization_source_peak_mT": "source peak",
         "waveform_normalization_scale_factor": "scale factor",

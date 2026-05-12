@@ -167,7 +167,7 @@ def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets
     selectbox_labels = _selectbox_labels(app)
     number_input_labels = _number_input_labels(app)
 
-    assert any("FIELD-ONLY Quick LUT" in value for value in text_values)
+    assert any("Quick LUT" in value for value in text_values)
     assert any("rounded triangle" in value for value in text_values)
     assert any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
     assert any("current / gain / hardware / LCR" in value for value in text_values)

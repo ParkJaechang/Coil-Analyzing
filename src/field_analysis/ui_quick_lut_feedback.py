@@ -9,9 +9,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from .finite_feedback_peak_correction import apply_finite_feedback_peak_correction
 from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
+from .finite_feedback_peak_correction import apply_finite_feedback_peak_correction
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 from .ui_upload_cache import add_upload_cache_bytes
 from .ui_upload_cache import build_upload_cache_records
@@ -25,15 +25,27 @@ FEEDBACK_SELECTED_CACHE_KEY = "quick_lut_feedback_selected_cache_id"
 FEEDBACK_RUN_LABEL_KEY = "quick_lut_feedback_run_label"
 
 
+FIELD_TARGET_LABEL = "목표 자기장 (±50mT)"
+MEASURED_FIELD_LABEL = "실측 자기장 (HallBz 부호 보정, ±50mT)"
+RESIDUAL_LABEL = "오차 (목표 - 실측)"
+FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
+ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
+SECOND_VOLTAGE_LABEL = "2차 모델링 전압"
+CORRECTION_DELTA_LABEL = "보정 전압 변화량"
+ACTIVE_COMMAND_LABEL = "현재 표시 중인 전압 명령"
+BASELINE_VOLTAGE_LABEL = "1차 추천/제한 전압"
+FEEDBACK_LIMITED_LABEL = "피드백 보정 후 제한 전압"
+
+
 def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[str, object] | None:
-    st.markdown("#### Quick LUT feedback correction")
-    st.caption("Physical Target은 유지하고, 실제 구동 결과를 이용해 전압 command만 보정합니다.")
+    st.markdown("#### Quick LUT 피드백 보정")
+    st.caption("목표 자기장은 유지하고, 실제 구동 결과로 전압 명령만 보정합니다.")
     st.caption("Raw/absolute gain 평가는 하지 않고, ±50mT / ±5V 정규화 기준으로 개형과 타이밍을 봅니다.")
     st.caption("Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.")
     st.caption("1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다.")
     st.caption("2-cycle production 정책은 폐기되었습니다.")
     if not finite_cycle_mode:
-        st.info("Feedback correction은 Quick LUT finite field compensation 결과에서만 사용할 수 있습니다.")
+        st.info("피드백 보정은 Quick LUT finite field compensation 결과에서만 사용할 수 있습니다.")
         return None
 
     cache_state = st.session_state.setdefault(FEEDBACK_CACHE_STATE_KEY, {})
@@ -42,7 +54,7 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         st.session_state[FEEDBACK_CACHE_STATE_KEY] = cache_state
 
     uploaded_files = st.file_uploader(
-        "actual-drive result files",
+        "실구동 결과 CSV 업로드",
         type=["csv"],
         accept_multiple_files=True,
         key="quick_lut_feedback_result_upload",
@@ -58,25 +70,25 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
         )
 
     run_label = st.selectbox(
-        "feedback run label",
+        "피드백 run 단계",
         options=["first_run", "second_run", "unknown"],
         index=0,
         key=FEEDBACK_RUN_LABEL_KEY,
-        help="사용자가 feedback source의 run 단계를 구분하기 위한 UI metadata입니다.",
+        help="피드백 source가 1차/2차/unknown run 중 어느 단계인지 구분하는 metadata입니다.",
     )
     records = [record for record in build_upload_cache_records(cache_state) if record.cache_type == "actual_drive_validation"]
     if not records:
-        st.info("cached feedback files가 없습니다. actual-drive result files를 업로드하면 선택할 수 있습니다.")
+        st.info("캐시된 실구동 결과 파일이 없습니다. 실구동 결과 CSV를 업로드하면 선택할 수 있습니다.")
         return None
 
     options, records_by_id, labels_by_id = build_upload_cache_selection_options(records)
     selected_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
     if selected_id is None:
-        st.info("cached feedback files 선택 항목이 없습니다.")
+        st.info("캐시된 실구동 결과 파일 선택 항목이 없습니다.")
         return None
     st.session_state[FEEDBACK_SELECTED_CACHE_KEY] = selected_id
     selected_id = st.selectbox(
-        "cached feedback files",
+        "캐시된 실구동 결과 파일",
         options=options,
         format_func=lambda cache_id: labels_by_id[cache_id],
         key=FEEDBACK_SELECTED_CACHE_KEY,
@@ -85,15 +97,19 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
     source_bytes = cache_item_bytes(cache_state, selected_id)
     parse_status = "available" if source_bytes else "missing_bytes"
     parsed = infer_new_dataset_filename_metadata(selected.original_filename)
-    st.caption(f"filename: `{selected.original_filename}`")
+
+    st.caption(f"파일: `{selected.original_filename}`")
     st.caption(
-        "waveform/freq/cycle: "
+        "파형/주파수/cycle: "
         f"`{parsed.get('waveform_type') or 'unknown'}` / "
         f"`{parsed.get('freq_hz', 'unknown')}` Hz / "
         f"`{parsed.get('cycle_count', 'unknown')}` cycle"
     )
     st.caption(f"parse status: `{parse_status}` · alignment status: `pending_until_run` · run label: `{run_label}`")
-    st.caption(f"internal id: `{selected.cache_item_id}`")
+    with st.expander("파일/캐시 상세", expanded=False):
+        st.caption(f"internal id: `{selected.cache_item_id}`")
+        st.caption("실구동 결과 CSV: TimeMs / Voltage1_V / HallBz")
+        st.caption("최종 전압 LUT CSV: sample_index / time_s / voltage_v")
     return {
         "cache_id": selected_id,
         "filename": selected.original_filename,
@@ -156,22 +172,25 @@ def render_actual_drive_review_from_selection(
     command_profile: pd.DataFrame,
     feedback_selection: dict[str, object] | None,
 ) -> dict[str, object] | None:
-    st.markdown("#### Actual-drive review")
+    st.markdown("#### 1차 실구동 결과 검토")
     if not feedback_selection or not feedback_selection.get("csv_bytes"):
-        st.info("No actual-drive review result loaded.")
+        st.info("실구동 검토 결과가 아직 없습니다.")
         return None
     status = {
         "uploaded_file_available": True,
         "review_loaded": False,
-        "next_action": "Press Load / Review Actual-drive Result",
+        "next_action": "실구동 결과 검토 버튼을 누르십시오.",
     }
-    if not st.button("Load / Review Actual-drive Result", key="load_review_actual_drive_result"):
+    if not st.button("실구동 결과 검토", key="load_review_actual_drive_result"):
         cached = st.session_state.get("quick_lut_actual_drive_review_result")
         if isinstance(cached, dict):
             _render_actual_drive_review_payload(command_profile, cached)
             return cached
-        st.dataframe(pd.DataFrame([status]), use_container_width=True)
+        st.info("업로드 파일이 선택되어 있습니다. 실구동 결과 검토 버튼을 누르면 plot을 생성합니다.")
+        with st.expander("상세 진단", expanded=False):
+            st.dataframe(pd.DataFrame([status]), use_container_width=True)
         return None
+
     suffix = "_" + Path(str(feedback_selection.get("filename") or "actual_drive_result.csv")).name
     with NamedTemporaryFile(prefix="quick_lut_actual_drive_review_", suffix=suffix, delete=False) as handle:
         temp_path = Path(handle.name)
@@ -188,13 +207,15 @@ def render_actual_drive_review_from_selection(
         }
         st.session_state["quick_lut_actual_drive_review_result"] = payload
         st.error(str(exc))
-        st.dataframe(pd.DataFrame([payload]), use_container_width=True)
+        with st.expander("상세 진단", expanded=False):
+            st.dataframe(pd.DataFrame([payload]), use_container_width=True)
         return payload
     finally:
         try:
             temp_path.unlink(missing_ok=True)
         except OSError:
             pass
+
     payload = {
         "uploaded_file_available": True,
         "review_loaded": True,
@@ -223,53 +244,56 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
         "field_normalization_mode": metadata.get("field_normalization_mode", "unavailable"),
         "voltage_normalization_mode": metadata.get("voltage_normalization_mode", "unavailable"),
     }
-    st.dataframe(pd.DataFrame([status]), use_container_width=True)
+    st.success("실구동 결과 검토 완료")
+    st.caption("Raw peak 값은 참고용입니다. 최종 적합성은 사용자가 그래프를 보고 판단합니다.")
+    st.caption("자동 pass/fail 판정은 하지 않습니다.")
+    with st.expander("상세 진단", expanded=False):
+        st.dataframe(pd.DataFrame([status]), use_container_width=True)
+
     frame = payload.get("review_frame")
     if not isinstance(frame, pd.DataFrame) or not bool(payload.get("plot_available", False)):
-        st.info("No actual-drive review result loaded.")
+        st.info("실구동 검토 결과가 아직 없습니다.")
         return
+
     plot_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
-    plot_frame["Intended target field normalized to +/-50mT"] = pd.to_numeric(
-        frame["normalized_physical_target_output_mT"], errors="coerce"
-    )
-    plot_frame["Actual measured field normalized to +/-50mT"] = pd.to_numeric(
-        frame["normalized_measured_field_mT"], errors="coerce"
-    )
-    plot_frame["Field residual = target - actual"] = (
-        plot_frame["Intended target field normalized to +/-50mT"]
-        - plot_frame["Actual measured field normalized to +/-50mT"]
-    )
-    plot_frame["First modeled voltage command"] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
-    plot_frame["Actual drive voltage from Voltage1_V"] = pd.to_numeric(
+    plot_frame[FIELD_TARGET_LABEL] = pd.to_numeric(frame["normalized_physical_target_output_mT"], errors="coerce")
+    plot_frame[MEASURED_FIELD_LABEL] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    plot_frame[RESIDUAL_LABEL] = plot_frame[FIELD_TARGET_LABEL] - plot_frame[MEASURED_FIELD_LABEL]
+    plot_frame[FIRST_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
+    plot_frame[ACTUAL_VOLTAGE_LABEL] = pd.to_numeric(
         frame.get("normalized_actual_drive_voltage_v", frame.get("normalized_first_voltage_v")), errors="coerce"
     )
     if "second_limited_voltage_v" in command_profile.columns:
-        plot_frame["Second modeled voltage"] = _interp_command_column(command_profile, frame["time_s"], "second_limited_voltage_v")
+        plot_frame[SECOND_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "second_limited_voltage_v")
+
     _render_plot(
         plot_frame,
-        [
-            "Intended target field normalized to +/-50mT",
-            "Actual measured field normalized to +/-50mT",
-            "Field residual = target - actual",
-            "First modeled voltage command",
-            "Actual drive voltage from Voltage1_V",
-            "Second modeled voltage",
-        ],
-        "Intended vs Actual Comparison",
+        [FIELD_TARGET_LABEL, MEASURED_FIELD_LABEL, RESIDUAL_LABEL],
+        "목표 자기장 vs 실측 자기장",
+        yaxis_title="자기장 / 오차 (mT)",
     )
-    raw_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
-    raw_frame["raw HallBz"] = -pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
-    raw_frame["effective field = -HallBz raw"] = pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
-    raw_frame["normalized field"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
-    raw_frame["raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
-    raw_frame["normalized/limited voltage"] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
-    if "current_a" in frame.columns:
-        raw_frame["current"] = pd.to_numeric(frame["current_a"], errors="coerce")
     _render_plot(
-        raw_frame,
-        ["raw HallBz", "effective field = -HallBz raw", "normalized field", "raw Voltage1_V", "normalized/limited voltage", "current"],
-        "Raw Actual-drive Visualization",
+        plot_frame,
+        [FIRST_VOLTAGE_LABEL, ACTUAL_VOLTAGE_LABEL, SECOND_VOLTAGE_LABEL],
+        "명령 전압 vs 실제 구동 전압",
+        yaxis_title="전압 (V)",
     )
+
+    raw_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
+    raw_frame["Raw HallBz"] = -pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
+    raw_frame["부호 보정 자기장 (-HallBz)"] = pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
+    raw_frame["정규화 자기장"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    raw_frame["Raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
+    raw_frame["정규화 전압"] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
+    if "current_a" in frame.columns:
+        raw_frame["전류"] = pd.to_numeric(frame["current_a"], errors="coerce")
+    with st.expander("Raw 데이터 상세 보기", expanded=False):
+        _render_plot(
+            raw_frame,
+            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "정규화 자기장", "Raw Voltage1_V", "정규화 전압", "전류"],
+            "Raw 실구동 데이터",
+            yaxis_title="측정값",
+        )
 
 
 def _interp_command_column(command_profile: pd.DataFrame, target_time_s: pd.Series, column: str) -> np.ndarray:
@@ -345,65 +369,64 @@ def build_feedback_status_rows(metadata: dict[str, object]) -> list[dict[str, ob
 def build_feedback_plot_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
     frame = pd.DataFrame({"time_s": pd.to_numeric(command_profile["time_s"], errors="coerce")})
     columns = {
-        "physical_target_output_mT": "Physical Target",
-        "measured_field_normalized_mT": "Normalized measured feedback field",
-        "limited_voltage_v": "active/plotted command",
-        "baseline_limited_voltage_v": "Baseline recommended/limited voltage",
-        "feedback_correction_delta_v": "Feedback correction delta",
-        "feedback_corrected_limited_voltage_v": "Feedback corrected limited voltage",
-        "feedback_corrected_predicted_field_mT": "feedback_corrected_predicted_field_mT",
+        "physical_target_output_mT": FIELD_TARGET_LABEL,
+        "measured_field_normalized_mT": MEASURED_FIELD_LABEL,
+        "limited_voltage_v": ACTIVE_COMMAND_LABEL,
+        "baseline_limited_voltage_v": BASELINE_VOLTAGE_LABEL,
+        "feedback_correction_delta_v": CORRECTION_DELTA_LABEL,
+        "feedback_corrected_limited_voltage_v": FEEDBACK_LIMITED_LABEL,
+        "feedback_corrected_predicted_field_mT": "피드백 보정 예측 자기장",
     }
     for source, label in columns.items():
         if source in command_profile.columns:
             frame[label] = pd.to_numeric(command_profile[source], errors="coerce")
-    if {"Physical Target", "Normalized measured feedback field"}.issubset(frame.columns):
-        frame["Residual"] = frame["Physical Target"] - frame["Normalized measured feedback field"]
+    if {FIELD_TARGET_LABEL, MEASURED_FIELD_LABEL}.issubset(frame.columns):
+        frame[RESIDUAL_LABEL] = frame[FIELD_TARGET_LABEL] - frame[MEASURED_FIELD_LABEL]
     return frame
 
 
 def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
-    st.markdown("#### Quick LUT feedback correction result")
-    st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 모델 품질을 자동 합격 처리하지 않습니다.")
-    st.markdown("##### Command source panel")
-    st.caption("화면 Command Waveform과 동일한 column을 저장합니다. 실제 active/plotted command source를 아래에서 확인하십시오.")
-    st.dataframe(pd.DataFrame(build_command_source_rows(command_profile, metadata)), use_container_width=True)
-    st.dataframe(pd.DataFrame(build_feedback_status_rows(metadata)), use_container_width=True)
-    st.markdown("##### Normalization panel")
-    st.caption("HallBz sign applied")
-    st.caption("field peak normalized to ±50mT")
-    st.caption("voltage normalized/limited to ±5V")
-    st.caption("raw peak values shown as informational only")
-    norm_rows = [
-        {"field": "hallbz_sign_applied", "value": metadata.get("hallbz_sign_applied", "unavailable")},
-        {"field": "field_normalization_mode", "value": metadata.get("field_normalization_mode", "unavailable")},
-        {"field": "field_normalization_scale_factor", "value": metadata.get("field_normalization_scale_factor", "unavailable")},
-        {"field": "voltage_normalization_mode", "value": metadata.get("voltage_normalization_mode", "unavailable")},
-        {"field": "voltage_normalization_scale_factor", "value": metadata.get("voltage_normalization_scale_factor", "unavailable")},
-        {"field": "raw_field_peak_mT", "value": metadata.get("raw_field_peak_mT", "informational only")},
-        {"field": "raw_voltage_peak_v", "value": metadata.get("raw_voltage_peak_v", "informational only")},
-    ]
-    st.dataframe(pd.DataFrame(norm_rows), use_container_width=True)
+    st.markdown("#### Quick LUT 피드백 보정 결과")
+    st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 자동 pass/fail 판정은 하지 않습니다.")
+    st.caption("화면에 표시된 전압 명령과 같은 column을 저장합니다.")
 
     if not bool(metadata.get("feedback_correction_available", False)):
-        st.info("feedback correction unavailable: status panel only. Prediction graph is not faked.")
+        st.info("피드백 보정 사용 불가: 상태만 표시하고 예측 graph를 임의로 만들지 않습니다.")
+        with st.expander("상세 진단", expanded=False):
+            st.dataframe(pd.DataFrame(build_command_source_rows(command_profile, metadata)), use_container_width=True)
+            st.dataframe(pd.DataFrame(build_feedback_status_rows(metadata)), use_container_width=True)
         return
 
     plot_frame = build_feedback_plot_frame(command_profile)
-    _render_plot(plot_frame, ["Physical Target", "Normalized measured feedback field", "Residual"], "Field feedback review")
-    command_columns = [
-        "baseline_limited_voltage_v",
-        "Baseline recommended/limited voltage",
-        "Feedback correction delta",
-        "Feedback corrected limited voltage",
-        "active/plotted command",
-    ]
-    _render_plot(plot_frame, command_columns, "Baseline vs corrected command")
-    st.markdown("##### Predicted Output status")
-    st.caption("기존 predicted를 corrected prediction처럼 표시하지 않습니다.")
-    if "feedback_corrected_predicted_field_mT" in plot_frame.columns:
-        _render_plot(plot_frame, ["Physical Target", "feedback_corrected_predicted_field_mT"], "Feedback corrected prediction")
+    _render_plot(
+        plot_frame,
+        [FIELD_TARGET_LABEL, MEASURED_FIELD_LABEL, RESIDUAL_LABEL],
+        "목표 자기장 vs 실측 자기장",
+        yaxis_title="자기장 / 오차 (mT)",
+    )
+    _render_plot(
+        plot_frame,
+        [BASELINE_VOLTAGE_LABEL, FEEDBACK_LIMITED_LABEL, ACTIVE_COMMAND_LABEL],
+        "명령 전압 vs 실제 구동 전압",
+        yaxis_title="전압 (V)",
+    )
+    _render_plot(
+        plot_frame,
+        [BASELINE_VOLTAGE_LABEL, FEEDBACK_LIMITED_LABEL, CORRECTION_DELTA_LABEL],
+        "1차 전압 vs 2차 보정 전압",
+        yaxis_title="전압 (V)",
+    )
+
+    if "피드백 보정 예측 자기장" in plot_frame.columns:
+        with st.expander("상세 플롯 / Debug", expanded=False):
+            _render_plot(
+                plot_frame,
+                [FIELD_TARGET_LABEL, "피드백 보정 예측 자기장"],
+                "피드백 보정 예측 출력",
+                yaxis_title="자기장 (mT)",
+            )
     else:
-        st.info("forward prediction unavailable: feedback_corrected_predicted_field_mT가 없어 그래프를 만들지 않습니다.")
+        st.info("예측 출력 상태: corrected command 기준 forward prediction이 없어 예측 graph를 표시하지 않습니다.")
 
     metrics = [
         "positive_peak_error_before_mT",
@@ -416,15 +439,39 @@ def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: d
         "correction_delta_peak_v",
         "voltage_limit_status",
     ]
-    st.markdown("##### Feedback metrics")
-    st.dataframe(pd.DataFrame([{"metric": key, "value": metadata.get(key, "unavailable")} for key in metrics]), use_container_width=True)
+    norm_rows = [
+        {"field": "hallbz_sign_applied", "value": metadata.get("hallbz_sign_applied", "unavailable")},
+        {"field": "field_normalization_mode", "value": metadata.get("field_normalization_mode", "unavailable")},
+        {"field": "field_normalization_scale_factor", "value": metadata.get("field_normalization_scale_factor", "unavailable")},
+        {"field": "voltage_normalization_mode", "value": metadata.get("voltage_normalization_mode", "unavailable")},
+        {"field": "voltage_normalization_scale_factor", "value": metadata.get("voltage_normalization_scale_factor", "unavailable")},
+        {"field": "raw_field_peak_mT", "value": metadata.get("raw_field_peak_mT", "informational only")},
+        {"field": "raw_voltage_peak_v", "value": metadata.get("raw_voltage_peak_v", "informational only")},
+    ]
+    with st.expander("상세 진단", expanded=False):
+        st.caption("HallBz 부호 보정 적용")
+        st.caption("실측 자기장 peak를 ±50mT 기준으로 정규화")
+        st.caption("전압을 ±5V 기준으로 정규화/제한")
+        st.caption("Raw peak 값은 참고용입니다.")
+        st.markdown("##### 예측 출력 상태")
+        st.caption("기존 predicted를 corrected prediction처럼 표시하지 않습니다.")
+        st.dataframe(pd.DataFrame(build_command_source_rows(command_profile, metadata)), use_container_width=True)
+        st.dataframe(pd.DataFrame(build_feedback_status_rows(metadata)), use_container_width=True)
+        st.dataframe(pd.DataFrame(norm_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame([{"metric": key, "value": metadata.get(key, "unavailable")} for key in metrics]), use_container_width=True)
 
 
-def _render_plot(frame: pd.DataFrame, columns: list[str], title: str) -> None:
+def _render_plot(
+    frame: pd.DataFrame,
+    columns: list[str],
+    title: str,
+    *,
+    yaxis_title: str = "값",
+) -> None:
     figure = go.Figure()
     for column in columns:
         if column not in frame.columns:
             continue
         figure.add_trace(go.Scatter(x=frame["time_s"], y=frame[column], mode="lines", name=column))
-    figure.update_layout(template="plotly_white", height=320, title=title, xaxis_title="time_s")
+    figure.update_layout(template="plotly_white", height=320, title=title, xaxis_title="시간 (s)", yaxis_title=yaxis_title)
     st.plotly_chart(figure, use_container_width=True)

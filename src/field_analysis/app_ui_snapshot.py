@@ -458,9 +458,9 @@ def _run_app_shell(
     loaded_hash = st.session_state.get("active_payload_snapshot_hash")
     if active_payload_hash and active_payload_hash != loaded_hash:
         if loaded_hash is not None:
-            st.warning("Settings changed. Press Run Calculation to update results.")
+            st.warning("설정이 변경되었습니다. 계산을 갱신하려면 실행 버튼을 누르십시오.")
         if not st.button("Load / Analyze LUT Data", key="load_analyze_lut_data"):
-            st.info("Press Load / Analyze LUT Data to parse/analyze the active payload snapshot.")
+            st.info("활성 payload를 parse/analyze하려면 LUT 데이터 불러오기 / 분석 시작 버튼을 누르십시오.")
             return
         st.session_state["active_payload_snapshot_hash"] = active_payload_hash
         st.session_state["quick_lut_dirty"] = False
@@ -484,12 +484,12 @@ def _run_app_shell(
         transient_preprocess_results = result.get("transient_preprocess_results") or []
         test_ids = result.get("test_ids") or sorted(analysis_lookup.keys())
         st.caption(
-            "Loaded analysis result "
+            "분석 결과 로드됨 "
             f"run_id={result.get('run_id', 'unknown')} "
             f"timestamp={result.get('run_timestamp', 'unknown')}"
         )
         if st.session_state.get("quick_lut_dirty"):
-            st.warning("Settings changed. Press Run / Render button to update results.")
+            st.warning("설정이 변경되었습니다. 결과를 갱신하려면 실행 / 렌더 버튼을 누르십시오.")
         if usage_mode == "간단 LUT":
             if active_section == "Quick LUT" and isinstance(per_test_summary, pd.DataFrame):
                 _render_quick_lut_tab_v2(
@@ -998,6 +998,8 @@ def _render_quick_lut_tab(
 ) -> None:
     excluded_inputs = ", ".join(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES)
     _render_field_only_quick_lut_banner()
+    st.markdown("#### 1. LUT 데이터 준비")
+    st.caption("활성 LUT payload를 기준으로 분석합니다. 상세 cache/internal 정보는 데이터 / 캐시 상세에서 확인합니다.")
     if per_test_summary.empty:
         st.warning("LUT 계산에 사용할 테스트 요약이 없습니다.")
         return
@@ -1967,35 +1969,35 @@ def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
 
 def _render_field_only_quick_lut_banner() -> None:
     excluded_inputs = ", ".join(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES)
-    st.markdown("### FIELD-ONLY Quick LUT")
+    st.markdown("### Quick LUT")
     st.success(
         "FIELD-ONLY 운용 모드입니다. 목표 자기장 개형은 항상 rounded triangle이고 목표 자기장 PP는 100 mT pp fixed입니다."
     )
     summary_left, summary_mid, summary_right = st.columns([1.0, 1.0, 1.6])
     with summary_left:
-        st.metric("Target Field Shape", FIELD_ONLY_TARGET_SHAPE.replace("_", " "))
+        st.metric("목표 자기장 개형", FIELD_ONLY_TARGET_SHAPE.replace("_", " "))
     with summary_mid:
-        st.metric("Target Field PP", f"{FIELD_ONLY_FIXED_TARGET_PP:.0f} mT pp fixed")
+        st.metric("목표 자기장 PP", f"{FIELD_ONLY_FIXED_TARGET_PP:.0f} mT pp fixed")
     with summary_right:
-        st.markdown("**Shape Selection Inputs**")
-        st.write("- support/input waveform family")
-        st.write("- frequency")
-        st.write("- DAQ voltage waveform")
+        st.markdown("**개형 선택 입력**")
+        st.write("- support/input 파형 family")
+        st.write("- 주파수")
+        st.write("- DAQ 전압 파형")
         st.write(f"- excluded: `{excluded_inputs}`")
     st.caption(
-        "The waveform selector below chooses only the support/input waveform family. "
-        "Target field shape is always rounded triangle, and current / gain / hardware / LCR are excluded from main shape selection."
+        "아래 파형 선택은 support/input waveform family만 고릅니다. "
+        "목표 자기장 개형은 항상 rounded triangle이며 current / gain / hardware / LCR은 main shape selection에서 제외됩니다."
     )
     st.caption(
-        "Field review/modeling is normalized to ±50mT. Command voltage is normalized/limited to ±5V. "
-        "DCAMP gain is handled outside this app. HallBz sign convention applied: effective field = -HallBz raw."
+        "Field review/modeling은 ±50mT 기준으로 정규화합니다. Command voltage는 ±5V 기준으로 정규화/제한합니다. "
+        "DCAMP gain은 앱 밖에서 조절합니다. HallBz convention: effective field = -HallBz raw."
     )
     st.caption(
         "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
         "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
         "2-cycle production 정책은 폐기되었습니다."
     )
-    st.caption("Final LUT uses plotted final voltage samples, not Fourier resynthesis.")
+    st.caption("최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.")
     st.caption(
         "Runtime: Quick LUT field-only renderer v2 · target=rounded_triangle · "
         "target_pp=100 fixed · source=repo-local src"
@@ -2160,7 +2162,7 @@ def _render_quick_lut_tab_v2(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**FIELD-ONLY / rounded triangle / 100pp fixed**")
+        st.markdown("**목표 자기장 / rounded triangle / 100pp fixed**")
         st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
         compensation_target_type = "field"
@@ -2182,9 +2184,9 @@ def _render_quick_lut_tab_v2(
         )
         if finite_cycle_mode:
             st.caption(
-                f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
-                "1.75 cycle is supported when exact finite-cycle support data exists. "
-                "If exact 1.75 support is absent, 1.75 is unavailable rather than substituted. "
+                "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
+                "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
+                "2-cycle production 정책은 폐기되었습니다. "
                 "DAQ output fixed: ±5V | DCAMP Gain fixed: 100% | target field remains rounded-triangle / 100pp fixed."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
@@ -2195,8 +2197,7 @@ def _render_quick_lut_tab_v2(
                     index=1,
                     key="target_cycle_count_v2",
                     help=(
-                        "1.0 / 1.25 / 1.5 / 1.75 are primary UI choices. "
-                        "1.75 cycle uses exact finite support when available; 0.75 is unsupported and not treated as 1.75."
+                        "1.0 / 1.5 cycle은 production 대상입니다. 1.25 / 1.75 / 2.0 cycle은 review-only입니다."
                     ),
                 )
             )
@@ -2213,7 +2214,8 @@ def _render_quick_lut_tab_v2(
             target_cycle_count = None
             preview_tail_cycles = 0.25
     with right:
-        st.caption("Both actions below use the same fixed target: FIELD-ONLY, rounded triangle, 100pp fixed.")
+        st.markdown("#### 2. 1차 모델링")
+        st.caption("아래 동작은 모두 같은 fixed target을 사용합니다: rounded triangle, 100pp fixed.")
         quick_config_snapshot = {
             "target_waveform": target_waveform,
             "target_freq": target_freq,
@@ -2222,14 +2224,14 @@ def _render_quick_lut_tab_v2(
             "target_cycle_count": target_cycle_count,
             "preview_tail_cycles": preview_tail_cycles,
         }
-        if st.button("Apply Quick LUT Settings", use_container_width=True, key="apply_quick_lut_settings"):
+        if st.button("Quick LUT 설정 적용", use_container_width=True, key="apply_quick_lut_settings"):
             st.session_state["quick_lut_applied_config"] = quick_config_snapshot
             st.session_state["quick_lut_dirty"] = False
         elif st.session_state.get("quick_lut_applied_config") not in (None, quick_config_snapshot):
             st.session_state["quick_lut_dirty"] = True
-            st.warning("Settings changed. Press Run Calculation to update results.")
+            st.warning("설정이 변경되었습니다. 다시 실행하려면 실행 버튼을 누르십시오.")
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
-        compensation_button_label = "Run 1st Modeling"
+        compensation_button_label = "1차 모델링 실행"
         compensation_clicked = st.button(
             compensation_button_label,
             use_container_width=True,
@@ -2491,48 +2493,49 @@ def _render_quick_lut_tab_v2(
             if pd.notna(compensation["scale_ratio_from_nearest"]):
                 st.write(f"- nearest profile scale ratio: `{compensation['scale_ratio_from_nearest']:.3f}`")
 
-            st.markdown("#### 보정 LUT 실험점")
-            st.dataframe(compensation["support_table"], use_container_width=True)
+            with st.expander("상세 진단 / Debug", expanded=False):
+                st.markdown("#### 보정 LUT 실험점")
+                st.dataframe(compensation["support_table"], use_container_width=True)
 
-            control_formula = build_control_formula(command_profile, value_column="limited_voltage_v")
-            if control_formula is not None:
-                st.markdown("#### 제어 전달용 수식")
-                mode_text = "finite run piecewise formula" if control_formula["finite_cycle_mode"] else "steady-state periodic formula"
-                st.caption(f"제어파트 전달용 표현: {mode_text}")
-                fc1, fc2, fc3 = st.columns(3)
-                fc1.metric("Fourier RMSE", f"{control_formula['rmse']:.4f} V")
-                fc2.metric("Fourier NRMSE", f"{control_formula['nrmse']:.2%}")
-                fc3.metric("최대 절대오차", f"{control_formula['max_abs_error']:.4f} V")
-                st.plotly_chart(
-                    plot_formula_comparison(control_formula["reconstruction_frame"]),
-                    use_container_width=True,
-                )
-                st.code(control_formula["formula_text"], language="text")
-                st.markdown("#### 제어용 Python 식")
-                st.code(control_formula["python_snippet"], language="python")
-                st.markdown("#### 조화파 계수표")
-                st.dataframe(control_formula["coefficient_table"], use_container_width=True)
+                control_formula = build_control_formula(command_profile, value_column="limited_voltage_v")
+                if control_formula is not None:
+                    st.markdown("#### 제어 전달용 수식")
+                    mode_text = "finite run piecewise formula" if control_formula["finite_cycle_mode"] else "steady-state periodic formula"
+                    st.caption(f"제어파트 전달용 표현: {mode_text}")
+                    fc1, fc2, fc3 = st.columns(3)
+                    fc1.metric("Fourier RMSE", f"{control_formula['rmse']:.4f} V")
+                    fc2.metric("Fourier NRMSE", f"{control_formula['nrmse']:.2%}")
+                    fc3.metric("최대 절대오차", f"{control_formula['max_abs_error']:.4f} V")
+                    st.plotly_chart(
+                        plot_formula_comparison(control_formula["reconstruction_frame"]),
+                        use_container_width=True,
+                    )
+                    st.code(control_formula["formula_text"], language="text")
+                    st.markdown("#### 제어용 Python 식")
+                    st.code(control_formula["python_snippet"], language="python")
+                    st.markdown("#### 조화파 계수표")
+                    st.dataframe(control_formula["coefficient_table"], use_container_width=True)
 
-                formula_text_bytes = control_formula["formula_text"].encode("utf-8")
-                coeff_csv_bytes = control_formula["coefficient_table"].to_csv(index=False).encode("utf-8-sig")
-                formula_file_prefix = (
-                    f"control_formula_{target_waveform}_{float(target_freq):g}Hz_"
-                    f"{compensation['target_output_type']}_{compensation_target_current_pp:g}"
-                )
-                st.download_button(
-                    label="제어 수식 TXT 다운로드",
-                    data=formula_text_bytes,
-                    file_name=f"{formula_file_prefix}.txt",
-                    mime="text/plain",
-                    key="download_comp_formula_txt_v2",
-                )
-                st.download_button(
-                    label="조화파 계수 CSV 다운로드",
-                    data=coeff_csv_bytes,
-                    file_name=f"{formula_file_prefix}_coefficients.csv",
-                    mime="text/csv",
-                    key="download_comp_formula_coeffs_v2",
-                )
+                    formula_text_bytes = control_formula["formula_text"].encode("utf-8")
+                    coeff_csv_bytes = control_formula["coefficient_table"].to_csv(index=False).encode("utf-8-sig")
+                    formula_file_prefix = (
+                        f"control_formula_{target_waveform}_{float(target_freq):g}Hz_"
+                        f"{compensation['target_output_type']}_{compensation_target_current_pp:g}"
+                    )
+                    st.download_button(
+                        label="제어 수식 TXT 다운로드",
+                        data=formula_text_bytes,
+                        file_name=f"{formula_file_prefix}.txt",
+                        mime="text/plain",
+                        key="download_comp_formula_txt_v2",
+                    )
+                    st.download_button(
+                        label="조화파 계수 CSV 다운로드",
+                        data=coeff_csv_bytes,
+                        file_name=f"{formula_file_prefix}_coefficients.csv",
+                        mime="text/csv",
+                        key="download_comp_formula_coeffs_v2",
+                    )
 
             comp_csv = command_profile.to_csv(index=False).encode("utf-8-sig")
             comp_file_name = (

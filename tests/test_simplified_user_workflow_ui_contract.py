@@ -37,11 +37,11 @@ def test_core_policy_wording_is_visible_in_user_facing_ui() -> None:
     )
 
     expected = [
-        "Field review/modeling is normalized to ±50mT.",
-        "Command voltage is normalized/limited to ±5V.",
-        "DCAMP gain is handled outside this app.",
-        "HallBz sign convention applied: effective field = -HallBz raw.",
-        "Final LUT uses plotted final voltage samples, not Fourier resynthesis.",
+        "Field review/modeling은 ±50mT 기준으로 정규화합니다.",
+        "Command voltage는 ±5V 기준으로 정규화/제한합니다.",
+        "DCAMP gain은 앱 밖에서 조절합니다.",
+        "HallBz convention: effective field = -HallBz raw.",
+        "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.",
         "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.",
         "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다.",
         "2-cycle production 정책은 폐기되었습니다.",
@@ -59,7 +59,12 @@ def test_debug_heavy_panels_are_advanced_only() -> None:
 
 
 def test_final_lut_copy_mentions_plotted_samples_and_required_schema() -> None:
-    source = LUT_UI.read_text(encoding="utf-8")
+    source = "\n".join(
+        [
+            LUT_UI.read_text(encoding="utf-8"),
+            (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8"),
+        ]
+    )
 
     assert "exported CSV uses plotted final command voltage samples" in source
     assert "not Fourier" in source

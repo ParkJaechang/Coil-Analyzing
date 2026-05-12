@@ -33,30 +33,30 @@ def test_heavy_app_paths_have_explicit_buttons() -> None:
         "Load LUT CSV",
         "Render LUT Plot",
         "Review Actual-drive Result",
-        "Generate 2nd Modeled Voltage LUT",
+        "2차 모델링 전압 LUT 생성",
     ]:
         assert marker in combined
 
 
 def test_second_modeling_user_trigger_contract_is_visible() -> None:
     source = SECOND_UI.read_text(encoding="utf-8")
-    assert "User-triggered only" in source
-    assert "No automatic second correction is generated" in source
-    assert "Raw peak values are informational only" in source
-    assert "No automatic pass/fail judgement" in source
+    assert "사용자가 버튼을 눌렀을 때만 생성합니다" in source
+    assert "업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다" in source
+    assert "Raw peak 값은 참고용입니다" in source
+    assert "자동 pass/fail 판정은 하지 않습니다" in source
 
 
 def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:
     source = APP_UI.read_text(encoding="utf-8")
     assert "quick_lut_analysis_result" in source
     assert "cached_analysis.get(\"payload_hash\") == active_payload_hash" in source
-    assert "Loaded analysis result" in source
+    assert "분석 결과 로드됨" in source
 
 
 def test_actual_drive_feedback_review_is_button_gated_and_plotted() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
-    assert "Load / Review Actual-drive Result" in source
+    assert "실구동 결과 검토" in source
     assert "quick_lut_actual_drive_review_result" in source
-    assert "Intended vs Actual Comparison" in source
-    assert "Raw Actual-drive Visualization" in source
-    assert "effective field = -HallBz raw" in source
+    assert "목표 자기장 vs 실측 자기장" in source
+    assert "Raw 실구동 데이터" in source
+    assert "부호 보정 자기장 (-HallBz)" in source

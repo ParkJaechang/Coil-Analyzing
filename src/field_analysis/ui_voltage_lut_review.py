@@ -8,6 +8,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from .ui_final_voltage_lut_export import build_final_voltage_lut_csv_bytes
+from .ui_final_voltage_lut_export import build_final_voltage_lut_filename
+from .ui_final_voltage_lut_export import build_final_voltage_lut_frame
+from .ui_final_voltage_lut_export import render_final_voltage_lut_export_panel
+
 REQUIRED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
 DEBUG_VOLTAGE_COLUMNS = (
     "recommended_voltage_v",
@@ -23,50 +28,6 @@ class ParsedVoltageLut:
     frame: pd.DataFrame
     ok: bool
     error: str | None = None
-
-def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
-    voltage_source_column = _export_voltage_source_column(command_profile)
-    missing = [column for column in ("time_s", voltage_source_column) if column not in command_profile.columns]
-    if missing:
-        raise ValueError(f"Missing final voltage LUT source columns: {missing}")
-    lut_frame = pd.DataFrame(
-        {
-            "sample_index": np.arange(len(command_profile), dtype=int),
-            "time_s": pd.to_numeric(command_profile["time_s"], errors="coerce"),
-            "voltage_v": pd.to_numeric(command_profile[voltage_source_column], errors="coerce"),
-        }
-    )
-    for column in DEBUG_VOLTAGE_COLUMNS:
-        if column in command_profile.columns:
-            lut_frame[column] = pd.to_numeric(command_profile[column], errors="coerce")
-    return lut_frame
-
-def build_final_voltage_lut_filename(
-    *,
-    waveform_type: object | None,
-    freq_hz: object | None,
-    cycle_count: object | None,
-) -> str:
-    waveform = _safe_name_part(waveform_type)
-    freq = _format_number_for_filename(freq_hz)
-    cycle = _format_number_for_filename(cycle_count)
-    if waveform and freq and cycle:
-        return f"finite_recommended_voltage_lut_{waveform}_{freq}Hz_{cycle}cycle.csv"
-    return "finite_recommended_voltage_lut.csv"
-
-def build_final_voltage_lut_csv_bytes(command_profile: pd.DataFrame) -> bytes:
-    return build_final_voltage_lut_frame(command_profile).to_csv(index=False).encode("utf-8-sig")
-
-def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
-    if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
-        return "limited_voltage_v"
-    if "feedback_correction_status" in command_profile.columns and len(command_profile):
-        if str(command_profile["feedback_correction_status"].iloc[0]) != "ok":
-            return "limited_voltage_v"
-    if "feedback_correction_available" in command_profile.columns and len(command_profile):
-        if not bool(command_profile["feedback_correction_available"].iloc[0]):
-            return "limited_voltage_v"
-    return "feedback_corrected_limited_voltage_v"
 
 def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     try:
@@ -184,54 +145,6 @@ def build_normalized_lut_csv_bytes(frame: pd.DataFrame) -> bytes:
 def build_diagnostics_csv_bytes(source_name: str, diagnostics: dict[str, object]) -> bytes:
     row = {"source_name": source_name, **diagnostics}
     return pd.DataFrame([row]).to_csv(index=False).encode("utf-8-sig")
-
-
-def render_final_voltage_lut_export_panel(
-    *,
-    command_profile: pd.DataFrame | None,
-    finite_cycle_mode: bool,
-    waveform_type: object | None,
-    freq_hz: object | None,
-    cycle_count: object | None,
-) -> None:
-    st.markdown("#### 최종 모델링 전압 LUT CSV 다운로드")
-    st.caption(
-        "화면 Command Waveform에 표시되는 최종 전압 배열을 Fourier 재합성 없이 그대로 저장합니다. "
-        "feedback correction이 유효하면 feedback_corrected_limited_voltage_v를 사용하고, "
-        "그 외에는 baseline limited_voltage_v를 사용합니다."
-    )
-    st.caption("화면 Command Waveform과 동일한 column을 저장합니다.")
-    st.caption("Fourier formula / harmonic coefficient export와 다른 time-voltage LUT입니다. no Fourier/resynthesis.")
-    st.caption(
-        "exported CSV uses plotted final command voltage samples; not Fourier, not harmonic resynthesis; "
-        "columns: sample_index, time_s, voltage_v"
-    )
-    st.caption("baseline export path에서는 voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다.")
-    if not finite_cycle_mode:
-        st.info("finite compensation LUT unavailable: finite compensation 결과에서만 다운로드할 수 있습니다.")
-        return
-    if command_profile is None or command_profile.empty:
-        st.info("finite compensation LUT unavailable: command_profile이 없습니다.")
-        return
-    missing = [column for column in ("time_s", "limited_voltage_v") if column not in command_profile.columns]
-    if missing:
-        st.warning(f"finite compensation LUT unavailable: missing columns {missing}")
-        return
-
-    file_name = build_final_voltage_lut_filename(
-        waveform_type=waveform_type,
-        freq_hz=freq_hz,
-        cycle_count=cycle_count,
-    )
-    st.caption(f"exported_voltage_source_column: `{_export_voltage_source_column(command_profile)}`")
-    st.download_button(
-        label="최종 모델링 전압 LUT CSV 다운로드",
-        data=build_final_voltage_lut_csv_bytes(command_profile),
-        file_name=file_name,
-        mime="text/csv",
-        key="download_final_modeled_voltage_lut_csv",
-        help="Fourier 재합성 파형이 아닙니다. exported_voltage_source_column 기반 최종 time-voltage LUT입니다.",
-    )
 
 
 def render_voltage_lut_review_section(default_cache_root: Path | None = None) -> None:
@@ -549,23 +462,6 @@ def _bytes_to_buffer(data: bytes) -> object:
     from io import BytesIO
 
     return BytesIO(data)
-
-
-def _safe_name_part(value: object | None) -> str:
-    text = "" if value is None else str(value).strip().lower()
-    return "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in text).strip("_")
-
-
-def _format_number_for_filename(value: object | None) -> str:
-    if value is None:
-        return ""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return ""
-    if not np.isfinite(number):
-        return ""
-    return f"{number:g}"
 
 
 def _float_or_nan(value: object) -> float:
