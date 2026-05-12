@@ -215,6 +215,10 @@ def render_final_voltage_lut_export_panel(
     )
     st.caption("화면 Command Waveform과 동일한 column을 저장합니다.")
     st.caption("Fourier formula / harmonic coefficient export와 다른 time-voltage LUT입니다. no Fourier/resynthesis.")
+    st.caption(
+        "exported CSV uses plotted final command voltage samples; not Fourier, not harmonic resynthesis; "
+        "columns: sample_index, time_s, voltage_v"
+    )
     st.caption("baseline export path에서는 voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다.")
     if not finite_cycle_mode:
         st.info("finite compensation LUT unavailable: finite compensation 결과에서만 다운로드할 수 있습니다.")

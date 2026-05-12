@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-
 from .upload_state_dedupe import dedupe_exact_upload_entries
 from .upload_state_dedupe import exact_upload_key
 from .upload_state_dedupe import is_relative_to
@@ -38,7 +37,6 @@ UPLOAD_MEMORY_LABEL_BY_CATEGORY = {
 }
 UPLOAD_MEMORY_CATEGORY_BY_LABEL = {value: key for key, value in UPLOAD_MEMORY_LABEL_BY_CATEGORY.items()}
 
-
 @dataclass(frozen=True)
 class UploadStatePaths:
     repo_root: Path
@@ -50,7 +48,6 @@ class UploadStatePaths:
 
     def category_dir(self, category: str) -> Path:
         return self.uploads_dir / str(category)
-
 
 def build_upload_state_paths(repo_root: Path | None = None) -> UploadStatePaths:
     root = (repo_root or REPO_ROOT).resolve()
@@ -64,7 +61,6 @@ def build_upload_state_paths(repo_root: Path | None = None) -> UploadStatePaths:
         validation_retune_history_path=app_state_dir / "validation_retune_history.json",
     )
 
-
 def _load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
     if not path.exists():
         return default
@@ -73,29 +69,40 @@ def _load_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
     except (json.JSONDecodeError, OSError):
         return default
 
-
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
 
 def _normalize_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     files = payload.get("files")
     if not isinstance(files, dict):
         files = {}
-    normalized = {"files": {}}
+    legacy_manifest_without_active_set = "active_uploads" not in payload
+    active_uploads = payload.get("active_uploads")
+    if not isinstance(active_uploads, dict):
+        active_uploads = {}
+    normalized = {"files": {}, "active_uploads": {}}
     for category in UPLOAD_CATEGORIES:
         entries = files.get(category)
         if not isinstance(entries, list):
             entries = []
         normalized["files"][category] = [entry for entry in entries if isinstance(entry, dict)]
+        active = active_uploads.get(category)
+        if isinstance(active, list):
+            normalized["active_uploads"][category] = [str(item) for item in active]
+        elif legacy_manifest_without_active_set:
+            normalized["active_uploads"][category] = [
+                str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "")
+                for entry in normalized["files"][category]
+                if entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name")
+            ]
+        else:
+            normalized["active_uploads"][category] = []
     return normalized
-
 
 def load_upload_manifest(*, paths: UploadStatePaths | None = None) -> dict[str, Any]:
     resolved_paths = paths or build_upload_state_paths()
     return _normalize_manifest(_load_json(resolved_paths.upload_manifest_path, {"files": {}}))
-
 
 def _stable_cache_name(file_name: str, raw_bytes: bytes) -> str:
     leaf = Path(str(file_name or "")).name or "upload.bin"
@@ -103,7 +110,6 @@ def _stable_cache_name(file_name: str, raw_bytes: bytes) -> str:
         return leaf
     digest = hashlib.sha256(raw_bytes).hexdigest()[:16]
     return f"{digest}_{leaf}"
-
 
 def _manifest_record(
     *,
@@ -132,7 +138,6 @@ def _manifest_record(
         "source": source,
         "duplicate_of": duplicate_of,
     }
-
 
 def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
@@ -194,6 +199,7 @@ def persist_uploaded_files(
     manifest = load_upload_manifest(paths=resolved_paths)
     existing_entries = [dict(entry) for entry in manifest["files"].get(category, []) if isinstance(entry, dict)]
     existing_entries = dedupe_exact_upload_entries(existing_entries, category_dir=category_dir)
+    current_upload_keys = uploaded_file_keys(uploaded_files or [])
     existing_cache_names = {str(entry.get("cache_name") or "") for entry in existing_entries if entry.get("cache_name")}
     existing_digest_to_id = {
         str(entry.get("content_sha256")): str(entry.get("upload_item_id") or _upload_item_id(category, str(entry.get("cache_name") or "")))
@@ -238,6 +244,12 @@ def persist_uploaded_files(
         existing_cache_names.add(cache_name)
         existing_digest_to_id.setdefault(digest, upload_item_id)
         existing_exact_uploads[exact_key] = new_entry
+    if uploaded_files:
+        manifest["active_uploads"][category] = [
+            str(entry.get("cache_name") or "")
+            for entry in existing_entries
+            if exact_upload_key(entry) in current_upload_keys
+        ]
 
     manifest["files"][category] = sorted(
         existing_entries,
@@ -245,7 +257,6 @@ def persist_uploaded_files(
     )
     _write_json(resolved_paths.upload_manifest_path, manifest)
     return list_persisted_uploads(category, paths=resolved_paths)
-
 
 def category_payloads(
     category: str,
@@ -260,17 +271,34 @@ def category_payloads(
         current_upload_keys = uploaded_file_keys(uploaded_files)
         persist_uploaded_files(category, uploaded_files, paths=resolved_paths)
     payloads: list[tuple[str, bytes]] = []
-    records = (
-        list_persisted_uploads(category, paths=resolved_paths)
-        if include_cached_uploads
-        else _list_exact_upload_records(category, current_upload_keys, paths=resolved_paths)
-    )
+    if include_cached_uploads:
+        records = list_persisted_uploads(category, paths=resolved_paths)
+    elif current_upload_keys:
+        records = _list_exact_upload_records(category, current_upload_keys, paths=resolved_paths)
+    else:
+        records = list_active_upload_payload_records(category, paths=resolved_paths)
     for record in records:
         path = Path(str(record["path"]))
         payloads.append((str(record["cache_name"]), path.read_bytes()))
     return payloads
-
-
+def list_active_upload_payload_records(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
+    resolved_paths = paths or build_upload_state_paths()
+    manifest = load_upload_manifest(paths=resolved_paths)
+    active_names = {str(item) for item in manifest.get("active_uploads", {}).get(category, []) if str(item)}
+    if not active_names:
+        return []
+    records: list[dict[str, Any]] = []
+    category_dir = resolved_paths.category_dir(category)
+    for entry in manifest["files"].get(category, []):
+        if not isinstance(entry, dict):
+            continue
+        cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "")
+        if cache_name not in active_names:
+            continue
+        path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
+        if path.exists() and path.is_file():
+            records.append({"cache_name": cache_name, "path": str(path), "payload_source": "remembered_upload"})
+    return sorted(records, key=lambda item: str(item.get("cache_name") or ""))
 def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
     item_summary = build_upload_memory_group_summary(build_upload_memory_items(paths=resolved_paths))
@@ -288,8 +316,6 @@ def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict
             }
         )
     return rows
-
-
 def clear_category_uploads(category: str, *, paths: UploadStatePaths | None = None) -> None:
     delete_upload_memory_group(category, paths=paths)
 
@@ -298,8 +324,6 @@ def clear_all_uploads(*, paths: UploadStatePaths | None = None) -> None:
     resolved_paths = paths or build_upload_state_paths()
     for category in UPLOAD_CATEGORIES:
         clear_category_uploads(category, paths=resolved_paths)
-
-
 def build_upload_memory_items(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
     manifest = load_upload_manifest(paths=resolved_paths)
@@ -341,8 +365,6 @@ def build_upload_memory_items(*, paths: UploadStatePaths | None = None) -> list[
             str(item["upload_item_id"]),
         ),
     )
-
-
 def build_upload_memory_group_summary(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     summary = {
         label: {"label": label, "count": 0, "files": [], "items": []}
@@ -355,8 +377,6 @@ def build_upload_memory_group_summary(items: list[dict[str, Any]]) -> dict[str, 
         group["files"].append(str(item.get("original_filename") or item.get("stored_filename") or "unknown"))
         group["count"] = int(group["count"]) + 1
     return summary
-
-
 def delete_upload_memory_item(
     upload_item_id: str,
     *,
@@ -364,8 +384,6 @@ def delete_upload_memory_item(
     delete_physical: bool = True,
 ) -> dict[str, Any]:
     return delete_upload_memory_items([upload_item_id], paths=paths, delete_physical=delete_physical)
-
-
 def delete_upload_memory_items(
     upload_item_ids: list[str] | tuple[str, ...] | set[str],
     *,

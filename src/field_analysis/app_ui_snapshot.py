@@ -8,6 +8,7 @@ touching the main app shell.
 """
 
 import json
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,7 @@ from .lut import (
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
-from .ui_dataset_library import render_dataset_library_file_selector, render_dataset_library_panel
+from .ui_dataset_library import dataset_library_status, render_dataset_library_file_selector, render_dataset_library_panel
 from .plotting import (
     plot_command_waveform,
     plot_current_compensation_waveforms,
@@ -67,6 +68,7 @@ from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
 from .ui_quick_lut_feedback import render_feedback_correction_review
 from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
+from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel, render_voltage_lut_review_section
@@ -412,16 +414,23 @@ def _run_app_shell(
             key="full_section_nav",
         )
 
-    uploaded_payloads = category_payloads("continuous", continuous_files) + continuous_library_payloads
-    transient_payloads = category_payloads("transient", transient_files) + transient_library_payloads
+    uploaded_payloads = _dedupe_payloads(category_payloads("continuous", continuous_files) + continuous_library_payloads)
+    transient_payloads = _dedupe_payloads(category_payloads("transient", transient_files) + transient_library_payloads)
     validation_payloads = category_payloads("validation", validation_files)
     lcr_payloads = category_payloads("lcr", lcr_files)
     lcr_records = list_persisted_uploads("lcr")
+    _render_quick_lut_cache_status(
+        continuous_payloads=uploaded_payloads,
+        finite_payloads=transient_payloads,
+        validation_payloads=validation_payloads,
+        lcr_payloads=lcr_payloads,
+        continuous_library_payloads=continuous_library_payloads,
+        finite_library_payloads=transient_library_payloads,
+    )
 
     if active_section == "Run Readiness":
         render_run_readiness_section()
         return
-
     if active_section == "LUT Review":
         render_voltage_lut_review_section()
         return
@@ -1860,6 +1869,16 @@ def _render_field_only_quick_lut_banner() -> None:
         "Target field shape is always rounded triangle, and current / gain / hardware / LCR are excluded from main shape selection."
     )
     st.caption(
+        "Field review/modeling is normalized to ±50mT. Command voltage is normalized/limited to ±5V. "
+        "DCAMP gain is handled outside this app. HallBz sign convention applied: effective field = -HallBz raw."
+    )
+    st.caption(
+        "Production finite correction is 1.0 cycle only. "
+        "1.25 / 1.5 / 1.75 / 2.0 are Raw Review only and unsupported for production feedback correction/export. "
+        "2-cycle policy discarded."
+    )
+    st.caption("Final LUT uses plotted final voltage samples, not Fourier resynthesis.")
+    st.caption(
         "Runtime: Quick LUT field-only renderer v2 · target=rounded_triangle · "
         "target_pp=100 fixed · source=repo-local src"
     )
@@ -1867,6 +1886,62 @@ def _render_field_only_quick_lut_banner() -> None:
         "변경 후에도 legacy target control이 보이면 기존 Streamlit 프로세스를 종료하고 "
         "`launch_quick_lut_local.cmd`를 다시 실행하십시오."
     )
+
+
+def _dedupe_payloads(payloads: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    deduped: list[tuple[str, bytes]] = []
+    seen: set[str] = set()
+    for file_name, file_bytes in payloads:
+        digest = hashlib.sha256(file_bytes).hexdigest()
+        if digest in seen:
+            continue
+        seen.add(digest)
+        deduped.append((file_name, file_bytes))
+    return deduped
+
+
+def _render_quick_lut_cache_status(
+    *,
+    continuous_payloads: list[tuple[str, bytes]],
+    finite_payloads: list[tuple[str, bytes]],
+    validation_payloads: list[tuple[str, bytes]],
+    lcr_payloads: list[tuple[str, bytes]],
+    continuous_library_payloads: list[tuple[str, bytes]],
+    finite_library_payloads: list[tuple[str, bytes]],
+) -> None:
+    status = upload_memory_status()
+    dataset_status = dataset_library_status()
+    selected_library_count = len(continuous_library_payloads) + len(finite_library_payloads)
+    with st.expander("Quick LUT cache / payload status", expanded=False):
+        st.write(f"- remembered continuous count: `{status['remembered_continuous_count']}`")
+        st.write(f"- remembered finite count: `{status['remembered_finite_count']}`")
+        st.write(f"- active continuous payload count: `{len(continuous_payloads)}`")
+        st.write(f"- active finite payload count: `{len(finite_payloads)}`")
+        st.write(f"- validation payload count: `{len(validation_payloads)}`")
+        st.write(f"- lcr payload count: `{len(lcr_payloads)}`")
+        st.write(f"- cached continuous count: `{status['cached_continuous_count']}`")
+        st.write(f"- cached finite count: `{status['cached_finite_count']}`")
+        st.write(f"- selected dataset library count: `{selected_library_count}`")
+        st.write(f"- dataset library root path: `{dataset_status['dataset_root_path']}`")
+        st.write(f"- dataset manifest exists: `{dataset_status['dataset_manifest_exists']}`")
+        st.write(f"- dataset manifest file count: `{dataset_status['dataset_manifest_file_count']}`")
+        st.write(f"- upload memory manifest exists: `{status['upload_memory_manifest_exists']}`")
+        st.write(f"- cache directory path: `{status['cache_directory_path']}`")
+        st.write("- active payload source: `current_upload / remembered_upload / selected_dataset_library`")
+        if dataset_status["dataset_root_path"] and not dataset_status["dataset_manifest_exists"]:
+            st.warning("Manifest missing. Click Manifest Refresh.")
+        elif dataset_status["dataset_root_path"] and int(dataset_status["dataset_manifest_file_count"]) == 0:
+            st.warning("Dataset root saved but no supported files found.")
+        if status["cached_continuous_count"] == 0 and status["cached_finite_count"] == 0:
+            st.caption("No remembered LUT data found.")
+        elif len(continuous_payloads) + len(finite_payloads) == 0:
+            st.warning("Cached files exist but are not active. Select remembered files or load active set.")
+            if st.button("Load remembered LUT files", key="quick_lut_load_remembered_uploads"):
+                activate_cached_uploads("continuous")
+                activate_cached_uploads("transient")
+                st.rerun()
+        elif status["cached_continuous_count"] + status["cached_finite_count"] > len(continuous_payloads) + len(finite_payloads):
+            st.caption("Only active remembered/current/library payloads are loaded; full cached uploads are not auto-loaded.")
 
 
 def _render_quick_lut_tab_v2(

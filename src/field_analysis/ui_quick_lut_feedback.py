@@ -27,7 +27,8 @@ def render_quick_lut_feedback_input_section(*, finite_cycle_mode: bool) -> dict[
     st.markdown("#### Quick LUT feedback correction")
     st.caption("Physical Target은 유지하고, 실제 구동 결과를 이용해 전압 command만 보정합니다.")
     st.caption("Raw/absolute gain 평가는 하지 않고, ±50mT / ±5V 정규화 기준으로 개형과 타이밍을 봅니다.")
-    st.caption("1.25 / 1.75는 phase delay 문제로 peak feedback correction 주력 경로에서 제외합니다.")
+    st.caption("Production finite feedback correction is 1.0 cycle only. 1.25 / 1.5 / 1.75 / 2.0 are review-only.")
+    st.caption("2-cycle policy discarded.")
     if not finite_cycle_mode:
         st.info("Feedback correction은 Quick LUT finite field compensation 결과에서만 사용할 수 있습니다.")
         return None
@@ -194,9 +195,10 @@ def build_feedback_status_rows(metadata: dict[str, object]) -> list[dict[str, ob
         ("route", route),
         ("feedback_correction_available", metadata.get("feedback_correction_available", False)),
         ("feedback_correction_status", metadata.get("feedback_correction_status", "unavailable")),
-        ("supported cycles", "1.0, 1.5"),
-        ("unsupported cycles", "1.25, 1.75"),
-        ("unsupported reason", "unsupported_cycle_phase_delay"),
+        ("supported cycles", "1.0"),
+        ("unsupported cycles", "1.25, 1.5, 1.75, 2.0"),
+        ("unsupported reason", "unsupported_cycle_policy_1cycle_only"),
+        ("production cycle policy", "1cycle_only"),
         ("filename", metadata.get("feedback_source_file", "unavailable")),
         ("parse status", metadata.get("feedback_schema_status", "unavailable")),
         ("alignment status", metadata.get("feedback_alignment_status") or metadata.get("alignment_status", "unavailable")),

@@ -14,6 +14,24 @@ from .dataset_library import (
 )
 
 
+def dataset_library_status() -> dict[str, object]:
+    settings = load_dataset_library_settings()
+    dataset_root = str(settings.get("dataset_root") or "").strip()
+    if not dataset_root:
+        return {
+            "dataset_root_path": "",
+            "dataset_manifest_exists": False,
+            "dataset_manifest_file_count": 0,
+        }
+    manifest_path = get_dataset_manifest_path(dataset_root)
+    manifest = load_dataset_manifest(dataset_root) if manifest_path.exists() else {"file_count": 0}
+    return {
+        "dataset_root_path": dataset_root,
+        "dataset_manifest_exists": manifest_path.exists(),
+        "dataset_manifest_file_count": int(manifest.get("file_count") or 0),
+    }
+
+
 def render_dataset_library_panel() -> None:
     settings = load_dataset_library_settings()
     session_key = "dataset_library_root"
@@ -125,4 +143,4 @@ def _format_dataset_entry_option(entry: dict[str, object]) -> str:
     return f"{path} ({size_bytes} bytes)"
 
 
-__all__ = ["render_dataset_library_file_selector", "render_dataset_library_panel"]
+__all__ = ["dataset_library_status", "render_dataset_library_file_selector", "render_dataset_library_panel"]

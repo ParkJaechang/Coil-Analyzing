@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import sys
 
@@ -19,6 +20,7 @@ from field_analysis.ui_upload_state import delete_upload_memory_item
 from field_analysis.ui_upload_state import delete_upload_memory_items
 from field_analysis.ui_upload_state import category_payloads
 from field_analysis.ui_upload_state import persist_uploaded_files
+from field_analysis.ui_upload_memory_status import activate_cached_uploads
 
 
 @dataclass
@@ -180,9 +182,63 @@ def test_category_payloads_does_not_duplicate_persisted_files_on_rerun(tmp_path:
 def test_category_payloads_without_current_upload_does_not_auto_load_cached_files(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     persist_uploaded_files("continuous", [_Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")], paths=paths)
+    manifest = json.loads(paths.upload_manifest_path.read_text(encoding="utf-8"))
+    manifest["active_uploads"]["continuous"] = []
+    paths.upload_manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     payloads = category_payloads("continuous", None, paths=paths)
     cached_payloads = category_payloads("continuous", None, paths=paths, include_cached_uploads=True)
 
     assert payloads == []
     assert len(cached_payloads) == 1
+
+
+def test_category_payloads_loads_active_remembered_set_without_current_upload(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+    category_payloads("continuous", [upload], paths=paths)
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(remembered_payloads) == 1
+
+
+def test_legacy_manifest_without_active_uploads_migrates_cached_files_to_active(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    cache_name = "continuous_sine_2Hz.csv"
+    (category_dir / cache_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [{"cache_name": cache_name, "file_name": cache_name, "size_bytes": 16}],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(remembered_payloads) == 1
+
+
+def test_activate_cached_uploads_marks_cached_files_as_active(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_triangle_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+    persist_uploaded_files("continuous", [upload], paths=paths)
+    manifest = json.loads(paths.upload_manifest_path.read_text(encoding="utf-8"))
+    manifest["active_uploads"]["continuous"] = []
+    paths.upload_manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = activate_cached_uploads("continuous", paths=paths)
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert result["activated_count"] == 1
+    assert len(remembered_payloads) == 1

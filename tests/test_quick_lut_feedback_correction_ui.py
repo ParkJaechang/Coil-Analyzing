@@ -32,9 +32,10 @@ def test_feedback_review_panel_renders_supported_status_and_graph_markers() -> N
     rows = build_feedback_status_rows(metadata)
 
     assert {"field": "route", "value": "finite_actual_feedback_peak_correction"} in rows
-    assert {"field": "supported cycles", "value": "1.0, 1.5"} in rows
-    assert {"field": "unsupported cycles", "value": "1.25, 1.75"} in rows
-    assert {"field": "unsupported reason", "value": "unsupported_cycle_phase_delay"} in rows
+    assert {"field": "supported cycles", "value": "1.0"} in rows
+    assert {"field": "unsupported cycles", "value": "1.25, 1.5, 1.75, 2.0"} in rows
+    assert {"field": "unsupported reason", "value": "unsupported_cycle_policy_1cycle_only"} in rows
+    assert {"field": "production cycle policy", "value": "1cycle_only"} in rows
     profile = pd.DataFrame(
         {
             "limited_voltage_v": [0.0],
@@ -79,7 +80,7 @@ def test_feedback_export_source_falls_back_to_baseline_when_unavailable() -> Non
                 {
                     "limited_voltage_v": [0.0],
                     "feedback_corrected_limited_voltage_v": [1.0],
-                    "feedback_correction_status": ["unsupported_cycle_phase_delay"],
+                    "feedback_correction_status": ["unsupported_cycle_policy_1cycle_only"],
                     "feedback_correction_available": [False],
                 }
             )
@@ -124,7 +125,9 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "forward_prediction_unavailable_for_feedback_corrected_command",
         "화면 Command Waveform과 동일한 column을 저장합니다",
         "exported_voltage_source_column",
-        "unsupported_cycle_phase_delay",
+        "Production finite feedback correction is 1.0 cycle only",
+        "2-cycle policy discarded",
+        "unsupported_cycle_policy_1cycle_only",
         "apply_finite_feedback_peak_correction",
     ]
     missing = [marker for marker in expected if marker not in sources]

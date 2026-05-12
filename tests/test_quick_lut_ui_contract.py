@@ -121,7 +121,13 @@ def _write_upload_manifest(state_dir: Path, continuous_records: list[dict[str, o
             "transient": [],
             "validation": [],
             "lcr": [],
-        }
+        },
+        "active_uploads": {
+            "continuous": [str(record["cache_name"]) for record in continuous_records],
+            "transient": [],
+            "validation": [],
+            "lcr": [],
+        },
     }
     (state_dir / "upload_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -165,6 +171,23 @@ def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets
     assert "크기 LUT 목표값" not in number_input_labels
     assert "파형 보정 목표 항목" not in selectbox_labels
     assert not any(label.startswith("파형 보정 목표") for label in number_input_labels)
+
+def test_quick_lut_source_contains_cache_status_and_one_cycle_policy_copy() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+
+    expected = [
+        "Quick LUT cache / payload status",
+        "remembered continuous count",
+        "active continuous payload count",
+        "dataset library root path",
+        "dataset manifest exists",
+        "Load remembered LUT files",
+        "Cached files exist but are not active",
+        "Production finite correction is 1.0 cycle only.",
+        "2-cycle policy discarded.",
+    ]
+    missing = [item for item in expected if item not in source]
+    assert not missing
 
 
 def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits_finite_cycles() -> None:
