@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 RESULT_FILENAME_RE = re.compile(
-    r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle_result\.csv)$",
+    r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle(?:_result)?\.csv)$",
     re.IGNORECASE,
 )
 
@@ -95,7 +95,7 @@ def resolve_actual_drive_metadata(
     preamble_freq = numeric_metadata(preamble, "Frequency(Hz)")
     preamble_cycle = numeric_metadata(preamble, "Cycles")
     preamble_waveform = text_metadata(preamble, "Waveform") or text_metadata(preamble, "WaveformFamily")
-    if preamble_freq is not None and preamble_cycle is not None:
+    if preamble_freq is not None and preamble_freq > 0.0 and preamble_cycle is not None and preamble_cycle > 0.0:
         waveform = (preamble_waveform or waveform_type or "sine").lower()
         return {
             "source_type": "finite_actual_drive_result",

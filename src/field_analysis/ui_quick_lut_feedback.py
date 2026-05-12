@@ -29,12 +29,12 @@ from .ui_quick_lut_feedback_contract import feedback_export_source_column
 from .ui_quick_lut_feedback_selection import candidate_matches
 from .ui_quick_lut_feedback_selection import choose_actual_drive_feedback_candidate
 from .ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
+from .ui_quick_lut_feedback_second_sources import count_exact_matches
+from .ui_quick_lut_feedback_second_sources import scan_second_actual_drive_upload_folder
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 from .ui_upload_cache import add_upload_cache_bytes
 from .ui_upload_cache import build_upload_cache_records
-from .ui_upload_cache import build_upload_cache_selection_options
 from .ui_upload_cache import cache_item_bytes
-from .ui_upload_cache import fallback_upload_cache_selection
 
 
 FEEDBACK_CACHE_STATE_KEY = "actual_drive_validation_cache_items"
@@ -89,20 +89,43 @@ def render_quick_lut_feedback_input_section(
         help="피드백 원본이 1차/2차/unknown run 중 어느 단계인지 구분하는 metadata입니다.",
     )
     records = [record for record in build_upload_cache_records(cache_state) if record.cache_type == "actual_drive_validation"]
-    if not records:
-        st.info("캐시된 실구동 결과 파일이 없습니다. 실구동 결과 CSV를 업로드하면 선택할 수 있습니다.")
-        return None
-
-    options, records_by_id, labels_by_id = build_upload_cache_selection_options(records)
-    candidate_payloads = [
+    cache_candidates = [
         {
+            "candidate_id": f"cache:{record.cache_item_id}",
             "cache_id": record.cache_item_id,
+            "source_kind": "upload_cache",
+            "source_label": "캐시된 실구동 결과 파일",
             "filename": record.original_filename,
+            "original_filename": record.original_filename,
             "csv_bytes": cache_item_bytes(cache_state, record.cache_item_id),
             "run_label": run_label,
         }
         for record in records
     ]
+    second_folder_candidates, second_folder_meta = scan_second_actual_drive_upload_folder(run_label=run_label)
+    candidate_payloads = cache_candidates + second_folder_candidates
+    exact_match_count = count_exact_matches(
+        candidate_payloads,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    st.caption("2차 모델링용 실구동 결과 폴더")
+    st.caption(f"폴더 경로: `{second_folder_meta['folder_path']}`")
+    st.caption(
+        f"파일 {second_folder_meta['file_count']}개 · actual-drive 후보 {second_folder_meta['actual_drive_candidate_count']}개 · "
+        f"최종 전압 LUT 제외 {second_folder_meta['final_voltage_lut_count']}개 · target exact match {exact_match_count}개"
+    )
+    if not candidate_payloads:
+        st.info("실구동 결과 파일이 없습니다. TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 uploads/2nd에 넣거나 업로드하십시오.")
+        return None
+
+    candidates_by_id = {str(candidate["candidate_id"]): candidate for candidate in candidate_payloads}
+    options = list(candidates_by_id)
+    labels_by_id = {
+        candidate_id: f"{candidate.get('filename')} - {candidate.get('source_label')}"
+        for candidate_id, candidate in candidates_by_id.items()
+    }
     auto_selected, auto_meta = choose_actual_drive_feedback_candidate(
         candidate_payloads,
         waveform_type=waveform_type,
@@ -111,18 +134,18 @@ def render_quick_lut_feedback_input_section(
     )
     selection_widget_rendered = False
     if auto_selected is not None:
-        selected_id = str(auto_selected.get("cache_id"))
+        selected_id = str(auto_selected.get("candidate_id"))
     else:
-        previous_id = fallback_upload_cache_selection(options, st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY))
-        previous_record = records_by_id.get(previous_id) if previous_id else None
+        previous_id = st.session_state.get(FEEDBACK_SELECTED_CACHE_KEY)
+        previous_candidate = candidates_by_id.get(str(previous_id)) if previous_id else None
         previous_info = (
-            classify_feedback_csv_candidate(previous_record.original_filename, cache_item_bytes(cache_state, previous_id))
-            if previous_record is not None
+            classify_feedback_csv_candidate(str(previous_candidate.get("filename")), previous_candidate.get("csv_bytes") if isinstance(previous_candidate.get("csv_bytes"), bytes) else None)
+            if previous_candidate is not None
             else {}
         )
         selected_id = (
-            previous_id
-            if previous_record is not None
+            str(previous_id)
+            if previous_candidate is not None
             and candidate_matches(previous_info, waveform_type=waveform_type, freq_hz=freq_hz, cycle_count=cycle_count)
             else None
         )
@@ -131,7 +154,7 @@ def render_quick_lut_feedback_input_section(
         if auto_meta.get("warning"):
             st.warning(str(auto_meta["warning"]))
         selected_id = st.selectbox(
-            "캐시된 실구동 결과 파일",
+            "1차 실구동 결과 데이터",
             options=options,
             format_func=lambda cache_id: labels_by_id[cache_id],
             index=None,
@@ -143,22 +166,26 @@ def render_quick_lut_feedback_input_section(
     st.session_state[FEEDBACK_SELECTED_CACHE_KEY] = selected_id
     if not selection_widget_rendered:
         selected_id = st.selectbox(
-            "캐시된 실구동 결과 파일",
+            "1차 실구동 결과 데이터",
             options=options,
             format_func=lambda cache_id: labels_by_id[cache_id],
             key=FEEDBACK_SELECTED_CACHE_KEY,
         )
-    selected = records_by_id[selected_id]
-    source_bytes = cache_item_bytes(cache_state, selected_id)
+    selected = candidates_by_id[selected_id]
+    source_bytes = selected.get("csv_bytes") if isinstance(selected.get("csv_bytes"), bytes) else None
     parse_status = "available" if source_bytes else "missing_bytes"
-    parsed = infer_new_dataset_filename_metadata(selected.original_filename)
+    selected_filename = str(selected.get("filename") or "")
+    parsed = infer_new_dataset_filename_metadata(selected_filename)
     selected_payload = {
-        "cache_id": selected_id,
-        "filename": selected.original_filename,
+        "cache_id": selected.get("cache_id"),
+        "candidate_id": selected_id,
+        "source_kind": selected.get("source_kind"),
+        "source_path": selected.get("source_path"),
+        "filename": selected_filename,
         "csv_bytes": source_bytes,
         "run_label": run_label,
     }
-    selected_classification = classify_feedback_csv_candidate(selected.original_filename, source_bytes)
+    selected_classification = classify_feedback_csv_candidate(selected_filename, source_bytes)
     match_status = "match" if candidate_matches(selected_classification, waveform_type=waveform_type, freq_hz=freq_hz, cycle_count=cycle_count) else "mismatch_or_unknown"
     metadata_source = str(selected_classification.get("metadata_source") or "")
     can_use_current_metadata = (
@@ -187,7 +214,8 @@ def render_quick_lut_feedback_input_section(
             }
             match_status = "match"
 
-    st.caption(f"파일: `{selected.original_filename}`")
+    st.caption(f"파일: `{selected_filename}`")
+    st.caption(f"출처: `{selected.get('source_label')}`")
     st.caption(
         "파형/주파수/cycle: "
         f"`{parsed.get('waveform_type') or 'unknown'}` / "
@@ -205,12 +233,17 @@ def render_quick_lut_feedback_input_section(
     elif auto_meta.get("warning"):
         st.warning(str(auto_meta["warning"]))
     with st.expander("파일/캐시 상세", expanded=False):
-        st.caption(f"내부 ID: `{selected.cache_item_id}`")
+        st.caption(f"내부 ID: `{selected_id}`")
+        if selected.get("source_path"):
+            st.caption(f"경로: `{selected.get('source_path')}`")
         st.caption("실구동 결과 CSV: TimeMs / Voltage1_V / HallBz")
         st.caption("최종 전압 LUT CSV: sample_index / time_s / voltage_v")
     return {
-        "cache_id": selected_id,
-        "filename": selected.original_filename,
+        "cache_id": selected.get("cache_id"),
+        "candidate_id": selected_id,
+        "source_kind": selected.get("source_kind"),
+        "source_path": selected.get("source_path"),
+        "filename": selected_filename,
         "csv_bytes": source_bytes,
         "run_label": run_label,
         "parse_status": parse_status,

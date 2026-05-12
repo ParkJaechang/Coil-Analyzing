@@ -4,11 +4,6 @@ from .finite_actual_drive import parse_finite_actual_drive_filename
 
 
 def classify_feedback_csv_candidate(filename: str, csv_bytes: bytes | None) -> dict[str, object]:
-    try:
-        meta = parse_finite_actual_drive_filename(filename)
-        return {"file_type": "actual_drive_result", "schema_status": "filename_match", **meta}
-    except ValueError:
-        pass
     header = _first_csv_header(csv_bytes)
     columns = {part.strip() for part in header.split(",") if part.strip()}
     if {"sample_index", "time_s", "voltage_v"}.issubset(columns):
@@ -20,6 +15,12 @@ def classify_feedback_csv_candidate(filename: str, csv_bytes: bytes | None) -> d
                 "장비 측정 CSV가 필요합니다."
             ),
         }
+    try:
+        meta = parse_finite_actual_drive_filename(filename)
+        if not columns or {"TimeMs", "Voltage1_V", "HallBz"}.issubset(columns):
+            return {"file_type": "actual_drive_result", "schema_status": "filename_match", "metadata_source": "filename", **meta}
+    except ValueError:
+        pass
     if {"TimeMs", "Voltage1_V", "HallBz"}.issubset(columns):
         preamble = _preamble_metadata(csv_bytes)
         if preamble.get("freq_hz") is not None and preamble.get("cycle_count") is not None:
@@ -138,8 +139,8 @@ def _preamble_metadata(csv_bytes: bytes | None) -> dict[str, object]:
             values[parts[0]] = parts[1]
     return {
         "waveform_type": (values.get("Waveform") or values.get("WaveformFamily") or "sine").lower(),
-        "freq_hz": _float_or_none(values.get("Frequency(Hz)")),
-        "cycle_count": _float_or_none(values.get("Cycles")),
+        "freq_hz": _positive_float_or_none(values.get("Frequency(Hz)")),
+        "cycle_count": _positive_float_or_none(values.get("Cycles")),
     }
 
 
@@ -148,3 +149,8 @@ def _float_or_none(value: object) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _positive_float_or_none(value: object) -> float | None:
+    number = _float_or_none(value)
+    return number if number is not None and number > 0.0 else None

@@ -192,6 +192,34 @@ def test_actual_drive_feedback_candidate_accepts_schema_without_result_filename(
     assert info["metadata_source"] == "unavailable"
 
 
+def test_actual_drive_feedback_candidate_accepts_non_result_filename_with_schema() -> None:
+    from field_analysis.ui_quick_lut_feedback import classify_feedback_csv_candidate
+
+    info = classify_feedback_csv_candidate(
+        "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle.csv",
+        b"Row,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n",
+    )
+
+    assert info["file_type"] == "actual_drive_result"
+    assert info["schema_status"] == "filename_match"
+    assert info["waveform_type"] == "sine"
+    assert info["freq_hz"] == 1.5
+    assert info["cycle_count"] == 1.5
+
+
+def test_actual_drive_feedback_candidate_ignores_zero_preamble_metadata() -> None:
+    from field_analysis.ui_quick_lut_feedback import classify_feedback_csv_candidate
+
+    info = classify_feedback_csv_candidate(
+        "bench_upload.csv",
+        b"# Frequency(Hz),0.000\n# Cycles,0.000\nTimeMs,Voltage1_V,HallBz\n0,0,1\n",
+    )
+
+    assert info["file_type"] == "actual_drive_result"
+    assert info["schema_status"] == "actual_drive_schema_no_filename_metadata"
+    assert info["metadata_source"] == "unavailable"
+
+
 def test_actual_drive_feedback_candidate_uses_preamble_metadata_without_result_filename() -> None:
     from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
 
@@ -231,6 +259,26 @@ def test_actual_drive_feedback_candidate_identifies_final_lut_as_wrong_file_type
     assert metadata["selection_reason"] == "final_voltage_lut_not_actual_drive_result"
 
 
+def test_second_actual_drive_upload_folder_scan_finds_candidates(tmp_path: Path) -> None:
+    from field_analysis.ui_quick_lut_feedback_second_sources import scan_second_actual_drive_upload_folder
+
+    (tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle.csv").write_bytes(
+        b"# Frequency(Hz),0.000\n# Cycles,0.000\nRow,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n"
+    )
+    (tmp_path / "final_lut.csv").write_bytes(b"sample_index,time_s,voltage_v\n0,0,0\n")
+
+    candidates, metadata = scan_second_actual_drive_upload_folder(tmp_path)
+
+    assert metadata["folder_exists"] is True
+    assert metadata["file_count"] == 2
+    assert metadata["actual_drive_candidate_count"] == 1
+    assert metadata["final_voltage_lut_count"] == 1
+    actual = [item for item in candidates if item["file_type"] == "actual_drive_result"][0]
+    assert actual["source_label"] == "2차 모델링용 실구동 결과 폴더"
+    assert actual["freq_hz"] == 1.5
+    assert actual["cycle_count"] == 1.5
+
+
 def test_quick_lut_feedback_user_facing_source_has_no_mojibake_patterns() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
     selection_source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback_selection.py").read_text(encoding="utf-8")
@@ -257,7 +305,8 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "TimeMs / Voltage1_V / HallBz 컬럼이 있으면 실구동 결과 후보로 사용할 수 있습니다.",
         "finite_actual_feedback_peak_correction",
         "실구동 결과 CSV 업로드",
-        "캐시된 실구동 결과 파일",
+        "1차 실구동 결과 데이터",
+        "2차 모델링용 실구동 결과 폴더",
         "first_run",
         "second_run",
         "unknown",

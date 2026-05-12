@@ -151,6 +151,26 @@ def test_actual_drive_schema_file_without_metadata_uses_current_selection_fallba
     assert record.metadata["hallbz_sign_inverted"] is True
 
 
+def test_actual_drive_non_result_filename_with_schema_reads_filename_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle.csv"
+    rows = [
+        "# Frequency(Hz),0.000",
+        "# Cycles,0.000",
+        "TimeMs,Voltage1_V,HallBz,Current1_A",
+        "0,0,1,0.1",
+        "500,2,2,0.1",
+        "1000,0,1,0.1",
+    ]
+    path.write_text("\n".join(rows), encoding="utf-8")
+
+    record = read_actual_drive_result(path)
+
+    assert record.metadata["metadata_source"] == "filename"
+    assert record.freq_hz == 1.5
+    assert record.cycle_count == 1.5
+    assert "hallbz_raw_mT" in record.frame.columns
+
+
 def test_actual_drive_filename_with_upload_prefix_parses_to_canonical_name() -> None:
     parsed = parse_finite_actual_drive_filename(
         "7d72d4709ef49600_finite_recommended_voltage_lut_sine_0.5Hz_1.25cycle_result.csv"
