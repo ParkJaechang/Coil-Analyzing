@@ -68,6 +68,7 @@ from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
 from .ui_quick_lut_feedback import render_feedback_correction_review
+from .ui_quick_lut_feedback import render_actual_drive_review_from_selection
 from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
 from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
@@ -476,6 +477,80 @@ def _run_app_shell(
             st.markdown(sample_doc.read_text(encoding="utf-8"))
         return
 
+    def _render_loaded_analysis_result(result: dict[str, object]) -> bool:
+        analysis_lookup = result.get("analysis_lookup") or {}
+        per_test_summary = result.get("per_test_summary")
+        transient_measurements = result.get("transient_measurements") or []
+        transient_preprocess_results = result.get("transient_preprocess_results") or []
+        test_ids = result.get("test_ids") or sorted(analysis_lookup.keys())
+        st.caption(
+            "Loaded analysis result "
+            f"run_id={result.get('run_id', 'unknown')} "
+            f"timestamp={result.get('run_timestamp', 'unknown')}"
+        )
+        if st.session_state.get("quick_lut_dirty"):
+            st.warning("Settings changed. Press Run / Render button to update results.")
+        if usage_mode == "간단 LUT":
+            if active_section == "Quick LUT" and isinstance(per_test_summary, pd.DataFrame):
+                _render_quick_lut_tab_v2(
+                    per_test_summary=per_test_summary,
+                    analysis_lookup=analysis_lookup,
+                    main_field_axis=main_field_axis,
+                    current_channel=current_channel,
+                    max_daq_voltage_pp=max_daq_voltage_pp,
+                    amp_gain_at_100_pct=amp_gain_at_100_pct,
+                    amp_gain_limit_pct=amp_gain_limit_pct,
+                    amp_max_output_pk_v=amp_max_output_pk_v,
+                    default_support_amp_gain_pct=default_support_amp_gain_pct,
+                    allow_target_extrapolation=allow_target_extrapolation,
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                )
+                return True
+            if active_section == "Raw Waveforms":
+                reference_label_by_id, reference_id_by_label = build_raw_waveform_label_lookup(
+                    sorted(analysis_lookup.keys()),
+                    analysis_lookup,
+                )
+                reference_none_label = "없음"
+                reference_options = [reference_none_label] + [
+                    reference_label_by_id[test_id]
+                    for test_id in sorted(reference_label_by_id, key=lambda value: reference_label_by_id[value])
+                ]
+                reference_label = st.selectbox(
+                    "비교 기준 테스트 (선택)",
+                    options=reference_options,
+                    index=0,
+                )
+                st.caption(
+                    "선택한 파형과 겹쳐 비교할 기준 테스트입니다. 단일 데이터 검수 시에는 없음으로 두면 됩니다."
+                )
+                _ = None if reference_label == reference_none_label else reference_id_by_label.get(reference_label)
+                _render_raw_waveforms_tab(
+                    test_ids=list(test_ids),
+                    analysis_lookup=analysis_lookup,
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                )
+                return True
+            if active_section == "Finite Runs":
+                _render_finite_run_section(
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                    current_channel=current_channel,
+                    main_field_axis=main_field_axis,
+                )
+                return True
+        return False
+
+    cached_analysis = st.session_state.get("quick_lut_analysis_result")
+    if (
+        isinstance(cached_analysis, dict)
+        and cached_analysis.get("payload_hash") == active_payload_hash
+        and _render_loaded_analysis_result(cached_analysis)
+    ):
+        return
+
     with st.spinner("업로드 파일 구조를 확인하는 중입니다..."):
         previews = [
             _preview_file_cached(file_name, file_bytes, config_path)
@@ -717,6 +792,17 @@ def _run_app_shell(
     if not test_ids:
         st.error("분석 가능한 테스트가 없습니다. 매핑과 메타데이터를 확인하십시오.")
         return
+    run_timestamp = pd.Timestamp.utcnow().isoformat()
+    st.session_state["quick_lut_analysis_result"] = {
+        "payload_hash": active_payload_hash,
+        "run_id": hashlib.sha256(f"{active_payload_hash}:{run_timestamp}".encode("utf-8")).hexdigest()[:12],
+        "run_timestamp": run_timestamp,
+        "analysis_lookup": analysis_lookup,
+        "per_test_summary": per_test_summary,
+        "transient_measurements": transient_measurements,
+        "transient_preprocess_results": transient_preprocess_results,
+        "test_ids": test_ids,
+    }
 
     if usage_mode == "간단 LUT":
         if active_section == "Quick LUT":
@@ -2357,6 +2443,7 @@ def _render_quick_lut_tab_v2(
                 _render_finite_signal_consistency_summary(compensation, command_profile)
                 render_startup_compensation_review(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, command_profile)
+                render_actual_drive_review_from_selection(command_profile, feedback_selection)
                 render_feedback_correction_review(command_profile, feedback_metadata or {})
                 render_second_modeling_controls(
                     command_profile=command_profile,

@@ -10,6 +10,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .finite_feedback_peak_correction import apply_finite_feedback_peak_correction
+from .finite_actual_drive import build_actual_drive_review_case
+from .finite_actual_drive import read_actual_drive_result
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 from .ui_upload_cache import add_upload_cache_bytes
 from .ui_upload_cache import build_upload_cache_records
@@ -147,6 +149,138 @@ def apply_feedback_correction_from_selection(
     metadata["feedback_source_file"] = feedback_selection.get("filename") or metadata.get("feedback_source_file")
     metadata["feedback_run_label"] = feedback_selection.get("run_label") or metadata.get("feedback_run_label")
     return corrected, metadata
+
+
+def render_actual_drive_review_from_selection(
+    command_profile: pd.DataFrame,
+    feedback_selection: dict[str, object] | None,
+) -> dict[str, object] | None:
+    st.markdown("#### Actual-drive review")
+    if not feedback_selection or not feedback_selection.get("csv_bytes"):
+        st.info("No actual-drive review result loaded.")
+        return None
+    status = {
+        "uploaded_file_available": True,
+        "review_loaded": False,
+        "next_action": "Press Load / Review Actual-drive Result",
+    }
+    if not st.button("Load / Review Actual-drive Result", key="load_review_actual_drive_result"):
+        cached = st.session_state.get("quick_lut_actual_drive_review_result")
+        if isinstance(cached, dict):
+            _render_actual_drive_review_payload(command_profile, cached)
+            return cached
+        st.dataframe(pd.DataFrame([status]), use_container_width=True)
+        return None
+    suffix = "_" + Path(str(feedback_selection.get("filename") or "actual_drive_result.csv")).name
+    with NamedTemporaryFile(prefix="quick_lut_actual_drive_review_", suffix=suffix, delete=False) as handle:
+        temp_path = Path(handle.name)
+        handle.write(bytes(feedback_selection["csv_bytes"]))
+    try:
+        record = read_actual_drive_result(temp_path)
+        review_frame, metadata = build_actual_drive_review_case(record)
+    except Exception as exc:  # noqa: BLE001 - UI must report parse errors.
+        payload = {
+            **status,
+            "parse_status": "error",
+            "parse_error": str(exc),
+            "source_file": feedback_selection.get("filename"),
+        }
+        st.session_state["quick_lut_actual_drive_review_result"] = payload
+        st.error(str(exc))
+        st.dataframe(pd.DataFrame([payload]), use_container_width=True)
+        return payload
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    payload = {
+        "uploaded_file_available": True,
+        "review_loaded": True,
+        "plot_available": True,
+        "source_file": feedback_selection.get("filename") or record.source_file,
+        "review_frame": review_frame,
+        "metadata": {
+            **metadata,
+            "hallbz_sign_applied": True,
+            "field_normalization_mode": "peak_to_50mT",
+            "voltage_normalization_mode": "peak_to_5V_or_limit",
+        },
+    }
+    st.session_state["quick_lut_actual_drive_review_result"] = payload
+    _render_actual_drive_review_payload(command_profile, payload)
+    return payload
+
+
+def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: dict[str, object]) -> None:
+    metadata = dict(payload.get("metadata") or {})
+    status = {
+        "uploaded_file_available": payload.get("uploaded_file_available", False),
+        "review_loaded": payload.get("review_loaded", False),
+        "plot_available": payload.get("plot_available", False),
+        "hallbz_sign_applied": metadata.get("hallbz_sign_applied", False),
+        "field_normalization_mode": metadata.get("field_normalization_mode", "unavailable"),
+        "voltage_normalization_mode": metadata.get("voltage_normalization_mode", "unavailable"),
+    }
+    st.dataframe(pd.DataFrame([status]), use_container_width=True)
+    frame = payload.get("review_frame")
+    if not isinstance(frame, pd.DataFrame) or not bool(payload.get("plot_available", False)):
+        st.info("No actual-drive review result loaded.")
+        return
+    plot_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
+    plot_frame["Intended target field normalized to +/-50mT"] = pd.to_numeric(
+        frame["normalized_physical_target_output_mT"], errors="coerce"
+    )
+    plot_frame["Actual measured field normalized to +/-50mT"] = pd.to_numeric(
+        frame["normalized_measured_field_mT"], errors="coerce"
+    )
+    plot_frame["Field residual = target - actual"] = (
+        plot_frame["Intended target field normalized to +/-50mT"]
+        - plot_frame["Actual measured field normalized to +/-50mT"]
+    )
+    plot_frame["First modeled voltage command"] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
+    plot_frame["Actual drive voltage from Voltage1_V"] = pd.to_numeric(
+        frame.get("normalized_actual_drive_voltage_v", frame.get("normalized_first_voltage_v")), errors="coerce"
+    )
+    if "second_limited_voltage_v" in command_profile.columns:
+        plot_frame["Second modeled voltage"] = _interp_command_column(command_profile, frame["time_s"], "second_limited_voltage_v")
+    _render_plot(
+        plot_frame,
+        [
+            "Intended target field normalized to +/-50mT",
+            "Actual measured field normalized to +/-50mT",
+            "Field residual = target - actual",
+            "First modeled voltage command",
+            "Actual drive voltage from Voltage1_V",
+            "Second modeled voltage",
+        ],
+        "Intended vs Actual Comparison",
+    )
+    raw_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
+    raw_frame["raw HallBz"] = -pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
+    raw_frame["effective field = -HallBz raw"] = pd.to_numeric(frame["raw_measured_field_mT"], errors="coerce")
+    raw_frame["normalized field"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    raw_frame["raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
+    raw_frame["normalized/limited voltage"] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
+    if "current_a" in frame.columns:
+        raw_frame["current"] = pd.to_numeric(frame["current_a"], errors="coerce")
+    _render_plot(
+        raw_frame,
+        ["raw HallBz", "effective field = -HallBz raw", "normalized field", "raw Voltage1_V", "normalized/limited voltage", "current"],
+        "Raw Actual-drive Visualization",
+    )
+
+
+def _interp_command_column(command_profile: pd.DataFrame, target_time_s: pd.Series, column: str) -> np.ndarray:
+    if "time_s" not in command_profile.columns or column not in command_profile.columns:
+        return np.full(len(target_time_s), np.nan)
+    source_time = pd.to_numeric(command_profile["time_s"], errors="coerce").to_numpy(dtype=float)
+    source_value = pd.to_numeric(command_profile[column], errors="coerce").to_numpy(dtype=float)
+    target_time = pd.to_numeric(target_time_s, errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(source_time) & np.isfinite(source_value)
+    if finite.sum() < 2:
+        return np.full(len(target_time), np.nan)
+    return np.interp(target_time, source_time[finite], source_value[finite], left=np.nan, right=np.nan)
 
 
 def feedback_export_source_column(command_profile: pd.DataFrame) -> str:

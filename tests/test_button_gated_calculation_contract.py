@@ -44,3 +44,19 @@ def test_second_modeling_user_trigger_contract_is_visible() -> None:
     assert "No automatic second correction is generated" in source
     assert "Raw peak values are informational only" in source
     assert "No automatic pass/fail judgement" in source
+
+
+def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:
+    source = APP_UI.read_text(encoding="utf-8")
+    assert "quick_lut_analysis_result" in source
+    assert "cached_analysis.get(\"payload_hash\") == active_payload_hash" in source
+    assert "Loaded analysis result" in source
+
+
+def test_actual_drive_feedback_review_is_button_gated_and_plotted() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
+    assert "Load / Review Actual-drive Result" in source
+    assert "quick_lut_actual_drive_review_result" in source
+    assert "Intended vs Actual Comparison" in source
+    assert "Raw Actual-drive Visualization" in source
+    assert "effective field = -HallBz raw" in source
