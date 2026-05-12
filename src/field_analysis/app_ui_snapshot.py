@@ -446,7 +446,7 @@ def _run_app_shell(
     )
     if active_section == "Data / Cache Status":
         render_workspace_panel()
-        render_dataset_library_panel()
+        render_dataset_library_panel(key_prefix="data_cache_dataset_library")
         render_sidebar_memory_panel()
         return
     if active_section == "LUT Review":

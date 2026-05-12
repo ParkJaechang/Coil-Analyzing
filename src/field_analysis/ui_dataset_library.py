@@ -32,9 +32,9 @@ def dataset_library_status() -> dict[str, object]:
     }
 
 
-def render_dataset_library_panel() -> None:
+def render_dataset_library_panel(*, key_prefix: str = "dataset_library") -> None:
     settings = load_dataset_library_settings()
-    session_key = "dataset_library_root"
+    session_key = f"{key_prefix}_root"
     if session_key not in st.session_state:
         st.session_state[session_key] = str(settings.get("dataset_root") or "")
 
@@ -50,10 +50,10 @@ def render_dataset_library_panel() -> None:
         ).strip()
         current_manifest = None
         action_left, action_right = st.columns(2)
-        if action_left.button("Save Root", use_container_width=True, key="dataset_library_save"):
+        if action_left.button("Save Root", use_container_width=True, key=f"{key_prefix}_save"):
             save_dataset_library_settings({"dataset_root": dataset_root_value})
             st.success("Dataset root saved.")
-        if action_right.button("Manifest Refresh", use_container_width=True, key="dataset_library_refresh"):
+        if action_right.button("Manifest Refresh", use_container_width=True, key=f"{key_prefix}_refresh"):
             if not dataset_root_value:
                 st.warning("Enter a dataset root path first.")
             else:
