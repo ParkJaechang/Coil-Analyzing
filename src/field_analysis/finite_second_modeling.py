@@ -11,8 +11,10 @@ from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_actual_drive_normalization import peak_abs
 
-SUPPORTED_SECOND_MODELING_CYCLES = (1.0,)
-UNSUPPORTED_SECOND_MODELING_CYCLES = (1.25, 1.5, 1.75, 2.0)
+SUPPORTED_SECOND_MODELING_CYCLES = (1.0, 1.5)
+UNSUPPORTED_SECOND_MODELING_CYCLES = (1.25, 1.75, 2.0)
+PRODUCTION_CYCLE_POLICY = "1p0_1p5_cycles"
+UNSUPPORTED_CYCLE_STATUS = "unsupported_cycle_policy_1p0_1p5_only"
 
 
 def generate_second_modeled_voltage_lut(
@@ -28,7 +30,7 @@ def generate_second_modeled_voltage_lut(
     base_metadata = {
         "second_modeling_method": "residual_proportional_feedback",
         "correction_gain": float(correction_gain),
-        "production_cycle_policy": "1cycle_only",
+        "production_cycle_policy": PRODUCTION_CYCLE_POLICY,
         "supported_production_cycles": list(SUPPORTED_SECOND_MODELING_CYCLES),
         "unsupported_cycles": list(UNSUPPORTED_SECOND_MODELING_CYCLES),
         "fourier_resynthesis_involved": False,
@@ -39,7 +41,7 @@ def generate_second_modeled_voltage_lut(
         return profile, {
             **base_metadata,
             "second_modeling_available": False,
-            "second_modeling_status": "unsupported_cycle_policy_1cycle_only",
+            "second_modeling_status": UNSUPPORTED_CYCLE_STATUS,
             "second_correction_delta_v_generated": False,
             "second_voltage_v_generated": False,
             "second_lut_generated": False,
@@ -88,7 +90,7 @@ def generate_second_modeled_voltage_lut(
             "limited_voltage_v": second_limited,
             "final_voltage_v": final_voltage,
             "active_window_mask": active_mask,
-            "production_cycle_policy": "1cycle_only",
+            "production_cycle_policy": PRODUCTION_CYCLE_POLICY,
             "modeling_stage": "second_model",
             "target_unchanged": True,
         }

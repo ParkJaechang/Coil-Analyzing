@@ -188,8 +188,8 @@ def test_quick_lut_source_contains_cache_status_and_one_cycle_policy_copy() -> N
         "dataset manifest exists",
         "Load remembered LUT files",
         "Cached files exist but are not active",
-        "Production finite correction is 1.0 cycle only.",
-        "2-cycle policy discarded.",
+        "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.",
+        "2-cycle production 정책은 폐기되었습니다.",
     ]
     missing = [item for item in expected if item not in source]
     assert not missing

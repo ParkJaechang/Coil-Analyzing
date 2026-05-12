@@ -52,7 +52,26 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert bool(frame["target_unchanged"].iloc[0]) is True
 
 
-def test_second_modeling_rejects_non_one_cycle_without_delta(tmp_path: Path) -> None:
+def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.5cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        profile,
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.5,
+        correction_gain=0.25,
+    )
+
+    assert metadata["second_modeling_available"] is True
+    assert metadata["second_modeling_status"] == "ok"
+    assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
+    assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 5.0 + 1e-12
+
+
+def test_second_modeling_rejects_unsupported_cycle_without_delta(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.25cycle_result.csv"
     _write_actual_drive_csv(actual)
 
@@ -60,7 +79,7 @@ def test_second_modeling_rejects_non_one_cycle_without_delta(tmp_path: Path) -> 
 
     assert frame.equals(_first_profile())
     assert metadata["second_modeling_available"] is False
-    assert metadata["second_modeling_status"] == "unsupported_cycle_policy_1cycle_only"
+    assert metadata["second_modeling_status"] == "unsupported_cycle_policy_1p0_1p5_only"
     assert metadata["second_correction_delta_v_generated"] is False
     assert "second_correction_delta_v" not in frame.columns
     assert "second_limited_voltage_v" not in frame.columns

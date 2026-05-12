@@ -60,8 +60,8 @@ def test_export_final_modeled_lut_uses_limited_voltage_sample_by_sample() -> Non
     assert "correction_delta_v" not in frame.columns
     assert "second_voltage_v" not in frame.columns
     assert metadata["finite_production_cycle_supported"] is False
-    assert metadata["finite_production_export_status"] == "unsupported_cycle_policy_1cycle_only"
-    assert metadata["production_cycle_policy"] == "1cycle_only"
+    assert metadata["finite_production_export_status"] == "unsupported_cycle_policy_1p0_1p5_only"
+    assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
 
 
 def test_exported_lut_csv_round_trips_with_seconds_timebase_preserved() -> None:
@@ -125,5 +125,14 @@ def test_export_one_cycle_reports_supported_finite_production_cycle() -> None:
     metadata = payload["metadata"]
     assert metadata["finite_production_cycle_supported"] is True
     assert metadata["finite_production_export_status"] == "ok"
-    assert metadata["production_supported_cycles"] == [1.0]
-    assert metadata["unsupported_cycles"] == [1.25, 1.5, 1.75, 2.0]
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]
+    assert metadata["unsupported_cycles"] == [1.25, 1.75, 2.0]
+
+
+def test_export_one_point_five_cycle_reports_supported_finite_production_cycle() -> None:
+    payload = build_final_modeled_voltage_lut_export(_command_profile(), freq_hz=1.0, cycle_count=1.5, waveform="sine")
+
+    metadata = payload["metadata"]
+    assert metadata["finite_production_cycle_supported"] is True
+    assert metadata["finite_production_export_status"] == "ok"
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]

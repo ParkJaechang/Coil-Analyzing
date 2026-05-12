@@ -42,9 +42,9 @@ def test_core_policy_wording_is_visible_in_user_facing_ui() -> None:
         "DCAMP gain is handled outside this app.",
         "HallBz sign convention applied: effective field = -HallBz raw.",
         "Final LUT uses plotted final voltage samples, not Fourier resynthesis.",
-        "Production finite correction is 1.0 cycle only.",
-        "1.25 / 1.5 / 1.75 / 2.0 are Raw Review only",
-        "2-cycle policy discarded.",
+        "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.",
+        "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다.",
+        "2-cycle production 정책은 폐기되었습니다.",
     ]
     missing = [item for item in expected if item not in source]
     assert not missing, f"Missing simplified workflow policy copy: {missing}"

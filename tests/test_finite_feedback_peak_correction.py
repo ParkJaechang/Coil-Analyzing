@@ -50,10 +50,11 @@ def _command_profile(*, freq_hz: float = 1.0, cycle_count: float = 1.0) -> pd.Da
     )
 
 
-def test_quick_lut_finite_feedback_peak_correction_supports_one_cycle_only(tmp_path: Path) -> None:
-    feedback_path = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
-    _write_feedback_csv(feedback_path, cycle_count=1.0)
-    profile = _command_profile(cycle_count=1.0)
+@pytest.mark.parametrize("cycle_count", [1.0, 1.5])
+def test_quick_lut_finite_feedback_peak_correction_supports_production_cycles(tmp_path: Path, cycle_count: float) -> None:
+    feedback_path = tmp_path / f"finite_recommended_voltage_lut_sine_1Hz_{cycle_count:g}cycle_result.csv"
+    _write_feedback_csv(feedback_path, cycle_count=cycle_count)
+    profile = _command_profile(cycle_count=cycle_count)
     original_target = profile["physical_target_output_mT"].copy()
 
     corrected, metadata = apply_finite_feedback_peak_correction(
@@ -61,7 +62,7 @@ def test_quick_lut_finite_feedback_peak_correction_supports_one_cycle_only(tmp_p
         feedback_path,
         waveform_type="sine",
         freq_hz=1.0,
-        cycle_count=1.0,
+        cycle_count=cycle_count,
         forward_model=lambda time_s, voltage_v: voltage_v * 10.0,
     )
 
@@ -88,10 +89,10 @@ def test_quick_lut_finite_feedback_peak_correction_supports_one_cycle_only(tmp_p
     assert metadata["exported_voltage_source_column"] == "feedback_corrected_limited_voltage_v"
     assert metadata["run_waveform_voltage_source"] == "feedback_corrected_limited_voltage_v"
     assert metadata["correction_method"] == "residual_proportional_feedback"
-    assert metadata["production_supported_cycles"] == [1.0]
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]
     assert metadata["reference_supported_cycles"] == []
-    assert metadata["unsupported_cycles"] == [1.25, 1.5, 1.75, 2.0]
-    assert metadata["production_cycle_policy"] == "1cycle_only"
+    assert metadata["unsupported_cycles"] == [1.25, 1.75, 2.0]
+    assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
     assert metadata["cycle_policy"] == "production_supported"
     assert np.nanmax(np.abs(corrected["feedback_correction_delta_v"])) == pytest.approx(metadata["correction_delta_peak_v"])
     assert corrected["feedback_corrected_limited_voltage_v"].equals(corrected["feedback_corrected_recommended_voltage_v"]) or metadata[
@@ -108,8 +109,8 @@ def test_quick_lut_finite_feedback_peak_correction_supports_one_cycle_only(tmp_p
     assert metadata["displayed_predicted_valid"] is True
 
 
-@pytest.mark.parametrize("cycle_count", [1.25, 1.5, 1.75, 2.0])
-def test_feedback_peak_correction_rejects_non_one_cycle_production_cycles(tmp_path: Path, cycle_count: float) -> None:
+@pytest.mark.parametrize("cycle_count", [1.25, 1.75, 2.0])
+def test_feedback_peak_correction_rejects_unsupported_production_cycles(tmp_path: Path, cycle_count: float) -> None:
     feedback_path = tmp_path / f"finite_recommended_voltage_lut_sine_1Hz_{cycle_count:g}cycle_result.csv"
     _write_feedback_csv(feedback_path, cycle_count=cycle_count)
     profile = _command_profile(cycle_count=cycle_count)
@@ -124,15 +125,15 @@ def test_feedback_peak_correction_rejects_non_one_cycle_production_cycles(tmp_pa
 
     assert corrected is not profile
     assert metadata["feedback_correction_available"] is False
-    assert metadata["feedback_correction_status"] == "unsupported_cycle_policy_1cycle_only"
-    assert metadata["feedback_correction_unavailable_reason"] == "non_1cycle_production_disabled"
+    assert metadata["feedback_correction_status"] == "unsupported_cycle_policy_1p0_1p5_only"
+    assert metadata["feedback_correction_unavailable_reason"] == "cycle_not_in_1p0_1p5_production_policy"
     assert metadata["feedback_used_for_correction"] is False
     assert metadata["target_unchanged"] is True
-    assert metadata["suggested_replacement_cycle"] == 1.0
-    assert metadata["production_supported_cycles"] == [1.0]
+    assert metadata["suggested_replacement_cycle"] == 1.5
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]
     assert metadata["reference_supported_cycles"] == []
-    assert metadata["unsupported_cycles"] == [1.25, 1.5, 1.75, 2.0]
-    assert metadata["production_cycle_policy"] == "1cycle_only"
+    assert metadata["unsupported_cycles"] == [1.25, 1.75, 2.0]
+    assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
     assert "feedback_correction_delta_v" not in corrected.columns
     assert "feedback_corrected_limited_voltage_v" not in corrected.columns
     assert "second_voltage_v" not in corrected.columns

@@ -24,9 +24,9 @@ def render_second_modeling_controls(
     st.markdown("#### 2nd Modeled Voltage LUT")
     st.caption("User-triggered only. No automatic second correction is generated on upload or option changes.")
     st.caption("Raw peak values are informational only. User decides final suitability from graphs. No automatic pass/fail judgement.")
-    supported = np.isfinite(cycle_count) and abs(float(cycle_count) - 1.0) <= 1e-9
+    supported = np.isfinite(cycle_count) and any(abs(float(cycle_count) - supported_cycle) <= 1e-9 for supported_cycle in (1.0, 1.5))
     if not supported:
-        st.info("2nd modeling unavailable: production finite correction is 1.0 cycle only.")
+        st.info("2nd modeling unavailable: Production finite 보정은 1.0 / 1.5 cycle만 지원합니다. 1.25 / 1.75 / 2.0 cycle은 검토용입니다.")
         return
     if not feedback_selection or not feedback_selection.get("csv_bytes"):
         st.info("Upload/select an actual-drive result before generating the 2nd modeled LUT.")
