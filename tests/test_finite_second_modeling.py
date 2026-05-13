@@ -55,6 +55,42 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert metadata["source_time_monotonic"] is True
 
 
+def test_second_modeling_uses_smoothed_measured_field_for_residual(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    text = actual.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    header_index = next(index for index, line in enumerate(lines) if line.startswith("Row,TimeMs"))
+    noisy_rows = []
+    for row_index, line in enumerate(lines[header_index + 1 :]):
+        parts = line.split(",")
+        if len(parts) >= 9:
+            parts[4] = f"{float(parts[4]) + (8.0 if row_index % 2 else -8.0):.6f}"
+        noisy_rows.append(",".join(parts))
+    actual.write_text("\n".join([*lines[: header_index + 1], *noisy_rows]), encoding="utf-8")
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+    )
+
+    assert metadata["measured_field_smoothing_enabled"] is True
+    assert metadata["measured_field_smoothing_status"] == "ok"
+    assert metadata["residual_source_for_second_modeling"] == "smoothed_measured_field"
+    assert metadata["correction_delta_source"] == "first_model_residual_smoothed_mT"
+    assert {
+        "measured_field_smoothed_mT",
+        "second_modeling_measured_field_mT",
+        "first_model_residual_raw_mT",
+        "first_model_residual_smoothed_mT",
+    }.issubset(frame.columns)
+    assert np.allclose(frame["first_model_residual_mT"], frame["first_model_residual_smoothed_mT"], equal_nan=True)
+    assert not np.allclose(frame["first_model_residual_raw_mT"], frame["first_model_residual_smoothed_mT"], equal_nan=True)
+
+
 def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
     _write_actual_drive_csv(actual)
@@ -171,7 +207,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "waveform_type=waveform_type" in source
     assert "목표 자기장" in source
     assert "실측 자기장" in source
-    assert "오차 (목표 - 실측)" in source
+    assert "오차 (목표 - smoothing 실측)" in source
     assert "1차 모델링 전압" in source
     assert "2차 보정 전압" in source
     assert "전압 제한 후 2차 command" in source
@@ -187,6 +223,9 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "quick_lut_actual_drive_review_result" in source
     assert "2차 보정 command runtime trace" in source
     assert "단계별 trace" in source
+    assert "실측 자기장 smoothing" in source
+    assert "오차 (목표 - smoothing 실측)" in source
+    assert "보정 전압 변화량 = gain × 오차 / 50mT × 5V" in source
     assert "native relative timebase" in source
     assert "command/target grid interpolation을 사용하지 않습니다" in source
 
@@ -214,6 +253,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "second_limited_voltage_v" not in frames["voltage"].columns
     assert "2차 보정 전압" in frames["voltage"].columns
     assert "전압 제한 후 2차 command" in frames["voltage"].columns
+    assert "실측 자기장 smoothing" in frames["field"].columns
     assert np.isclose(frames["raw"]["Raw HallBz"].iloc[0], 1.0)
     assert np.isclose(frames["raw"]["부호 보정 자기장 (-HallBz)"].iloc[0], -1.0)
     native = build_native_actual_drive_raw_plot_frame(

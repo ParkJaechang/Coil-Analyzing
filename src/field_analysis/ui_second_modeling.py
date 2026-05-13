@@ -17,7 +17,8 @@ from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
 
 TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
-RESIDUAL_LABEL = "오차 (목표 - 실측)"
+SMOOTHED_FIELD_LABEL = "실측 자기장 smoothing"
+RESIDUAL_LABEL = "오차 (목표 - smoothing 실측)"
 FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
 ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
 SECOND_VOLTAGE_LABEL = "2차 보정 전압"
@@ -138,6 +139,15 @@ def render_second_modeling_controls(
             key="second_modeling_correction_gain",
         )
     )
+    with st.expander("2차 보정 gain 설명", expanded=False):
+        st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다.")
+        st.caption("0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
+        st.caption("값이 클수록 2차 전압이 더 강하게 바뀌지만, 노이즈나 과보정 영향도 커질 수 있습니다.")
+        st.caption("기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
+        st.caption("오차 = 목표 자기장 - smoothing 실측 자기장")
+        st.caption("보정 전압 변화량 = gain × 오차 / 50mT × 5V")
+        st.caption("2차 command = 1차 command + 보정 전압 변화량")
+        st.caption("최종 2차 command는 ±5V로 제한됩니다.")
     selected_file = feedback_selection.get("filename")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (
@@ -346,12 +356,15 @@ def _render_second_modeling_result(
     st.plotly_chart(
         _plot_labeled_frame(
             plot_frames["field"],
-            [TARGET_FIELD_LABEL, MEASURED_FIELD_LABEL, RESIDUAL_LABEL],
+            [TARGET_FIELD_LABEL, MEASURED_FIELD_LABEL, SMOOTHED_FIELD_LABEL, RESIDUAL_LABEL],
             title="목표 자기장 vs 실측 자기장",
             yaxis_title="자기장 / 오차 (mT)",
         ),
         use_container_width=True,
     )
+    st.caption("Raw 실측 자기장은 그대로 표시합니다.")
+    st.caption("2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
+    st.caption("오차는 목표 자기장 - smoothing 실측 자기장으로 계산됩니다.")
     st.markdown("##### 2차 보정 command")
     st.plotly_chart(
         _plot_labeled_frame(
@@ -381,6 +394,7 @@ def _render_second_modeling_result(
                     EFFECTIVE_FIELD_LABEL,
                     BASELINE_REMOVED_FIELD_LABEL,
                     NORMALIZED_FIELD_LABEL,
+                    SMOOTHED_FIELD_LABEL,
                     RAW_VOLTAGE_LABEL,
                     NORMALIZED_VOLTAGE_LABEL,
                 ],
@@ -451,6 +465,9 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
 
     _copy_numeric(command_profile, field, "physical_target_output_mT", TARGET_FIELD_LABEL)
     _copy_numeric(command_profile, field, "measured_field_normalized_mT", MEASURED_FIELD_LABEL)
+    _copy_numeric(command_profile, field, "measured_field_smoothed_mT", SMOOTHED_FIELD_LABEL)
+    if SMOOTHED_FIELD_LABEL not in field.columns and MEASURED_FIELD_LABEL in field.columns:
+        field[SMOOTHED_FIELD_LABEL] = field[MEASURED_FIELD_LABEL]
     _copy_numeric(command_profile, field, "first_model_residual_mT", RESIDUAL_LABEL)
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
@@ -466,6 +483,7 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     _copy_numeric(command_profile, raw, "measured_field_effective_mT", EFFECTIVE_FIELD_LABEL)
     _copy_numeric(command_profile, raw, "baseline_removed_effective_field_mT", BASELINE_REMOVED_FIELD_LABEL)
     _copy_numeric(command_profile, raw, "measured_field_normalized_mT", NORMALIZED_FIELD_LABEL)
+    _copy_numeric(command_profile, raw, "measured_field_smoothed_mT", SMOOTHED_FIELD_LABEL)
     _copy_numeric(command_profile, raw, "actual_drive_voltage_v", RAW_VOLTAGE_LABEL)
     _copy_numeric(command_profile, raw, "actual_drive_voltage_normalized_v", NORMALIZED_VOLTAGE_LABEL)
     return {"field": field, "voltage": voltage, "raw": raw}
@@ -487,6 +505,7 @@ def build_native_actual_drive_raw_plot_frame(review_frame: pd.DataFrame) -> pd.D
         _copy_numeric(review_frame, raw, "measured_field_normalized_mT", NORMALIZED_FIELD_LABEL)
     else:
         _copy_numeric(review_frame, raw, "normalized_measured_field_mT", NORMALIZED_FIELD_LABEL)
+    _copy_numeric(review_frame, raw, "measured_field_smoothed_mT", SMOOTHED_FIELD_LABEL)
     _copy_numeric(review_frame, raw, "raw_first_voltage_v", RAW_VOLTAGE_LABEL)
     _copy_numeric(review_frame, raw, "normalized_first_voltage_v", NORMALIZED_VOLTAGE_LABEL)
     if "current_a" in review_frame.columns:

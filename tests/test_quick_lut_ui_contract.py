@@ -195,6 +195,14 @@ def test_quick_lut_source_contains_cache_status_and_one_cycle_policy_copy() -> N
     assert not missing
 
 
+def test_quick_lut_finite_defaults_are_production_focused() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+
+    assert "UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5" in source
+    assert 'st.checkbox(\n            "구동 cycle 수 제한 사용",\n            value=True,' in source
+    assert "index=cycle_options.index(UI_DEFAULT_FINITE_CYCLE_COUNT)" in source
+
+
 def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits_finite_cycles() -> None:
     with _isolated_app_state() as state_dir:
         records = [
@@ -226,11 +234,12 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         assert not any(label.startswith("파형 보정 목표") for label in number_input_labels)
 
         finite_toggle = next(item for item in app.checkbox if getattr(item, "key", None) == "finite_cycle_mode_v2")
-        finite_toggle.check().run()
+        assert finite_toggle.value is True
 
         selectbox_by_key = {getattr(item, "key", None): item for item in app.selectbox}
         number_input_keys = {getattr(item, "key", None) for item in app.number_input}
         finite_cycle_select = selectbox_by_key["target_cycle_count_v2"]
 
         assert [str(option) for option in finite_cycle_select.options] == ["1.0", "1.25", "1.5", "1.75"]
+        assert str(finite_cycle_select.value) == "1.5"
         assert "target_cycle_count_v2" not in number_input_keys

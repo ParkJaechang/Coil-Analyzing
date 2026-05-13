@@ -111,13 +111,15 @@ def generate_second_modeled_voltage_lut(
         }
     target = _target(profile, review, time_s)
     measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
+    measured_smoothed, smoothing_meta = _smooth_measured_field_for_second_modeling(measured, active_mask)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
     effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
     baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s)
     normalized_field = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
-    residual = target - measured
-    delta = (residual / 50.0) * float(voltage_limit_v) * float(correction_gain)
+    residual_raw = target - measured
+    residual_smoothed = target - measured_smoothed
+    delta = (residual_smoothed / 50.0) * float(voltage_limit_v) * float(correction_gain)
     delta[~active_mask | ~np.isfinite(delta)] = 0.0
     delta = _smooth(delta)
     second_voltage = first_voltage + delta
@@ -140,7 +142,11 @@ def generate_second_modeled_voltage_lut(
             "measured_field_baseline_removed_mT": baseline_removed_effective,
             "measured_field_normalized_mT": normalized_field,
             "normalized_effective_field_mT": normalized_field,
-            "first_model_residual_mT": residual,
+            "measured_field_smoothed_mT": measured_smoothed,
+            "second_modeling_measured_field_mT": measured_smoothed,
+            "first_model_residual_raw_mT": residual_raw,
+            "first_model_residual_smoothed_mT": residual_smoothed,
+            "first_model_residual_mT": residual_smoothed,
             "second_correction_delta_v": delta,
             "second_modeled_voltage_v": second_voltage,
             "second_limited_voltage_v": second_limited,
@@ -178,6 +184,7 @@ def generate_second_modeled_voltage_lut(
         "automatic_pass_fail_judgement": False,
         "field_normalization_scale_factor": review_meta.get("field_normalization_scale_factor"),
         "voltage_normalization_scale_factor": review_meta.get("voltage_normalization_scale_factor"),
+        **smoothing_meta,
     }
     return result, metadata
 
@@ -265,6 +272,48 @@ def _source_covers_target_active_window(source_time: Any, target_active_time: np
 
 def _smooth(values: np.ndarray, window: int = 7) -> np.ndarray:
     return pd.Series(np.asarray(values, dtype=float)).rolling(window=window, center=True, min_periods=1).mean().to_numpy(dtype=float)
+
+
+def _smooth_measured_field_for_second_modeling(values: np.ndarray, active_mask: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    raw = np.asarray(values, dtype=float)
+    smoothed = raw.copy()
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
+    active_count = int(active.sum())
+    base_meta: dict[str, Any] = {
+        "measured_field_smoothing_enabled": True,
+        "measured_field_smoothing_method": "median_then_rolling",
+        "measured_field_smoothing_polyorder": None,
+        "residual_source_for_second_modeling": "smoothed_measured_field",
+        "correction_delta_source": "first_model_residual_smoothed_mT",
+    }
+    if active_count < 3:
+        return smoothed, {
+            **base_meta,
+            "measured_field_smoothing_status": "unavailable_too_few_active_samples",
+            "measured_field_smoothing_window_samples": 1,
+            "measured_field_smoothing_median_window_samples": 1,
+        }
+
+    median_window = _odd_window(min(max(5, active_count // 25), 9), active_count)
+    smooth_window = _odd_window(min(max(7, int(round(active_count * 0.05))), 101), active_count)
+    active_values = raw[active]
+    series = pd.Series(active_values).interpolate(limit_direction="both").ffill().bfill()
+    medianed = series.rolling(window=median_window, center=True, min_periods=1).median()
+    rolled = medianed.rolling(window=smooth_window, center=True, min_periods=1).mean()
+    smoothed[active] = rolled.to_numpy(dtype=float)
+    return smoothed, {
+        **base_meta,
+        "measured_field_smoothing_status": "ok",
+        "measured_field_smoothing_window_samples": int(smooth_window),
+        "measured_field_smoothing_median_window_samples": int(median_window),
+    }
+
+
+def _odd_window(value: int, max_size: int) -> int:
+    size = max(1, min(int(value), int(max_size)))
+    if size % 2 == 0:
+        size = max(1, size - 1)
+    return size
 
 
 __all__ = ["generate_second_modeled_voltage_lut"]

@@ -86,7 +86,7 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_export"
 DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
 UI_SUPPORTED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (0.75,)
-UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
+UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5
 
 
 def _runtime_git_value(*args: str) -> str:
@@ -2227,11 +2227,12 @@ def _render_quick_lut_tab_v2(
         )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
-            value=False,
+            value=True,
             help="끄면 기존 steady-state 1-cycle 보정 로직을 사용합니다. 켜면 0초 시작/종료를 포함한 finite run 보정을 계산합니다.",
             key="finite_cycle_mode_v2",
         )
         if finite_cycle_mode:
+            cycle_options = [float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS]
             st.caption(
                 "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
                 "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
@@ -2242,8 +2243,8 @@ def _render_quick_lut_tab_v2(
             target_cycle_count = float(
                 st.selectbox(
                     "구동 cycle 수",
-                    options=[float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS],
-                    index=1,
+                    options=cycle_options,
+                    index=cycle_options.index(UI_DEFAULT_FINITE_CYCLE_COUNT),
                     key="target_cycle_count_v2",
                     help=(
                         "1.0 / 1.5 cycle은 production 대상입니다. 1.25 / 1.75 / 2.0 cycle은 review-only입니다."
