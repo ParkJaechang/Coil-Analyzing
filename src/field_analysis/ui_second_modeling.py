@@ -20,7 +20,7 @@ MEASURED_FIELD_LABEL = "실측 자기장"
 RESIDUAL_LABEL = "오차 (목표 - 실측)"
 FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
 ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
-SECOND_VOLTAGE_LABEL = "2차 모델링 전압"
+SECOND_VOLTAGE_LABEL = "2차 보정 전압"
 SECOND_LIMITED_VOLTAGE_LABEL = "전압 제한 후 2차 command"
 CORRECTION_DELTA_LABEL = "보정 전압 변화량"
 RAW_HALLBZ_LABEL = "Raw HallBz"
@@ -39,17 +39,25 @@ def render_second_modeling_controls(
     cycle_count: float,
     waveform_type: str | None = None,
 ) -> None:
-    st.markdown("#### 2차 모델링")
+    st.markdown("#### 3. 1차 실구동 결과")
+    st.caption("1차 모델링 command로 장비를 실제 구동해서 얻은 측정 데이터입니다. command가 아니라 measurement입니다.")
+    _render_actual_drive_selection_status(
+        feedback_selection,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+        waveform_type=waveform_type,
+    )
+    st.markdown("#### 4. 2차 보정 command")
     st.caption("사용자가 버튼을 눌렀을 때만 생성합니다. 업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다.")
     st.caption("Raw peak 값은 참고용입니다. 최종 적합성은 사용자가 그래프를 보고 판단합니다. 자동 합격/불합격 판정은 하지 않습니다.")
     supported = np.isfinite(cycle_count) and any(
         abs(float(cycle_count) - supported_cycle) <= 1e-9 for supported_cycle in (1.0, 1.5)
     )
     if not supported:
-        st.info("2차 모델링 사용 불가: Production finite 보정은 1.0 / 1.5 cycle만 지원합니다. 1.25 / 1.75 / 2.0 cycle은 검토용입니다.")
+        st.info("2차 보정 command 사용 불가: Production finite 보정은 1.0 / 1.5 cycle만 지원합니다. 1.25 / 1.75 / 2.0 cycle은 검토용입니다.")
         return
     if not feedback_selection or not feedback_selection.get("csv_bytes"):
-        st.info("2차 모델링 전압 LUT를 만들려면 먼저 실구동 결과 CSV를 업로드/선택하고 검토하십시오.")
+        st.info("2차 보정 command를 만들려면 먼저 TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 업로드/선택하십시오.")
         return
     gain = float(
         st.number_input(
@@ -70,8 +78,8 @@ def render_second_modeling_controls(
     )
     st.session_state["quick_lut_second_model_dirty"] = dirty
     if dirty:
-        st.warning("설정 또는 실구동 파일이 변경되었습니다. 2차 모델링 실행을 다시 눌러 갱신하십시오.")
-    if not st.button("2차 모델링 전압 LUT 생성", key="generate_second_modeled_voltage_lut"):
+        st.warning("설정 또는 실구동 파일이 변경되었습니다. 2차 보정 command 생성을 다시 눌러 갱신하십시오.")
+    if not st.button("2차 보정 command 생성", key="generate_second_modeled_voltage_lut"):
         if isinstance(cached, dict) and isinstance(cached.get("command_profile"), pd.DataFrame):
             review_payload = st.session_state.get("quick_lut_actual_drive_review_result")
             native_review = review_payload.get("review_frame") if isinstance(review_payload, dict) else None
@@ -84,9 +92,9 @@ def render_second_modeling_controls(
                 native_review_frame=native_review if isinstance(native_review, pd.DataFrame) else None,
             )
         else:
-            st.info("실구동 결과 파일 업로드됨: 없음 또는 선택 안 됨. 다음 작업: 2차 모델링 실행을 눌러 실구동 검토와 2차 보정을 시작하십시오.")
+            st.info("실구동 결과 파일 업로드됨: 없음 또는 선택 안 됨. 다음 작업: 2차 보정 command 생성을 눌러 실구동 검토와 2차 보정을 시작하십시오.")
         return
-    st.caption("2차 모델링 실행을 누르면 실구동 결과 검토 plot과 2차 보정 전압 LUT를 한 번에 생성합니다.")
+    st.caption("2차 보정 command 생성을 누르면 실구동 결과 검토 plot과 2차 보정 전압 LUT를 한 번에 생성합니다.")
     suffix = "_" + Path(str(feedback_selection.get("filename") or "actual_drive_result.csv")).name
     with NamedTemporaryFile(prefix="quick_lut_second_model_", suffix=suffix, delete=False) as handle:
         temp_path = Path(handle.name)
@@ -204,7 +212,7 @@ def _render_second_modeling_result(
             use_container_width=True,
         )
     if metadata.get("second_modeling_status") != "ok":
-        st.info(f"2차 모델링 사용 불가: {metadata.get('second_modeling_status', 'unknown')}")
+        st.info(f"2차 보정 command 사용 불가: {metadata.get('second_modeling_status', 'unknown')}")
         if isinstance(native_review_frame, pd.DataFrame):
             with st.expander("Raw 데이터 상세 보기", expanded=True):
                 st.caption("이 plot은 실구동 result의 native relative timebase를 사용하며, command/target grid interpolation을 사용하지 않습니다.")
@@ -226,9 +234,9 @@ def _render_second_modeling_result(
                     use_container_width=True,
                 )
         return
-    st.success("2차 모델링 완료")
+    st.success("2차 보정 command 생성 완료")
     st.info(
-        "2차 모델링 상태: 완료\n\n"
+        "2차 보정 command 상태: 완료\n\n"
         f"사용한 실구동 결과 파일: {metadata.get('quick_lut_actual_drive_selected_file') or metadata.get('actual_drive_source_file', 'unknown')}\n\n"
         f"보정 전압 최대값: {metadata.get('correction_delta_peak_v', 'unknown')}\n\n"
         f"전압 제한 상태: {metadata.get('voltage_limit_status', 'unknown')}\n\n"
@@ -245,17 +253,19 @@ def _render_second_modeling_result(
         ),
         use_container_width=True,
     )
-    st.markdown("##### 1차 전압 vs 2차 보정 전압")
+    st.markdown("##### 2차 보정 command")
     st.plotly_chart(
         _plot_labeled_frame(
             plot_frames["voltage"],
             [FIRST_VOLTAGE_LABEL, CORRECTION_DELTA_LABEL, SECOND_VOLTAGE_LABEL, SECOND_LIMITED_VOLTAGE_LABEL],
-            title="2차 모델링 최종 전압 후보",
+            title="2차 보정 command",
             yaxis_title="전압 (V)",
         ),
         use_container_width=True,
     )
-    st.caption("이 plot은 2차 모델링 결과입니다. 1차 command plot과 별도로 표시됩니다. 최종 LUT 추출에서 2차 모델링 결과를 선택할 경우 이 전압 샘플이 저장됩니다.")
+    st.caption("이 전압은 1차 실구동 결과를 이용해 다시 만든 2차 후보입니다.")
+    st.caption("1차 command plot과 별도입니다.")
+    st.caption("최종 LUT 추출에서 2차 보정 command를 선택할 경우 이 전압 샘플이 저장됩니다.")
     st.caption("2차 결과가 생겨도 최종 LUT 추출 대상은 자동으로 바뀌지 않습니다.")
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         raw_plot_frame = (
@@ -308,6 +318,30 @@ def _render_actual_drive_data_card(metadata: dict[str, object], *, cycle_count: 
     st.markdown("##### 사용 중인 1차 실구동 데이터")
     st.caption("현재 이 파일을 2차 모델링 입력으로 사용합니다.")
     st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
+
+
+def _render_actual_drive_selection_status(
+    feedback_selection: dict[str, object] | None,
+    *,
+    freq_hz: float,
+    cycle_count: float,
+    waveform_type: str | None,
+) -> None:
+    st.markdown("##### 사용 중인 1차 실구동 데이터")
+    if not feedback_selection:
+        st.info("실구동 결과 CSV가 아직 선택되지 않았습니다. TimeMs / Voltage1_V / HallBz 컬럼이 있는 측정 데이터를 선택하십시오.")
+        return
+    rows = [
+        ("파일명", feedback_selection.get("filename", "unknown")),
+        ("데이터 source", feedback_selection.get("source_label", feedback_selection.get("source", "업로드 파일 또는 uploads/2nd"))),
+        ("schema", "TimeMs / Voltage1_V / HallBz"),
+        ("현재 Quick LUT 설정", f"target waveform={waveform_type}, freq={freq_hz}, cycle={cycle_count}"),
+        ("match 상태", feedback_selection.get("match_status", feedback_selection.get("selection_reason", "버튼 실행 시 검증"))),
+        ("timebase status", feedback_selection.get("timebase_status", "버튼 실행 시 검증")),
+        ("HallBz convention", "effective field = -HallBz raw"),
+    ]
+    st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
+    st.caption("현재 이 파일을 2차 모델링 입력 후보로 사용합니다. production 2차 보정은 버튼 실행 시 schema, timebase, freq/cycle match를 다시 검증합니다.")
 
 
 def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str, pd.DataFrame]:

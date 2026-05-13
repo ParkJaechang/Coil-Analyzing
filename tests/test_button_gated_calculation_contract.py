@@ -33,7 +33,7 @@ def test_heavy_app_paths_have_explicit_buttons() -> None:
         "Load LUT CSV",
         "Render LUT Plot",
         "Review Actual-drive Result",
-        "2차 모델링 전압 LUT 생성",
+        "2차 보정 command 생성",
     ]:
         assert marker in combined
 
@@ -54,6 +54,9 @@ def test_quick_lut_runtime_preserves_first_model_snapshot_for_startup_review() -
     assert 'plot_command_waveform(first_command_profile, value_column="limited_voltage_v")' in source
     assert "render_startup_compensation_review(compensation, first_command_profile)" in source
     assert "command_profile=first_command_profile" in source
+    assert "#### 2. 1차 모델링 command" in source
+    assert "#### 1. LUT 데이터 준비" in source
+    assert "이 전압은 실제 장비에 처음 넣는 1차 command입니다." in source
 
 
 def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:

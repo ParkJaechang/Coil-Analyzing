@@ -373,8 +373,8 @@ def test_user_facing_quick_lut_feedback_default_copy_is_korean() -> None:
         "Quick LUT 피드백 보정",
         "최종 전압 LUT 추출",
         "현재 추출 대상",
-        "1차 모델링 결과",
-        "2차 모델링 결과",
+        "1차 모델링 command",
+        "2차 보정 command",
         "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장합니다.",
         "상세 진단",
     ]
@@ -399,5 +399,5 @@ def test_final_lut_export_hides_internal_metadata_from_default_screen() -> None:
 
     default_region = source.split('with st.expander("상세 진단"', maxsplit=1)[0]
     assert "exported_voltage_source_column" not in default_region
-    assert "현재 추출 대상: 1차 모델링 결과" in source
-    assert "현재 추출 대상: 2차 모델링 결과" in source
+    assert "현재 추출 대상: 1차 모델링 command" in source
+    assert "현재 추출 대상: 2차 보정 command" in source

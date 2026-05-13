@@ -18,7 +18,7 @@ def test_target_support_predicted_semantics_markers_exist() -> None:
     assert "Predicted Output" in source
     assert "Support Reference" in source
     assert "Support-Blended Preview" in source
-    assert "Command Waveform" in source
+    assert "1차 모델링 command" in source
     assert "Internal Reference (debug, hidden by default)" in source
 
 
@@ -27,12 +27,11 @@ def test_plot_semantics_explanation_separates_target_from_support() -> None:
 
     assert "Finite target semantics: Physical Target = fixed rounded triangle at 100pp." in source
     assert "Support Reference is a support-conditioned preview, not the physical target." in source
-    assert "Plot semantics: `Physical Target` is the requested field waveform;" in source
-    assert "`Support Reference` is not " in source
-    assert "the target;" in source
-    assert "`Predicted Output` is the model response;" in source
+    assert "Plot semantics: `Physical Target`은 요청한 field waveform이고" in source
+    assert "`Support Reference`는 target이 아닙니다." in source
+    assert "`Predicted Output`은 1차 모델링 command의 model response" in source
     assert "Advanced / Debug plot references" in source
-    assert "It is not the physical target." in source
+    assert "이것은 physical target이 아닙니다." in source
 
 
 def test_plot_profile_uses_physical_target_backend_column() -> None:

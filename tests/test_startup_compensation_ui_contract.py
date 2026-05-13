@@ -29,7 +29,7 @@ def test_startup_side_by_side_plot_labels_exist() -> None:
     source = _source()
 
     assert "이 그래프는 1차 모델링 전압 command입니다." in source
-    assert "2차 보정 전압은 아래 2차 모델링 섹션에서 별도로 표시됩니다." in source
+    assert "2차 보정 command는 아래 2차 보정 command 섹션에서 별도로 표시됩니다." in source
     assert "1차 추천 전압 command" in source
     assert "1차 전압 제한 후 command" in source
     assert "second_limited_voltage_v" not in source

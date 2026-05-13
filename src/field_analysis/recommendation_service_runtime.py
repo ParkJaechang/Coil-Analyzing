@@ -139,14 +139,14 @@ def recommend(
                         dict.fromkeys(
                             [
                                 *list(validation_report.reasons),
-                                "exact level support ??곸벉",
+                                "exact level support unavailable",
                                 *(
                                     [
                                         (
                                             "provisional preview only: "
                                             f"{provisional_recipe['freq_hz']:g} Hz / {provisional_recipe['cycles']:g} cycle / "
-                                            f"{provisional_recipe['source_level_pp']:g} pp exact recipe??"
-                                            f"{provisional_recipe['target_level_pp']:g} pp嚥??????노립 ?袁⑸뻻 ??筌?鈺곌퀬鍮"
+                                            f"{provisional_recipe['source_level_pp']:g} pp exact recipe only; "
+                                            f"target {provisional_recipe['target_level_pp']:g} pp is provisional"
                                         )
                                     ]
                                     if provisional_recipe is not None

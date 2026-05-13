@@ -45,11 +45,11 @@ def render_final_voltage_lut_export_panel(
     freq_hz: object | None,
     cycle_count: object | None,
 ) -> None:
-    st.markdown("#### 최종 전압 LUT 추출")
+    st.markdown("#### 5. 최종 전압 LUT 추출")
     st.info(
         "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장합니다.\n\n"
-        "1차 모델링 결과를 선택하면 1차 추천 전압 command가 저장됩니다.\n\n"
-        "2차 모델링 결과를 선택하면 2차 보정 후 제한 전압이 저장됩니다.\n\n"
+        "1차 모델링 command를 선택하면 1차 추천 전압 command가 저장됩니다.\n\n"
+        "2차 보정 command를 선택하면 2차 보정 후 제한 전압이 저장됩니다.\n\n"
         "저장 컬럼은 sample_index, time_s, voltage_v 세 개뿐입니다.\n\n"
         "Fourier 재합성이나 harmonic coefficient export가 아닙니다."
     )
@@ -78,9 +78,9 @@ def render_final_voltage_lut_export_panel(
         or not len(command_profile)
         or str(command_profile["second_modeling_status"].iloc[0]) == "ok"
     )
-    export_options = ["1차 모델링 결과"]
+    export_options = ["1차 모델링 command"]
     if second_available:
-        export_options.append("2차 모델링 결과")
+        export_options.append("2차 보정 command")
     selected_export = st.radio(
         "추출 대상",
         options=export_options,
@@ -88,11 +88,11 @@ def render_final_voltage_lut_export_panel(
         key="final_modeled_lut_export_source_selector",
         horizontal=True,
     )
-    if selected_export == "2차 모델링 결과" and second_available:
+    if selected_export == "2차 보정 command" and second_available:
         voltage_source_column = "second_limited_voltage_v"
         file_prefix = "second_modeled_voltage_lut"
         st.info(
-            "현재 추출 대상: 2차 모델링 결과\n\n"
+            "현재 추출 대상: 2차 보정 command\n\n"
             "voltage_v = second_limited_voltage_v\n\n"
             "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다."
         )
@@ -100,12 +100,12 @@ def render_final_voltage_lut_export_panel(
         voltage_source_column = first_source_column
         file_prefix = "first_modeled_voltage_lut"
         st.info(
-            "현재 추출 대상: 1차 모델링 결과\n\n"
-            "voltage_v = 1차 모델링 최종 전압 command\n\n"
+            "현재 추출 대상: 1차 모델링 command\n\n"
+            "voltage_v = 1차 모델링 command\n\n"
             "1차 추천 전압 command를 저장합니다."
         )
         if not second_available:
-            st.info("2차 모델링 결과가 아직 없습니다. 2차 모델링 전압 LUT 생성을 먼저 실행하면 2차 결과를 선택할 수 있습니다.")
+            st.info("2차 보정 command가 아직 없습니다. 2차 보정 command 생성을 먼저 실행하면 2차 결과를 선택할 수 있습니다.")
 
     if waveform_type is not None and freq_hz is not None and cycle_count is not None:
         file_name = (
@@ -121,7 +121,7 @@ def render_final_voltage_lut_export_panel(
         file_name=file_name,
         mime="text/csv",
         key="download_final_modeled_voltage_lut_csv",
-        help="Fourier 재합성 파형이 아닙니다. 선택한 모델링 결과의 최종 time-voltage LUT입니다.",
+        help="Fourier 재합성 파형이 아닙니다. 선택한 1차/2차 command의 최종 time-voltage LUT입니다.",
     )
 
 

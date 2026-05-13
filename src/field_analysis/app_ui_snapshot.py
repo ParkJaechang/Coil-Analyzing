@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from .analysis import analyze_measurements, build_shape_phase_comparison, build_warning_table, combine_analysis_frames
@@ -1601,10 +1602,28 @@ def _render_end_marker_summary(compensation: dict[str, object], command_profile:
     marker_right.metric("predicted_settle_end", _format_optional_metric(predicted_settle_end, "s", digits=6))
 
 
-def _retitle_command_waveform_figure(figure: object) -> object:
+def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFrame | None = None) -> object:
     for trace in getattr(figure, "data", []):
-        trace.name = "Command Waveform"
-    figure.update_layout(title="Command Waveform")
+        trace.name = "1차 전압 제한 후 command"
+    if command_profile is not None and "time_s" in command_profile.columns:
+        recommended_column = (
+            "recommended_voltage_v"
+            if "recommended_voltage_v" in command_profile.columns
+            else "baseline_recommended_voltage_v"
+            if "baseline_recommended_voltage_v" in command_profile.columns
+            else None
+        )
+        if recommended_column is not None:
+            figure.add_trace(
+                go.Scatter(
+                    x=pd.to_numeric(command_profile["time_s"], errors="coerce"),
+                    y=pd.to_numeric(command_profile[recommended_column], errors="coerce"),
+                    mode="lines",
+                    name="1차 추천 전압 command",
+                    line={"dash": "dash"},
+                )
+            )
+    figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
     return figure
 
 
@@ -2174,7 +2193,7 @@ def _render_quick_lut_tab_v2(
         st.caption(
             "Finite target semantics: Physical Target = fixed rounded triangle at 100pp. "
             "Support Reference is a support-conditioned preview, not the physical target. "
-            "Predicted Output is the model response to the Command Waveform."
+            "`Predicted Output`은 1차 모델링 command에 대한 forward prediction입니다."
         )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
@@ -2214,7 +2233,9 @@ def _render_quick_lut_tab_v2(
             target_cycle_count = None
             preview_tail_cycles = 0.25
     with right:
-        st.markdown("#### 2. 1차 모델링")
+        st.markdown("#### 1. LUT 데이터 준비")
+        st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
+        st.markdown("#### 2. 1차 모델링 command")
         st.caption("아래 동작은 모두 같은 fixed target을 사용합니다: rounded triangle, 100pp fixed.")
         quick_config_snapshot = {
             "target_waveform": target_waveform,
@@ -2241,6 +2262,8 @@ def _render_quick_lut_tab_v2(
             "`크기 LUT 계산`은 fixed 100pp rounded-triangle field target에 맞는 scalar voltage estimate를 계산합니다. "
             f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
         )
+        st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
+        st.caption("2차 보정 결과가 아닙니다.")
 
     feedback_selection = render_quick_lut_feedback_input_section(
         finite_cycle_mode=bool(finite_cycle_mode),
@@ -2432,7 +2455,8 @@ def _render_quick_lut_tab_v2(
                 )
             with comp_right:
                 command_figure = _retitle_command_waveform_figure(
-                    plot_command_waveform(first_command_profile, value_column="limited_voltage_v")
+                    plot_command_waveform(first_command_profile, value_column="limited_voltage_v"),
+                    first_command_profile,
                 )
                 st.plotly_chart(
                     command_figure,
@@ -2445,13 +2469,13 @@ def _render_quick_lut_tab_v2(
                 )
                 _render_finite_route_marker(compensation)
                 st.caption(
-                    "Plot semantics: `Physical Target` is the requested field waveform; `Support Reference` is not "
-                    "the target; `Predicted Output` is the model response; `Command Waveform` is shown separately. "
+                    "Plot semantics: `Physical Target`은 요청한 field waveform이고, `Support Reference`는 target이 아닙니다. "
+                    "`Predicted Output`은 1차 모델링 command의 model response이며 command plot은 별도로 표시됩니다."
                 )
                 with st.expander("Advanced / Debug plot references", expanded=False):
                     st.caption(
-                        "`Internal Reference (debug, hidden by default)` may appear as a legend-only trace when the "
-                        "backend provides an internal lag/support-conditioned reference. It is not the physical target."
+                        "`Internal Reference (debug, hidden by default)`는 backend가 내부 lag/support-conditioned "
+                        "reference를 제공할 때 legend-only trace로만 표시됩니다. 이것은 physical target이 아닙니다."
                     )
                 _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
                 # Contract marker: _render_support_reference_provenance_panel(compensation, command_profile)

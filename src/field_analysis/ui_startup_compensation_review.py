@@ -59,7 +59,7 @@ def render_startup_compensation_review(
         f"support_id={_startup_payload_value(compensation, command_profile, 'startup_source_support_id') or 'n/a'}"
     )
     st.caption("이 그래프는 1차 모델링 전압 command입니다.")
-    st.caption("2차 보정 전압은 아래 2차 모델링 섹션에서 별도로 표시됩니다.")
+    st.caption("2차 보정 command는 아래 2차 보정 command 섹션에서 별도로 표시됩니다.")
 
     plot_left, plot_right = st.columns(2)
     field_figure = _startup_plot(
@@ -99,7 +99,7 @@ def render_startup_compensation_review(
             with st.expander("Startup command source 상세 진단", expanded=False):
                 st.caption("1차 추천 전압 command: `baseline_recommended_voltage_v`")
                 st.caption("1차 전압 제한 후 command: `compensated_recommended_voltage_v`")
-                st.caption("2차 모델링 전압 column은 이 그래프에 사용하지 않습니다.")
+                st.caption("2차 보정 command column은 이 그래프에 사용하지 않습니다.")
 
     metric_left, metric_right = st.columns(2)
     with metric_left:
