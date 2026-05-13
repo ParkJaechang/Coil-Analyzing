@@ -167,6 +167,8 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
 
     assert "cycle_count=cycle_count" in source
     assert "cycle_count=1.0" not in source
+    assert "freq_hz=freq_hz" in source
+    assert "waveform_type=waveform_type" in source
     assert "목표 자기장" in source
     assert "실측 자기장" in source
     assert "오차 (목표 - 실측)" in source

@@ -79,6 +79,8 @@ def render_second_modeling_controls(
                 cached["command_profile"],
                 dict(cached.get("metadata") or {}),
                 cycle_count=cycle_count,
+                freq_hz=freq_hz,
+                waveform_type=waveform_type,
                 native_review_frame=native_review if isinstance(native_review, pd.DataFrame) else None,
             )
         else:
@@ -160,7 +162,14 @@ def render_second_modeling_controls(
     st.session_state["quick_lut_second_model_status"] = metadata.get("second_modeling_status", "unavailable")
     st.session_state["quick_lut_second_model_dirty"] = False
     st.session_state["quick_lut_final_export_source"] = "first_model"
-    _render_second_modeling_result(second_profile, metadata, cycle_count=cycle_count, native_review_frame=native_review_frame)
+    _render_second_modeling_result(
+        second_profile,
+        metadata,
+        cycle_count=cycle_count,
+        freq_hz=freq_hz,
+        waveform_type=waveform_type,
+        native_review_frame=native_review_frame,
+    )
 
 
 def _render_second_modeling_result(
@@ -168,6 +177,8 @@ def _render_second_modeling_result(
     metadata: dict[str, object],
     *,
     cycle_count: float,
+    freq_hz: float | None = None,
+    waveform_type: str | None = None,
     native_review_frame: pd.DataFrame | None = None,
 ) -> None:
     with st.expander("상세 진단", expanded=False):
@@ -272,8 +283,8 @@ def _render_second_modeling_result(
     render_final_voltage_lut_export_panel(
         command_profile=command_profile,
         finite_cycle_mode=True,
-        waveform_type=None,
-        freq_hz=None,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
         cycle_count=cycle_count,
     )
 

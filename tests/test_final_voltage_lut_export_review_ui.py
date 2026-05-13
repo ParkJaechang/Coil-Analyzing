@@ -59,6 +59,30 @@ def test_final_voltage_lut_export_can_select_second_model_voltage() -> None:
     assert np.allclose(frame["voltage_v"], command_profile["second_limited_voltage_v"])
 
 
+def test_final_voltage_lut_second_export_uses_only_second_limited_voltage_columns() -> None:
+    command_profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.1, 0.2],
+            "limited_voltage_v": [1.0, 2.0, 3.0],
+            "second_correction_delta_v": [0.1, 0.2, 0.3],
+            "second_modeled_voltage_v": [1.1, 2.2, 3.3],
+            "second_limited_voltage_v": [1.05, 2.05, 3.05],
+            "second_modeling_status": ["ok", "ok", "ok"],
+            "second_modeling_available": [True, True, True],
+        }
+    )
+
+    frame = build_final_voltage_lut_frame(command_profile, voltage_source_column="second_limited_voltage_v")
+
+    assert list(frame.columns) == ["sample_index", "time_s", "voltage_v"]
+    assert frame["sample_index"].tolist() == [0, 1, 2]
+    assert np.allclose(frame["time_s"], command_profile["time_s"])
+    assert np.allclose(frame["voltage_v"], command_profile["second_limited_voltage_v"])
+    assert "second_correction_delta_v" not in frame.columns
+    assert "second_modeled_voltage_v" not in frame.columns
+    assert "second_limited_voltage_v" not in frame.columns
+
+
 def test_final_voltage_lut_filename_has_finite_case_identity() -> None:
     assert (
         build_final_voltage_lut_filename(waveform_type="sine", freq_hz=5.0, cycle_count=1.25)
@@ -143,8 +167,8 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
     expected_markers = [
         "LUT 검수 / LUT Review",
         "최종 전압 LUT 추출",
-        "Fourier 재합성 또는 harmonic 계수 내보내기가 아닙니다",
-        "저장 컬럼: sample_index, time_s, voltage_v",
+        "Fourier 재합성이나 harmonic coefficient export가 아닙니다.",
+        "저장 컬럼은 sample_index, time_s, voltage_v 세 개뿐입니다.",
         "최종 전압 LUT 추출 사용 불가",
         "사용자 시간축/전압 파형 검수용",
         "장비 구동 적합성이나 보정 품질을 자동 판정하지 않습니다",
@@ -154,6 +178,9 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
         "현재 추출 대상: 1차 모델링 결과",
         "현재 추출 대상: 2차 모델링 결과",
         "2차 모델링 결과가 아직 없습니다",
+        "voltage_v = second_limited_voltage_v",
+        "voltage_v = 1차 모델링 최종 전압 command",
+        "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다.",
         "LUT Voltage vs time_s",
         "LUT Voltage vs sample_index",
         "dt_irregularity_ratio",

@@ -67,8 +67,8 @@ def test_final_lut_copy_mentions_plotted_samples_and_required_schema() -> None:
     )
 
     assert "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장합니다." in source
-    assert "Fourier 재합성 또는 harmonic 계수 내보내기가 아닙니다." in source
-    assert "저장 컬럼: sample_index, time_s, voltage_v" in source
+    assert "Fourier 재합성이나 harmonic coefficient export가 아닙니다." in source
+    assert "저장 컬럼은 sample_index, time_s, voltage_v 세 개뿐입니다." in source
 
 
 def test_no_mojibake_in_new_policy_sources() -> None:

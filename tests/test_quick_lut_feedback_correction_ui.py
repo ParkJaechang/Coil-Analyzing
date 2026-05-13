@@ -399,4 +399,5 @@ def test_final_lut_export_hides_internal_metadata_from_default_screen() -> None:
 
     default_region = source.split('with st.expander("상세 진단"', maxsplit=1)[0]
     assert "exported_voltage_source_column" not in default_region
-    assert 'st.info("현재 추출 대상' in source
+    assert "현재 추출 대상: 1차 모델링 결과" in source
+    assert "현재 추출 대상: 2차 모델링 결과" in source
