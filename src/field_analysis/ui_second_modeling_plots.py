@@ -1,0 +1,57 @@
+"""Small plot helpers for finite second-modeling UI."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+
+
+def add_peak_alignment_markers(
+    figure: go.Figure,
+    frame: pd.DataFrame,
+    metadata: dict[str, object],
+    *,
+    target_label: str,
+    smoothed_label: str,
+    aligned_label: str,
+    target_peak_label: str,
+    measured_peak_label: str,
+    aligned_peak_label: str,
+) -> go.Figure:
+    marker_specs = [
+        ("target_first_peak_time_s", target_label, target_peak_label),
+        ("measured_first_peak_time_s", smoothed_label, measured_peak_label),
+        ("target_first_peak_time_s", aligned_label, aligned_peak_label),
+    ]
+    x_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    for time_key, column, label in marker_specs:
+        if column not in frame.columns:
+            continue
+        peak_time = metadata.get(time_key)
+        try:
+            peak_time_value = float(peak_time)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(peak_time_value):
+            continue
+        y_value = np.interp(
+            peak_time_value,
+            x_values,
+            pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float),
+            left=np.nan,
+            right=np.nan,
+        )
+        if not np.isfinite(y_value):
+            continue
+        figure.add_trace(
+            go.Scatter(
+                x=[peak_time_value],
+                y=[y_value],
+                mode="markers",
+                name=label,
+                marker={"size": 10, "symbol": "circle"},
+                hovertemplate="시간=%{x:.4f}s<br>값=%{y:.4f}<extra>" + label + "</extra>",
+            )
+        )
+    return figure

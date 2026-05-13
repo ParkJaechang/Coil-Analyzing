@@ -30,6 +30,36 @@ def _first_profile() -> pd.DataFrame:
     )
 
 
+def _write_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
+    rows = []
+    time_ms = np.linspace(0.0, 1400.0, 201)
+    relative_s = (time_ms - 200.0) / 1000.0
+    voltage = np.zeros_like(time_ms)
+    active = (relative_s >= 0.0) & (relative_s <= 1.0)
+    voltage[active] = 2.0 * np.sin(np.pi * relative_s[active])
+    effective_field = 40.0 * np.sin(np.pi * np.clip(relative_s - delay_s, 0.0, 1.0))
+    hallbz = -effective_field
+    for index, (t_raw, v, h) in enumerate(zip(time_ms, voltage, hallbz, strict=False)):
+        rows.append(f"{index},{t_raw:.6f},0.0,0.0,{h:.6f},0.1,0.0,{v:.6f},0.0")
+    preamble = [
+        "# Date,2026-05-06 16:00:02",
+        "# Frequency(Hz),1.000",
+        "# Amplitude(V),0.000",
+        "# Cycles,1.000",
+        "# Repeat,1.000",
+        "# PreDelay(s),1.000",
+        "# PostDelay(s),1.000",
+        "# HallSamples,201",
+        "# CurrentSamples,201",
+        "# CommonRange(ms),0.00~1400.00 (span 1400.00)",
+        "# Rows,201, GridStep(ms),7.000",
+        "# AutoSyncHallLag,applied 0.00ms (r=1.000)",
+        "#",
+        "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V",
+    ]
+    path.write_text("\n".join([*preamble, *rows]), encoding="utf-8")
+
+
 def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
     _write_actual_drive_csv(actual)
@@ -79,16 +109,88 @@ def test_second_modeling_uses_smoothed_measured_field_for_residual(tmp_path: Pat
 
     assert metadata["measured_field_smoothing_enabled"] is True
     assert metadata["measured_field_smoothing_status"] == "ok"
-    assert metadata["residual_source_for_second_modeling"] == "smoothed_measured_field"
-    assert metadata["correction_delta_source"] == "first_model_residual_smoothed_mT"
+    assert metadata["residual_source_for_second_modeling"] == "first_peak_aligned_smoothed_measured_field"
+    assert metadata["correction_delta_source"] == "first_model_residual_for_second_mT"
     assert {
         "measured_field_smoothed_mT",
         "second_modeling_measured_field_mT",
         "first_model_residual_raw_mT",
         "first_model_residual_smoothed_mT",
     }.issubset(frame.columns)
-    assert np.allclose(frame["first_model_residual_mT"], frame["first_model_residual_smoothed_mT"], equal_nan=True)
+    assert np.allclose(frame["first_model_residual_mT"], frame["first_model_residual_for_second_mT"], equal_nan=True)
     assert not np.allclose(frame["first_model_residual_raw_mT"], frame["first_model_residual_smoothed_mT"], equal_nan=True)
+
+
+def test_second_modeling_defaults_to_first_peak_aligned_residual(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+    )
+
+    assert metadata["residual_alignment_mode"] == "first_peak_aligned"
+    assert metadata["phase_alignment_enabled"] is True
+    assert metadata["phase_alignment_method"] == "first_positive_peak"
+    assert metadata["phase_alignment_status"] == "ok"
+    assert np.isclose(metadata["phase_alignment_shift_s"], 0.12, atol=0.035)
+    assert np.isclose(metadata["phase_alignment_shift_cycles"], 0.12, atol=0.035)
+    assert {
+        "measured_field_aligned_mT",
+        "first_model_residual_pointwise_mT",
+        "first_model_residual_aligned_mT",
+        "first_model_residual_for_second_mT",
+    }.issubset(frame.columns)
+    target_peak_time = float(metadata["target_first_peak_time_s"])
+    aligned_peak_time = float(frame.loc[frame["measured_field_aligned_mT"].idxmax(), "time_s"])
+    assert np.isclose(aligned_peak_time, target_peak_time, atol=0.04)
+    assert np.allclose(frame["first_model_residual_for_second_mT"], frame["first_model_residual_aligned_mT"], equal_nan=True)
+    expected_delta = frame["first_model_residual_for_second_mT"] / 50.0 * 5.0 * 0.25
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    interior = active & np.isfinite(expected_delta.to_numpy())
+    assert np.nanmean(np.abs(frame.loc[interior, "second_correction_delta_v"] - expected_delta[interior])) < 0.08
+
+
+def test_second_modeling_pointwise_residual_mode_is_preserved(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+        residual_alignment_mode="pointwise",
+    )
+
+    assert metadata["residual_alignment_mode"] == "pointwise"
+    assert metadata["phase_alignment_enabled"] is False
+    assert metadata["phase_alignment_status"] == "disabled_pointwise"
+    assert np.allclose(frame["measured_field_aligned_mT"], frame["measured_field_smoothed_mT"], equal_nan=True)
+    assert np.allclose(frame["first_model_residual_for_second_mT"], frame["first_model_residual_pointwise_mT"], equal_nan=True)
+
+
+def test_second_modeling_first_peak_alignment_falls_back_when_shift_too_large(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.5)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+        residual_alignment_mode="first_peak_aligned",
+    )
+
+    assert metadata["residual_alignment_mode"] == "first_peak_aligned"
+    assert metadata["phase_alignment_status"] == "shift_too_large"
+    assert np.allclose(frame["first_model_residual_for_second_mT"], frame["first_model_residual_pointwise_mT"], equal_nan=True)
 
 
 def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_path: Path) -> None:
@@ -207,7 +309,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "waveform_type=waveform_type" in source
     assert "목표 자기장" in source
     assert "실측 자기장" in source
-    assert "오차 (목표 - smoothing 실측)" in source
+    assert "오차 (목표 - 보정 계산용 실측)" in source
     assert "1차 모델링 전압" in source
     assert "2차 보정 전압" in source
     assert "전압 제한 후 2차 command" in source
@@ -224,8 +326,12 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "2차 보정 command runtime trace" in source
     assert "단계별 trace" in source
     assert "실측 자기장 smoothing" in source
-    assert "오차 (목표 - smoothing 실측)" in source
+    assert "오차 (목표 - 보정 계산용 실측)" in source
     assert "보정 전압 변화량 = gain × 오차 / 50mT × 5V" in source
+    assert "2차 보정 residual 계산 방식" in source
+    assert "첫 피크 정렬 residual" in source
+    assert "피크 정렬 실측 자기장" in source
+    assert "피크 정렬 확인" in source
     assert "native relative timebase" in source
     assert "command/target grid interpolation을 사용하지 않습니다" in source
 

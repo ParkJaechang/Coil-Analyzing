@@ -12,13 +12,18 @@ import streamlit as st
 
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
+from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
 
 
 TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
 SMOOTHED_FIELD_LABEL = "실측 자기장 smoothing"
-RESIDUAL_LABEL = "오차 (목표 - smoothing 실측)"
+ALIGNED_FIELD_LABEL = "피크 정렬 실측 자기장"
+RESIDUAL_LABEL = "오차 (목표 - 보정 계산용 실측)"
+PEAK_TARGET_LABEL = "목표 첫 피크"
+PEAK_MEASURED_LABEL = "실측 첫 피크"
+PEAK_ALIGNED_LABEL = "정렬 후 실측 첫 피크"
 FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
 ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
 SECOND_VOLTAGE_LABEL = "2차 보정 전압"
@@ -144,10 +149,22 @@ def render_second_modeling_controls(
         st.caption("0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
         st.caption("값이 클수록 2차 전압이 더 강하게 바뀌지만, 노이즈나 과보정 영향도 커질 수 있습니다.")
         st.caption("기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
-        st.caption("오차 = 목표 자기장 - smoothing 실측 자기장")
+        st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장")
         st.caption("보정 전압 변화량 = gain × 오차 / 50mT × 5V")
         st.caption("2차 command = 1차 command + 보정 전압 변화량")
         st.caption("최종 2차 command는 ±5V로 제한됩니다.")
+    residual_mode_label = st.selectbox(
+        "2차 보정 residual 계산 방식",
+        options=["첫 피크 정렬 residual", "시간축 그대로 residual"],
+        index=0,
+        key="second_modeling_residual_alignment_mode",
+        help=(
+            "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. "
+            "첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. "
+            "coil 응답이 목표보다 지연되는 경우에는 첫 피크 정렬 방식이 더 안정적입니다."
+        ),
+    )
+    residual_alignment_mode = "pointwise" if residual_mode_label == "시간축 그대로 residual" else "first_peak_aligned"
     selected_file = feedback_selection.get("filename")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (
@@ -203,6 +220,7 @@ def render_second_modeling_controls(
             cycle_count=cycle_count,
             waveform_type=waveform_type if use_current_metadata else None,
             correction_gain=gain,
+            residual_alignment_mode=residual_alignment_mode,
         )
         _set_second_debug_step("second modeled voltage 계산 완료")
         metadata = {
@@ -356,7 +374,7 @@ def _render_second_modeling_result(
     st.plotly_chart(
         _plot_labeled_frame(
             plot_frames["field"],
-            [TARGET_FIELD_LABEL, MEASURED_FIELD_LABEL, SMOOTHED_FIELD_LABEL, RESIDUAL_LABEL],
+            [TARGET_FIELD_LABEL, MEASURED_FIELD_LABEL, SMOOTHED_FIELD_LABEL, ALIGNED_FIELD_LABEL, RESIDUAL_LABEL],
             title="목표 자기장 vs 실측 자기장",
             yaxis_title="자기장 / 오차 (mT)",
         ),
@@ -364,7 +382,19 @@ def _render_second_modeling_result(
     )
     st.caption("Raw 실측 자기장은 그대로 표시합니다.")
     st.caption("2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
-    st.caption("오차는 목표 자기장 - smoothing 실측 자기장으로 계산됩니다.")
+    st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다.")
+    st.caption("첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
+    st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다.")
+    st.markdown("##### 피크 정렬 확인")
+    st.plotly_chart(
+        _plot_peak_alignment_frame(
+            plot_frames["field"],
+            metadata,
+            title="피크 정렬 확인",
+            yaxis_title="자기장 (mT)",
+        ),
+        use_container_width=True,
+    )
     st.markdown("##### 2차 보정 command")
     st.plotly_chart(
         _plot_labeled_frame(
@@ -468,6 +498,9 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     _copy_numeric(command_profile, field, "measured_field_smoothed_mT", SMOOTHED_FIELD_LABEL)
     if SMOOTHED_FIELD_LABEL not in field.columns and MEASURED_FIELD_LABEL in field.columns:
         field[SMOOTHED_FIELD_LABEL] = field[MEASURED_FIELD_LABEL]
+    _copy_numeric(command_profile, field, "measured_field_aligned_mT", ALIGNED_FIELD_LABEL)
+    if ALIGNED_FIELD_LABEL not in field.columns and SMOOTHED_FIELD_LABEL in field.columns:
+        field[ALIGNED_FIELD_LABEL] = field[SMOOTHED_FIELD_LABEL]
     _copy_numeric(command_profile, field, "first_model_residual_mT", RESIDUAL_LABEL)
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
@@ -541,3 +574,23 @@ def _plot_labeled_frame(frame: pd.DataFrame, columns: list[str], *, title: str, 
         legend_title="항목",
     )
     return figure
+
+
+def _plot_peak_alignment_frame(frame: pd.DataFrame, metadata: dict[str, object], *, title: str, yaxis_title: str) -> go.Figure:
+    figure = _plot_labeled_frame(
+        frame,
+        [TARGET_FIELD_LABEL, SMOOTHED_FIELD_LABEL, ALIGNED_FIELD_LABEL],
+        title=title,
+        yaxis_title=yaxis_title,
+    )
+    return add_peak_alignment_markers(
+        figure,
+        frame,
+        metadata,
+        target_label=TARGET_FIELD_LABEL,
+        smoothed_label=SMOOTHED_FIELD_LABEL,
+        aligned_label=ALIGNED_FIELD_LABEL,
+        target_peak_label=PEAK_TARGET_LABEL,
+        measured_peak_label=PEAK_MEASURED_LABEL,
+        aligned_peak_label=PEAK_ALIGNED_LABEL,
+    )
