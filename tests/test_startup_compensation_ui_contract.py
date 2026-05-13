@@ -28,12 +28,19 @@ def test_startup_compensation_review_section_markers_exist() -> None:
 def test_startup_side_by_side_plot_labels_exist() -> None:
     source = _source()
 
+    assert "이 그래프는 1차 모델링 전압 command입니다." in source
+    assert "2차 보정 전압은 아래 2차 모델링 섹션에서 별도로 표시됩니다." in source
+    assert "1차 추천 전압 command" in source
+    assert "1차 전압 제한 후 command" in source
+    assert "second_limited_voltage_v" not in source
+    assert "second_modeled_voltage_v" not in source
+    assert "final_voltage_v" not in source
     assert "Physical Target" in source
     assert "Open-loop Predicted Field" in source
     assert "Startup Transient Component" in source
     assert "Compensated Predicted Field" in source
-    assert "Baseline Recommended Voltage" in source
-    assert "Compensated Recommended Voltage" in source
+    assert "baseline_recommended_voltage_v" in source
+    assert "compensated_recommended_voltage_v" in source
     assert "Startup Compensation Command Delta" in source
     assert "Startup Field Comparison" in source
     assert "Startup Command Comparison" in source

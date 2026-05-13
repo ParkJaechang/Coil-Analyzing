@@ -58,6 +58,8 @@ def render_startup_compensation_review(
         f"file={_startup_payload_value(compensation, command_profile, 'startup_source_file') or 'n/a'} | "
         f"support_id={_startup_payload_value(compensation, command_profile, 'startup_source_support_id') or 'n/a'}"
     )
+    st.caption("이 그래프는 1차 모델링 전압 command입니다.")
+    st.caption("2차 보정 전압은 아래 2차 모델링 섹션에서 별도로 표시됩니다.")
 
     plot_left, plot_right = st.columns(2)
     field_figure = _startup_plot(
@@ -81,8 +83,8 @@ def render_startup_compensation_review(
     voltage_figure = _startup_plot(
         command_profile,
         (
-            ("baseline_recommended_voltage_v", "Baseline Recommended Voltage", "dash"),
-            ("compensated_recommended_voltage_v", "Compensated Recommended Voltage", "solid"),
+            ("baseline_recommended_voltage_v", "1차 추천 전압 command", "dash"),
+            ("compensated_recommended_voltage_v", "1차 전압 제한 후 command", "solid"),
             ("startup_compensation_command_delta_v", "Startup Compensation Command Delta", "dot"),
         ),
         title="Startup Command Comparison",
@@ -94,6 +96,10 @@ def render_startup_compensation_review(
             st.caption("startup command comparison data unavailable")
         else:
             st.plotly_chart(voltage_figure, use_container_width=True)
+            with st.expander("Startup command source 상세 진단", expanded=False):
+                st.caption("1차 추천 전압 command: `baseline_recommended_voltage_v`")
+                st.caption("1차 전압 제한 후 command: `compensated_recommended_voltage_v`")
+                st.caption("2차 모델링 전압 column은 이 그래프에 사용하지 않습니다.")
 
     metric_left, metric_right = st.columns(2)
     with metric_left:

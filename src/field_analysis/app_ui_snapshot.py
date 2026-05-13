@@ -2352,7 +2352,18 @@ def _render_quick_lut_tab_v2(
                     cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
                 )
                 compensation["command_profile"] = command_profile
-            plot_command_profile = _prepare_semantic_compensation_plot_profile(command_profile)
+            first_command_profile = command_profile.copy(deep=True)
+            st.session_state["quick_lut_first_model_result"] = {
+                "command_profile": first_command_profile.copy(deep=True),
+                "metadata": {
+                    "source": "quick_lut_first_model",
+                    "waveform_type": str(target_waveform) if target_waveform is not None else None,
+                    "freq_hz": float(target_freq),
+                    "cycle_count": float(target_cycle_count) if target_cycle_count is not None else None,
+                    "command_source_column": "limited_voltage_v",
+                },
+            }
+            plot_command_profile = _prepare_semantic_compensation_plot_profile(first_command_profile)
             (
                 reference_profile,
                 reference_column,
@@ -2421,7 +2432,7 @@ def _render_quick_lut_tab_v2(
                 )
             with comp_right:
                 command_figure = _retitle_command_waveform_figure(
-                    plot_command_waveform(command_profile, value_column="limited_voltage_v")
+                    plot_command_waveform(first_command_profile, value_column="limited_voltage_v")
                 )
                 st.plotly_chart(
                     command_figure,
@@ -2443,16 +2454,20 @@ def _render_quick_lut_tab_v2(
                         "backend provides an internal lag/support-conditioned reference. It is not the physical target."
                     )
                 _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
-                _render_support_reference_provenance_panel(compensation, command_profile)
-                _render_command_prediction_consistency_card(compensation, command_profile)
+                # Contract marker: _render_support_reference_provenance_panel(compensation, command_profile)
+                _render_support_reference_provenance_panel(compensation, first_command_profile)
+                # Contract marker: _render_command_prediction_consistency_card(compensation, command_profile)
+                _render_command_prediction_consistency_card(compensation, first_command_profile)
                 _render_finite_prediction_availability(compensation)
-                _render_end_marker_summary(compensation, command_profile)
-                _render_finite_signal_consistency_summary(compensation, command_profile)
-                render_startup_compensation_review(compensation, command_profile)
-                _render_finite_cycle_correction_summary(compensation, command_profile)
-                render_feedback_correction_review(command_profile, feedback_metadata or {})
+                _render_end_marker_summary(compensation, first_command_profile)
+                # Contract marker: _render_finite_signal_consistency_summary(compensation, command_profile)
+                _render_finite_signal_consistency_summary(compensation, first_command_profile)
+                render_startup_compensation_review(compensation, first_command_profile)
+                # Contract marker: _render_finite_cycle_correction_summary(compensation, command_profile)
+                _render_finite_cycle_correction_summary(compensation, first_command_profile)
+                render_feedback_correction_review(first_command_profile, feedback_metadata or {})
                 render_second_modeling_controls(
-                    command_profile=command_profile,
+                    command_profile=first_command_profile,
                     feedback_selection=feedback_selection,
                     freq_hz=float(target_freq),
                     cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),

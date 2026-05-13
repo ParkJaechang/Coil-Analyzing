@@ -46,6 +46,16 @@ def test_second_modeling_user_trigger_contract_is_visible() -> None:
     assert "자동 합격/불합격 판정은 하지 않습니다" in source
 
 
+def test_quick_lut_runtime_preserves_first_model_snapshot_for_startup_review() -> None:
+    source = APP_UI.read_text(encoding="utf-8")
+
+    assert "first_command_profile = command_profile.copy(deep=True)" in source
+    assert 'st.session_state["quick_lut_first_model_result"]' in source
+    assert 'plot_command_waveform(first_command_profile, value_column="limited_voltage_v")' in source
+    assert "render_startup_compensation_review(compensation, first_command_profile)" in source
+    assert "command_profile=first_command_profile" in source
+
+
 def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:
     source = APP_UI.read_text(encoding="utf-8")
     assert "quick_lut_analysis_result" in source
