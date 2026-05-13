@@ -9,6 +9,8 @@ touching the main app shell.
 
 import json
 import hashlib
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -87,6 +89,33 @@ UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (0.75,)
 UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
 
 
+def _runtime_git_value(*args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return "unknown"
+    value = (completed.stdout or "").strip()
+    return value or "unknown"
+
+
+def _render_runtime_identity_panel() -> None:
+    if "runtime_started_at" not in st.session_state:
+        st.session_state["runtime_started_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+    with st.expander("Runtime build 확인", expanded=False):
+        st.caption(f"runtime branch: `{_runtime_git_value('branch', '--show-current')}`")
+        st.caption(f"runtime HEAD SHA: `{_runtime_git_value('rev-parse', 'HEAD')}`")
+        st.caption(f"app script: `{Path(sys.argv[0]).resolve() if sys.argv else 'unknown'}`")
+        st.caption(f"app_ui_snapshot.py path: `{Path(__file__).resolve()}`")
+        st.caption(f"started_at: `{st.session_state['runtime_started_at']}`")
+
+
 @st.cache_data(show_spinner=False)
 def _preview_file_cached(file_name: str, file_bytes: bytes, config_path: str | None) -> object:
     schema = load_schema_config(config_path)
@@ -160,6 +189,7 @@ def _run_app_shell(
     )
     st.title(title)
     st.caption(caption)
+    _render_runtime_identity_panel()
     render_workspace_panel()
 
     config_path = str(DEFAULT_CONFIG_PATH) if DEFAULT_CONFIG_PATH.exists() else None
@@ -2273,7 +2303,30 @@ def _render_quick_lut_tab_v2(
     )
 
     if not estimate_clicked and not compensation_clicked:
-        st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
+        cached_first_model = st.session_state.get("quick_lut_first_model_result")
+        cached_command_profile = (
+            cached_first_model.get("command_profile")
+            if isinstance(cached_first_model, dict)
+            else None
+        )
+        if finite_cycle_mode and isinstance(cached_command_profile, pd.DataFrame) and not cached_command_profile.empty:
+            st.info("이전 1차 모델링 command 결과를 유지하고 있습니다. 설정을 바꾸지 않았다면 바로 2차 보정 command를 생성할 수 있습니다.")
+            st.plotly_chart(
+                _retitle_command_waveform_figure(
+                    plot_command_waveform(cached_command_profile, value_column="limited_voltage_v"),
+                    cached_command_profile,
+                ),
+                use_container_width=True,
+            )
+            render_second_modeling_controls(
+                command_profile=cached_command_profile,
+                feedback_selection=feedback_selection,
+                freq_hz=float(target_freq),
+                cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),
+                waveform_type=str(target_waveform) if target_waveform is not None else None,
+            )
+        else:
+            st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
         return
 
     if compensation_clicked:

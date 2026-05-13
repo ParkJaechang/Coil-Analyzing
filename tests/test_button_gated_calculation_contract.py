@@ -57,6 +57,31 @@ def test_quick_lut_runtime_preserves_first_model_snapshot_for_startup_review() -
     assert "#### 2. 1차 모델링 command" in source
     assert "#### 1. LUT 데이터 준비" in source
     assert "이 전압은 실제 장비에 처음 넣는 1차 command입니다." in source
+    assert 'cached_first_model = st.session_state.get("quick_lut_first_model_result")' in source
+    assert "이전 1차 모델링 command 결과를 유지하고 있습니다" in source
+    assert "render_second_modeling_controls(" in source
+
+
+def test_second_modeling_runtime_trace_contract_is_visible() -> None:
+    source = SECOND_UI.read_text(encoding="utf-8")
+
+    for marker in [
+        "quick_lut_second_button_clicked",
+        "quick_lut_second_button_clicked_at",
+        "quick_lut_second_step",
+        "quick_lut_second_error",
+        "quick_lut_second_last_exception",
+        "quick_lut_second_has_first_model",
+        "quick_lut_second_has_feedback_selection",
+        "quick_lut_second_has_command_profile",
+        "quick_lut_second_result_saved",
+        "quick_lut_second_render_reached",
+        "2차 보정 command runtime trace",
+        "버튼 클릭 감지됨",
+        "session_state 저장 완료",
+        "결과 렌더링 완료",
+    ]:
+        assert marker in source
 
 
 def test_loaded_lut_analysis_is_reused_until_load_analyze_is_pressed_again() -> None:

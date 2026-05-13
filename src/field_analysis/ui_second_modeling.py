@@ -31,6 +31,52 @@ RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
 NORMALIZED_VOLTAGE_LABEL = "정규화 전압 (±5V)"
 
 
+def _set_second_debug_step(step: str, *, clicked: bool = False) -> None:
+    if clicked:
+        st.session_state["quick_lut_second_button_clicked"] = True
+        st.session_state["quick_lut_second_button_clicked_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+        st.session_state["quick_lut_second_step_history"] = []
+    st.session_state["quick_lut_second_step"] = step
+    history = st.session_state.setdefault("quick_lut_second_step_history", [])
+    if isinstance(history, list):
+        history.append(step)
+
+
+def _set_second_debug_error(message: str, exc: BaseException) -> None:
+    st.session_state["quick_lut_second_step"] = "오류 발생"
+    history = st.session_state.setdefault("quick_lut_second_step_history", [])
+    if isinstance(history, list):
+        history.append("오류 발생")
+    st.session_state["quick_lut_second_error"] = message
+    st.session_state["quick_lut_second_last_exception"] = f"{type(exc).__name__}: {exc}"
+
+
+def _render_second_runtime_trace(*, expanded: bool) -> None:
+    rows = [
+        ("button_clicked", st.session_state.get("quick_lut_second_button_clicked", False)),
+        ("button_clicked_at", st.session_state.get("quick_lut_second_button_clicked_at", "n/a")),
+        ("step", st.session_state.get("quick_lut_second_step", "not_started")),
+        ("error", st.session_state.get("quick_lut_second_error", "")),
+        ("last_exception", st.session_state.get("quick_lut_second_last_exception", "")),
+        ("has_first_model", st.session_state.get("quick_lut_second_has_first_model", False)),
+        ("has_feedback_selection", st.session_state.get("quick_lut_second_has_feedback_selection", False)),
+        ("has_command_profile", st.session_state.get("quick_lut_second_has_command_profile", False)),
+        ("result_saved", st.session_state.get("quick_lut_second_result_saved", False)),
+        ("render_reached", st.session_state.get("quick_lut_second_render_reached", False)),
+        ("active_section", st.session_state.get("quick_section_nav", "unknown")),
+    ]
+    if st.session_state.get("quick_lut_second_error"):
+        st.error("2차 보정 command 생성 중 오류 발생")
+        st.warning(f"실패 단계: {st.session_state.get('quick_lut_second_step', 'unknown')}")
+        st.caption(f"exception: {st.session_state.get('quick_lut_second_last_exception', '')}")
+        st.caption("다음 작업: 실구동 CSV schema, 현재 target freq/cycle match, timebase 상태를 확인하십시오.")
+    with st.expander("2차 보정 command runtime trace", expanded=expanded):
+        st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
+        history = st.session_state.get("quick_lut_second_step_history")
+        if isinstance(history, list) and history:
+            st.caption("단계별 trace: " + " → ".join(str(item) for item in history))
+
+
 def render_second_modeling_controls(
     *,
     command_profile: pd.DataFrame,
@@ -39,6 +85,10 @@ def render_second_modeling_controls(
     cycle_count: float,
     waveform_type: str | None = None,
 ) -> None:
+    st.session_state["quick_lut_second_render_reached"] = True
+    st.session_state["quick_lut_second_has_command_profile"] = isinstance(command_profile, pd.DataFrame) and not command_profile.empty
+    st.session_state["quick_lut_second_has_first_model"] = isinstance(st.session_state.get("quick_lut_first_model_result"), dict)
+    st.session_state["quick_lut_second_has_feedback_selection"] = bool(feedback_selection and feedback_selection.get("csv_bytes"))
     st.markdown("#### 3. 1차 실구동 결과")
     st.caption("1차 모델링 command로 장비를 실제 구동해서 얻은 측정 데이터입니다. command가 아니라 measurement입니다.")
     _render_actual_drive_selection_status(
@@ -53,10 +103,29 @@ def render_second_modeling_controls(
     supported = np.isfinite(cycle_count) and any(
         abs(float(cycle_count) - supported_cycle) <= 1e-9 for supported_cycle in (1.0, 1.5)
     )
+    cached = st.session_state.get("quick_lut_second_model_result")
     if not supported:
+        _set_second_debug_step("unsupported cycle")
+        _render_second_runtime_trace(expanded=True)
         st.info("2차 보정 command 사용 불가: Production finite 보정은 1.0 / 1.5 cycle만 지원합니다. 1.25 / 1.75 / 2.0 cycle은 검토용입니다.")
         return
     if not feedback_selection or not feedback_selection.get("csv_bytes"):
+        if isinstance(cached, dict) and isinstance(cached.get("command_profile"), pd.DataFrame):
+            review_payload = st.session_state.get("quick_lut_actual_drive_review_result")
+            native_review = review_payload.get("review_frame") if isinstance(review_payload, dict) else None
+            _set_second_debug_step("cached result render without active feedback selection")
+            _render_second_modeling_result(
+                cached["command_profile"],
+                dict(cached.get("metadata") or {}),
+                cycle_count=cycle_count,
+                freq_hz=freq_hz,
+                waveform_type=waveform_type,
+                native_review_frame=native_review if isinstance(native_review, pd.DataFrame) else None,
+            )
+            _render_second_runtime_trace(expanded=True)
+            return
+        _set_second_debug_step("feedback selection missing")
+        _render_second_runtime_trace(expanded=True)
         st.info("2차 보정 command를 만들려면 먼저 TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 업로드/선택하십시오.")
         return
     gain = float(
@@ -70,7 +139,6 @@ def render_second_modeling_controls(
         )
     )
     selected_file = feedback_selection.get("filename")
-    cached = st.session_state.get("quick_lut_second_model_result")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (
         cached_metadata.get("quick_lut_actual_drive_selected_file") != selected_file
@@ -93,22 +161,31 @@ def render_second_modeling_controls(
             )
         else:
             st.info("실구동 결과 파일 업로드됨: 없음 또는 선택 안 됨. 다음 작업: 2차 보정 command 생성을 눌러 실구동 검토와 2차 보정을 시작하십시오.")
+        _render_second_runtime_trace(expanded=False)
         return
+    _set_second_debug_step("버튼 클릭 감지됨", clicked=True)
+    st.session_state["quick_lut_second_error"] = None
+    st.session_state["quick_lut_second_last_exception"] = None
     st.caption("2차 보정 command 생성을 누르면 실구동 결과 검토 plot과 2차 보정 전압 LUT를 한 번에 생성합니다.")
+    _set_second_debug_step("1차 command_profile 확인 완료")
     suffix = "_" + Path(str(feedback_selection.get("filename") or "actual_drive_result.csv")).name
     with NamedTemporaryFile(prefix="quick_lut_second_model_", suffix=suffix, delete=False) as handle:
         temp_path = Path(handle.name)
         handle.write(bytes(feedback_selection["csv_bytes"]))
+    _set_second_debug_step("temp file 생성 완료")
     native_review_frame: pd.DataFrame | None = None
     try:
         use_current_metadata = bool(feedback_selection.get("use_current_quick_lut_metadata"))
+        _set_second_debug_step("실구동 파일 선택 확인 완료")
         native_record = read_actual_drive_result(
             temp_path,
             waveform_type=waveform_type if use_current_metadata else None,
             freq_hz=freq_hz if use_current_metadata else None,
             cycle_count=cycle_count if use_current_metadata else None,
         )
+        _set_second_debug_step("actual-drive record parse 완료")
         native_review_frame, native_review_metadata = build_actual_drive_review_case(native_record)
+        _set_second_debug_step("native actual-drive review 생성 완료")
         second_profile, metadata = generate_second_modeled_voltage_lut(
             command_profile,
             native_record,
@@ -117,6 +194,7 @@ def render_second_modeling_controls(
             waveform_type=waveform_type if use_current_metadata else None,
             correction_gain=gain,
         )
+        _set_second_debug_step("second modeled voltage 계산 완료")
         metadata = {
             **metadata,
             **{
@@ -129,6 +207,7 @@ def render_second_modeling_controls(
         }
     except ValueError as exc:
         second_profile = command_profile.copy()
+        _set_second_debug_error("2차 보정 command 생성 중 오류 발생", exc)
         metadata = {
             "second_modeling_available": False,
             "second_modeling_status": "actual_drive_source_invalid",
@@ -137,6 +216,21 @@ def render_second_modeling_controls(
                 if "Unsupported finite actual-drive result filename" in str(exc)
                 else "invalid_actual_drive_result"
             ),
+            "parse_error": str(exc),
+            "target_unchanged": True,
+            "production_cycle_policy": "1p0_1p5_cycles",
+            "supported_production_cycles": [1.0, 1.5],
+            "unsupported_cycles": [1.25, 1.75, 2.0],
+            "fourier_resynthesis_involved": False,
+            "harmonic_export_involved": False,
+        }
+    except Exception as exc:
+        second_profile = command_profile.copy()
+        _set_second_debug_error("2차 보정 command 생성 중 오류 발생", exc)
+        metadata = {
+            "second_modeling_available": False,
+            "second_modeling_status": "unexpected_error",
+            "second_modeling_unavailable_reason": "unexpected_error",
             "parse_error": str(exc),
             "target_unchanged": True,
             "production_cycle_policy": "1p0_1p5_cycles",
@@ -158,6 +252,7 @@ def render_second_modeling_controls(
         "command_profile": second_profile,
         "metadata": metadata,
     }
+    st.session_state["quick_lut_second_result_saved"] = True
     st.session_state["quick_lut_actual_drive_selected_file"] = feedback_selection.get("filename")
     st.session_state["quick_lut_actual_drive_review_result"] = {
         "review_loaded": metadata.get("second_modeling_status") == "ok",
@@ -170,6 +265,8 @@ def render_second_modeling_controls(
     st.session_state["quick_lut_second_model_status"] = metadata.get("second_modeling_status", "unavailable")
     st.session_state["quick_lut_second_model_dirty"] = False
     st.session_state["quick_lut_final_export_source"] = "first_model"
+    _set_second_debug_step("session_state 저장 완료")
+    _set_second_debug_step("결과 렌더링 시작")
     _render_second_modeling_result(
         second_profile,
         metadata,
@@ -178,6 +275,8 @@ def render_second_modeling_controls(
         waveform_type=waveform_type,
         native_review_frame=native_review_frame,
     )
+    _set_second_debug_step("결과 렌더링 완료")
+    _render_second_runtime_trace(expanded=True)
 
 
 def _render_second_modeling_result(

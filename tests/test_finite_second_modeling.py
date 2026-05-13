@@ -183,6 +183,10 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "기준선 제거 후 자기장" in source
     assert "1차 실구동 데이터 원본 확인" in source
     assert "quick_lut_second_model_dirty" in source
+    assert "quick_lut_second_model_result" in source
+    assert "quick_lut_actual_drive_review_result" in source
+    assert "2차 보정 command runtime trace" in source
+    assert "단계별 trace" in source
     assert "native relative timebase" in source
     assert "command/target grid interpolation을 사용하지 않습니다" in source
 
