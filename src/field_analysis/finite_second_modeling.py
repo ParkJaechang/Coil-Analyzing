@@ -94,6 +94,8 @@ def generate_second_modeled_voltage_lut(
         }
     time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
     first_voltage = _first_voltage(profile)
+    first_limited_voltage = _first_limited_voltage(profile, first_voltage)
+    first_recommended_voltage = _optional_voltage(profile, "recommended_voltage_v")
     active_mask = _active_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
     if not _source_covers_target_active_window(review["time_s"], time_s[active_mask]):
         return profile, {
@@ -127,6 +129,7 @@ def generate_second_modeled_voltage_lut(
             "time_s": time_s,
             "physical_target_output_mT": target,
             "first_modeled_voltage_v": first_voltage,
+            "first_limited_voltage_v": first_limited_voltage,
             "actual_drive_voltage_v": actual_voltage,
             "actual_drive_voltage_normalized_v": actual_voltage,
             "raw_hallbz_mT": raw_hallbz,
@@ -141,7 +144,7 @@ def generate_second_modeled_voltage_lut(
             "second_correction_delta_v": delta,
             "second_modeled_voltage_v": second_voltage,
             "second_limited_voltage_v": second_limited,
-            "limited_voltage_v": second_limited,
+            "limited_voltage_v": first_limited_voltage,
             "final_voltage_v": final_voltage,
             "active_window_mask": active_mask,
             "production_cycle_policy": PRODUCTION_CYCLE_POLICY,
@@ -149,6 +152,8 @@ def generate_second_modeled_voltage_lut(
             "target_unchanged": True,
         }
     )
+    if first_recommended_voltage is not None:
+        result["recommended_voltage_v"] = first_recommended_voltage
     metadata = {
         **base_metadata,
         "second_modeling_available": True,
@@ -201,10 +206,28 @@ def _is_supported_cycle(cycle_count: float) -> bool:
 
 
 def _first_voltage(profile: pd.DataFrame) -> np.ndarray:
-    for column in ("final_voltage_v", "feedback_corrected_limited_voltage_v", "limited_voltage_v", "recommended_voltage_v"):
+    for column in (
+        "first_modeled_voltage_v",
+        "baseline_limited_voltage_v",
+        "feedback_corrected_limited_voltage_v",
+        "limited_voltage_v",
+        "recommended_voltage_v",
+    ):
         if column in profile.columns:
             return pd.to_numeric(profile[column], errors="coerce").to_numpy(dtype=float)
     return np.zeros(len(profile), dtype=float)
+
+
+def _first_limited_voltage(profile: pd.DataFrame, fallback: np.ndarray) -> np.ndarray:
+    if "limited_voltage_v" in profile.columns:
+        return pd.to_numeric(profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    return np.asarray(fallback, dtype=float).copy()
+
+
+def _optional_voltage(profile: pd.DataFrame, column: str) -> np.ndarray | None:
+    if column not in profile.columns:
+        return None
+    return pd.to_numeric(profile[column], errors="coerce").to_numpy(dtype=float)
 
 
 def _target(profile: pd.DataFrame, review: pd.DataFrame, time_s: np.ndarray) -> np.ndarray:

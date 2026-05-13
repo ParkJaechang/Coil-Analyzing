@@ -82,7 +82,7 @@ def render_final_voltage_lut_export_panel(
     selected_export = st.radio(
         "추출 대상",
         options=export_options,
-        index=1 if second_available and st.session_state.get("quick_lut_final_export_source") == "second_model" else 0,
+        index=0,
         key="final_modeled_lut_export_source_selector",
         horizontal=True,
     )

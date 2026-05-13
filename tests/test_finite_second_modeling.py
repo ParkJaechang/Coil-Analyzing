@@ -74,6 +74,34 @@ def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_
     assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 5.0 + 1e-12
 
 
+def test_second_modeling_preserves_first_command_profile_and_limited_voltage(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+    original = profile.copy(deep=True)
+
+    frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["second_modeling_status"] == "ok"
+    pd.testing.assert_frame_equal(profile, original)
+    assert np.allclose(frame["first_modeled_voltage_v"], original["limited_voltage_v"])
+    assert np.allclose(frame["limited_voltage_v"], original["limited_voltage_v"])
+    assert not np.allclose(frame["second_limited_voltage_v"], original["limited_voltage_v"])
+
+
+def test_second_modeling_uses_first_command_not_final_voltage_as_input(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+    profile["final_voltage_v"] = 4.75
+
+    frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["second_modeling_status"] == "ok"
+    assert np.allclose(frame["first_modeled_voltage_v"], profile["limited_voltage_v"])
+    assert not np.allclose(frame["first_modeled_voltage_v"], profile["final_voltage_v"])
+
+
 def test_second_modeling_rejects_unsupported_cycle_without_delta(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.25cycle_result.csv"
     _write_actual_drive_csv(actual)
@@ -144,6 +172,9 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "오차 (목표 - 실측)" in source
     assert "1차 모델링 전압" in source
     assert "2차 모델링 전압" in source
+    assert "전압 제한 후 2차 command" in source
+    assert "2차 모델링 최종 전압 후보" in source
+    assert "사용 중인 1차 실구동 데이터" in source
     assert "보정 전압 변화량" in source
     assert "Raw HallBz" in source
     assert "부호 보정 자기장 (-HallBz)" in source
@@ -166,6 +197,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
                 "measured_field_effective_mT": [-1.0],
                 "baseline_removed_effective_field_mT": [0.0],
                 "measured_field_baseline_removed_mT": [0.0],
+                "second_modeled_voltage_v": [0.1],
                 "second_limited_voltage_v": [0.0],
                 "second_correction_delta_v": [0.0],
             }
@@ -175,6 +207,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "목표 자기장" in frames["field"].columns
     assert "second_limited_voltage_v" not in frames["voltage"].columns
     assert "2차 모델링 전압" in frames["voltage"].columns
+    assert "전압 제한 후 2차 command" in frames["voltage"].columns
     assert np.isclose(frames["raw"]["Raw HallBz"].iloc[0], 1.0)
     assert np.isclose(frames["raw"]["부호 보정 자기장 (-HallBz)"].iloc[0], -1.0)
     native = build_native_actual_drive_raw_plot_frame(
@@ -192,3 +225,13 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     )
     assert native["time_s"].tolist() == [0.0, 0.2, 0.5]
     assert native["Raw HallBz"].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_second_modeling_ui_does_not_auto_switch_final_export_source() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_second_modeling.py").read_text(encoding="utf-8")
+    export_source = (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8")
+
+    assert 'quick_lut_final_export_source"] = "second_model"' not in source
+    assert "2차 결과가 생겨도 최종 LUT 추출 대상은 자동으로 바뀌지 않습니다." in source
+    assert "index=0" in export_source
+    assert 'index=1 if second_available' not in export_source

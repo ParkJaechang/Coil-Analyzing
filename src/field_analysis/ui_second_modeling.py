@@ -21,6 +21,7 @@ RESIDUAL_LABEL = "오차 (목표 - 실측)"
 FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
 ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
 SECOND_VOLTAGE_LABEL = "2차 모델링 전압"
+SECOND_LIMITED_VOLTAGE_LABEL = "전압 제한 후 2차 command"
 CORRECTION_DELTA_LABEL = "보정 전압 변화량"
 RAW_HALLBZ_LABEL = "Raw HallBz"
 EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
@@ -158,7 +159,7 @@ def render_second_modeling_controls(
     st.session_state["quick_lut_second_model_run_id"] = run_id
     st.session_state["quick_lut_second_model_status"] = metadata.get("second_modeling_status", "unavailable")
     st.session_state["quick_lut_second_model_dirty"] = False
-    st.session_state["quick_lut_final_export_source"] = "second_model" if metadata.get("second_modeling_status") == "ok" else "first_model"
+    st.session_state["quick_lut_final_export_source"] = "first_model"
     _render_second_modeling_result(second_profile, metadata, cycle_count=cycle_count, native_review_frame=native_review_frame)
 
 
@@ -171,6 +172,26 @@ def _render_second_modeling_result(
 ) -> None:
     with st.expander("상세 진단", expanded=False):
         st.dataframe(pd.DataFrame([metadata]), use_container_width=True)
+    _render_actual_drive_data_card(metadata, cycle_count=cycle_count)
+    if isinstance(native_review_frame, pd.DataFrame):
+        st.markdown("##### 3. 1차 실구동 결과")
+        st.caption("이 데이터는 2차 모델링에 사용된 1차 실구동 결과입니다.")
+        st.plotly_chart(
+            _plot_labeled_frame(
+                build_native_actual_drive_raw_plot_frame(native_review_frame),
+                [
+                    RAW_HALLBZ_LABEL,
+                    EFFECTIVE_FIELD_LABEL,
+                    NORMALIZED_FIELD_LABEL,
+                    RAW_VOLTAGE_LABEL,
+                    NORMALIZED_VOLTAGE_LABEL,
+                    "Current1_A",
+                ],
+                title="1차 실구동 데이터 확인",
+                yaxis_title="측정값",
+            ),
+            use_container_width=True,
+        )
     if metadata.get("second_modeling_status") != "ok":
         st.info(f"2차 모델링 사용 불가: {metadata.get('second_modeling_status', 'unknown')}")
         if isinstance(native_review_frame, pd.DataFrame):
@@ -217,12 +238,14 @@ def _render_second_modeling_result(
     st.plotly_chart(
         _plot_labeled_frame(
             plot_frames["voltage"],
-            [FIRST_VOLTAGE_LABEL, ACTUAL_VOLTAGE_LABEL, SECOND_VOLTAGE_LABEL, CORRECTION_DELTA_LABEL],
-            title="1차 전압 vs 2차 보정 전압",
+            [FIRST_VOLTAGE_LABEL, CORRECTION_DELTA_LABEL, SECOND_VOLTAGE_LABEL, SECOND_LIMITED_VOLTAGE_LABEL],
+            title="2차 모델링 최종 전압 후보",
             yaxis_title="전압 (V)",
         ),
         use_container_width=True,
     )
+    st.caption("이 plot은 2차 모델링 결과입니다. 1차 command plot과 별도로 표시됩니다. 최종 LUT 추출에서 2차 모델링 결과를 선택할 경우 이 전압 샘플이 저장됩니다.")
+    st.caption("2차 결과가 생겨도 최종 LUT 추출 대상은 자동으로 바뀌지 않습니다.")
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         raw_plot_frame = (
             build_native_actual_drive_raw_plot_frame(native_review_frame)
@@ -255,6 +278,27 @@ def _render_second_modeling_result(
     )
 
 
+def _render_actual_drive_data_card(metadata: dict[str, object], *, cycle_count: float) -> None:
+    source_file = metadata.get("quick_lut_actual_drive_selected_file") or metadata.get("actual_drive_source_file", "unknown")
+    file_freq = metadata.get("file_freq_hz", metadata.get("target_freq_hz"))
+    file_cycle = metadata.get("file_cycle_count", cycle_count)
+    rows = [
+        ("파일명", source_file),
+        ("데이터 source", metadata.get("feedback_source_label", metadata.get("metadata_source", "uploads/2nd 폴더 또는 업로드 파일"))),
+        ("schema", "TimeMs / Voltage1_V / HallBz"),
+        ("파일 metadata", f"freq={file_freq}, cycle={file_cycle}"),
+        ("현재 Quick LUT 설정", f"cycle={cycle_count}"),
+        ("match 상태", metadata.get("second_modeling_status", "unknown")),
+        ("timebase", metadata.get("timebase_status", metadata.get("native_timebase_status", "unknown"))),
+        ("HallBz sign convention", "effective field = -HallBz raw"),
+        ("field normalization", metadata.get("field_normalization_mode", "peak_to_50mT")),
+        ("voltage normalization", metadata.get("voltage_normalization_mode", "peak_to_5V_or_limit")),
+    ]
+    st.markdown("##### 사용 중인 1차 실구동 데이터")
+    st.caption("현재 이 파일을 2차 모델링 입력으로 사용합니다.")
+    st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
+
+
 def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str, pd.DataFrame]:
     time_s = pd.to_numeric(command_profile["time_s"], errors="coerce")
     field = pd.DataFrame({"time_s": time_s})
@@ -267,7 +311,8 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "actual_drive_voltage_normalized_v", ACTUAL_VOLTAGE_LABEL)
-    _copy_numeric(command_profile, voltage, "second_limited_voltage_v", SECOND_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "second_modeled_voltage_v", SECOND_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "second_limited_voltage_v", SECOND_LIMITED_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_correction_delta_v", CORRECTION_DELTA_LABEL)
 
     if "raw_hallbz_mT" in command_profile.columns:
