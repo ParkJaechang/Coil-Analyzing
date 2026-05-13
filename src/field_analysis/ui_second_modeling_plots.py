@@ -7,6 +7,31 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
+def plot_labeled_frame(frame: pd.DataFrame, columns: list[str], *, title: str, yaxis_title: str) -> go.Figure:
+    figure = go.Figure()
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        figure.add_trace(
+            go.Scatter(
+                x=frame["time_s"],
+                y=frame[column],
+                mode="lines",
+                name=column,
+                hovertemplate="시간=%{x:.4f}s<br>값=%{y:.4f}<extra>" + column + "</extra>",
+            )
+        )
+    figure.update_layout(
+        template="plotly_white",
+        height=360,
+        title=title,
+        xaxis_title="시간 (s)",
+        yaxis_title=yaxis_title,
+        legend_title="항목",
+    )
+    return figure
+
+
 def add_peak_alignment_markers(
     figure: go.Figure,
     frame: pd.DataFrame,

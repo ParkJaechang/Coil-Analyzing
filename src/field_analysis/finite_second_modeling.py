@@ -10,6 +10,10 @@ from .finite_actual_drive import ActualDriveRecord
 from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_actual_drive_normalization import peak_abs
+from .finite_second_modeling_stabilization import align_measured_field_for_residual
+from .finite_second_modeling_stabilization import apply_polarity_guard
+from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling
+from .finite_second_modeling_stabilization import stabilize_correction_delta
 
 SUPPORTED_SECOND_MODELING_CYCLES = (1.0, 1.5)
 UNSUPPORTED_SECOND_MODELING_CYCLES = (1.25, 1.75, 2.0)
@@ -26,12 +30,14 @@ def generate_second_modeled_voltage_lut(
     waveform_type: str | None = None,
     correction_gain: float = 0.25,
     voltage_limit_v: float = 5.0,
-    residual_alignment_mode: str = "first_peak_aligned",
+    residual_alignment_mode: str = "first_peak_aligned_stabilized",
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     profile = first_command_profile.copy()
-    residual_alignment_mode = (
-        "pointwise" if str(residual_alignment_mode) == "pointwise" else "first_peak_aligned"
+    residual_alignment_mode = _normalize_residual_alignment_mode(residual_alignment_mode)
+    alignment_mode = (
+        "pointwise" if residual_alignment_mode == "pointwise" else "first_peak_aligned"
     )
+    stabilization_enabled = residual_alignment_mode == "first_peak_aligned_stabilized"
     base_metadata = {
         "second_modeling_method": "residual_proportional_feedback",
         "correction_gain": float(correction_gain),
@@ -116,7 +122,14 @@ def generate_second_modeled_voltage_lut(
         }
     target = _target(profile, review, time_s)
     measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
-    measured_smoothed, smoothing_meta = _smooth_measured_field_for_second_modeling(measured, active_mask)
+    measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
+        review["time_s"],
+        review["normalized_measured_field_mT"],
+        time_s,
+        active_mask,
+        freq_hz=float(freq_hz),
+        cycle_count=float(cycle_count),
+    )
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
     effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
@@ -124,23 +137,36 @@ def generate_second_modeled_voltage_lut(
     normalized_field = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
     residual_raw = target - measured
     residual_pointwise = target - measured_smoothed
-    measured_aligned, residual_alignment_meta = _align_measured_field_for_residual(
+    measured_aligned, residual_alignment_meta = align_measured_field_for_residual(
         time_s,
         target,
         measured_smoothed,
         active_mask,
         freq_hz=float(freq_hz),
-        residual_alignment_mode=residual_alignment_mode,
+        residual_alignment_mode=alignment_mode,
     )
     residual_aligned = target - measured_aligned
     if residual_alignment_meta.get("phase_alignment_status") == "ok":
         residual_for_second = residual_aligned
     else:
         residual_for_second = residual_pointwise
-    delta = (residual_for_second / 50.0) * float(voltage_limit_v) * float(correction_gain)
-    delta[~active_mask | ~np.isfinite(delta)] = 0.0
-    delta = _smooth(delta)
+    raw_delta = (residual_for_second / 50.0) * float(voltage_limit_v) * float(correction_gain)
+    raw_delta[~active_mask | ~np.isfinite(raw_delta)] = 0.0
+    delta, stabilization_meta, envelope = stabilize_correction_delta(
+        raw_delta,
+        first_voltage,
+        time_s,
+        active_mask,
+        freq_hz=float(freq_hz),
+        cycle_count=float(cycle_count),
+        enabled=stabilization_enabled,
+    )
     second_voltage = first_voltage + delta
+    second_voltage, polarity_meta = apply_polarity_guard(
+        second_voltage,
+        first_voltage,
+        enabled=stabilization_enabled,
+    )
     second_limited = np.clip(second_voltage, -abs(float(voltage_limit_v)), abs(float(voltage_limit_v)))
     final_voltage = second_limited.copy()
 
@@ -161,6 +187,7 @@ def generate_second_modeled_voltage_lut(
             "measured_field_normalized_mT": normalized_field,
             "normalized_effective_field_mT": normalized_field,
             "measured_field_smoothed_mT": measured_smoothed,
+            "measured_field_smoothed_full_mT": measured_smoothed,
             "measured_field_aligned_mT": measured_aligned,
             "second_modeling_measured_field_mT": measured_aligned if residual_alignment_meta.get("phase_alignment_status") == "ok" else measured_smoothed,
             "first_model_residual_raw_mT": residual_raw,
@@ -169,9 +196,12 @@ def generate_second_modeled_voltage_lut(
             "first_model_residual_aligned_mT": residual_aligned,
             "first_model_residual_for_second_mT": residual_for_second,
             "first_model_residual_mT": residual_for_second,
+            "raw_second_correction_delta_v": raw_delta,
+            "second_correction_delta_v_smooth": delta,
             "second_correction_delta_v": delta,
             "second_modeled_voltage_v": second_voltage,
             "second_limited_voltage_v": second_limited,
+            "correction_envelope": envelope,
             "limited_voltage_v": first_limited_voltage,
             "final_voltage_v": final_voltage,
             "active_window_mask": active_mask,
@@ -208,6 +238,9 @@ def generate_second_modeled_voltage_lut(
         "voltage_normalization_scale_factor": review_meta.get("voltage_normalization_scale_factor"),
         **smoothing_meta,
         **residual_alignment_meta,
+        **stabilization_meta,
+        **polarity_meta,
+        "residual_alignment_mode": residual_alignment_mode,
     }
     return result, metadata
 
@@ -233,6 +266,14 @@ def _review_diagnostic_metadata(review_meta: dict[str, Any]) -> dict[str, Any]:
 
 def _is_supported_cycle(cycle_count: float) -> bool:
     return any(abs(float(cycle_count) - cycle) <= 1e-9 for cycle in SUPPORTED_SECOND_MODELING_CYCLES)
+
+
+def _normalize_residual_alignment_mode(value: str) -> str:
+    if value == "pointwise":
+        return "pointwise"
+    if value == "first_peak_aligned":
+        return "first_peak_aligned"
+    return "first_peak_aligned_stabilized"
 
 
 def _first_voltage(profile: pd.DataFrame) -> np.ndarray:
@@ -291,161 +332,6 @@ def _source_covers_target_active_window(source_time: Any, target_active_time: np
     if source.size < 2 or target.size < 1:
         return False
     return bool(np.nanmin(source) <= np.nanmin(target) + 1e-12 and np.nanmax(source) >= np.nanmax(target) - 1e-12)
-
-
-def _smooth(values: np.ndarray, window: int = 7) -> np.ndarray:
-    return pd.Series(np.asarray(values, dtype=float)).rolling(window=window, center=True, min_periods=1).mean().to_numpy(dtype=float)
-
-
-def _smooth_measured_field_for_second_modeling(values: np.ndarray, active_mask: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
-    raw = np.asarray(values, dtype=float)
-    smoothed = raw.copy()
-    active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
-    active_count = int(active.sum())
-    base_meta: dict[str, Any] = {
-        "measured_field_smoothing_enabled": True,
-        "measured_field_smoothing_method": "median_then_rolling",
-        "measured_field_smoothing_polyorder": None,
-        "residual_source_for_second_modeling": "smoothed_measured_field",
-        "correction_delta_source": "first_model_residual_smoothed_mT",
-    }
-    if active_count < 3:
-        return smoothed, {
-            **base_meta,
-            "measured_field_smoothing_status": "unavailable_too_few_active_samples",
-            "measured_field_smoothing_window_samples": 1,
-            "measured_field_smoothing_median_window_samples": 1,
-        }
-
-    median_window = _odd_window(min(max(5, active_count // 25), 9), active_count)
-    smooth_window = _odd_window(min(max(7, int(round(active_count * 0.05))), 101), active_count)
-    active_values = raw[active]
-    series = pd.Series(active_values).interpolate(limit_direction="both").ffill().bfill()
-    medianed = series.rolling(window=median_window, center=True, min_periods=1).median()
-    rolled = medianed.rolling(window=smooth_window, center=True, min_periods=1).mean()
-    smoothed[active] = rolled.to_numpy(dtype=float)
-    return smoothed, {
-        **base_meta,
-        "measured_field_smoothing_status": "ok",
-        "measured_field_smoothing_window_samples": int(smooth_window),
-        "measured_field_smoothing_median_window_samples": int(median_window),
-    }
-
-
-def _align_measured_field_for_residual(
-    time_s: np.ndarray,
-    target: np.ndarray,
-    measured_smoothed: np.ndarray,
-    active_mask: np.ndarray,
-    *,
-    freq_hz: float,
-    residual_alignment_mode: str,
-) -> tuple[np.ndarray, dict[str, Any]]:
-    measured = np.asarray(measured_smoothed, dtype=float)
-    if residual_alignment_mode == "pointwise":
-        return measured.copy(), {
-            "residual_alignment_mode": "pointwise",
-            "phase_alignment_enabled": False,
-            "phase_alignment_method": "none",
-            "target_first_peak_time_s": None,
-            "measured_first_peak_time_s": None,
-            "phase_alignment_shift_s": 0.0,
-            "phase_alignment_shift_cycles": 0.0,
-            "phase_alignment_status": "disabled_pointwise",
-            "residual_source_for_second_modeling": "smoothed_measured_field",
-            "correction_delta_source": "first_model_residual_for_second_mT",
-            "residual_alignment_interpolation_status": "not_applied",
-        }
-
-    time = np.asarray(time_s, dtype=float)
-    target_values = np.asarray(target, dtype=float)
-    active = np.asarray(active_mask, dtype=bool) & np.isfinite(time) & np.isfinite(target_values) & np.isfinite(measured)
-    target_peak = _first_positive_peak_time(time, target_values, active, freq_hz=freq_hz, allow_active_fallback=False)
-    measured_peak = _first_positive_peak_time(time, measured, active, freq_hz=freq_hz, allow_active_fallback=True)
-    base_meta: dict[str, Any] = {
-        "residual_alignment_mode": "first_peak_aligned",
-        "phase_alignment_enabled": True,
-        "phase_alignment_method": "first_positive_peak",
-        "target_first_peak_time_s": target_peak,
-        "measured_first_peak_time_s": measured_peak,
-        "residual_source_for_second_modeling": "first_peak_aligned_smoothed_measured_field",
-        "correction_delta_source": "first_model_residual_for_second_mT",
-    }
-    if target_peak is None or measured_peak is None:
-        return measured.copy(), {
-            **base_meta,
-            "phase_alignment_shift_s": 0.0,
-            "phase_alignment_shift_cycles": 0.0,
-            "phase_alignment_status": "peak_detection_failed",
-            "residual_alignment_interpolation_status": "fallback_pointwise",
-        }
-
-    shift_s = float(measured_peak - target_peak)
-    shift_cycles = shift_s * max(float(freq_hz), 0.0)
-    if abs(shift_cycles) > 0.35:
-        return measured.copy(), {
-            **base_meta,
-            "phase_alignment_shift_s": shift_s,
-            "phase_alignment_shift_cycles": shift_cycles,
-            "phase_alignment_status": "shift_too_large",
-            "residual_alignment_interpolation_status": "fallback_pointwise",
-        }
-
-    aligned = _interp(time, measured, time + shift_s)
-    return aligned, {
-        **base_meta,
-        "phase_alignment_shift_s": shift_s,
-        "phase_alignment_shift_cycles": shift_cycles,
-        "phase_alignment_status": "ok",
-        "residual_alignment_interpolation_status": (
-            "ok_no_extrapolation" if np.isfinite(aligned[active]).any() else "no_overlap"
-        ),
-    }
-
-
-def _first_positive_peak_time(
-    time: np.ndarray,
-    values: np.ndarray,
-    active_mask: np.ndarray,
-    *,
-    freq_hz: float,
-    allow_active_fallback: bool,
-) -> float | None:
-    finite_active = np.asarray(active_mask, dtype=bool) & np.isfinite(time) & np.isfinite(values)
-    if finite_active.sum() < 3:
-        return None
-    active_time = time[finite_active]
-    active_start = float(np.nanmin(active_time))
-    active_end = float(np.nanmax(active_time))
-    first_lobe_end = min(active_start + 0.5 / max(float(freq_hz), 1e-12), active_end)
-    lobe = finite_active & (time >= active_start - 1e-12) & (time <= first_lobe_end + 1e-12)
-    peak_time = _peak_time_from_mask(time, values, lobe, allow_edge_peak=not allow_active_fallback)
-    if peak_time is not None:
-        return peak_time
-    if allow_active_fallback:
-        return _peak_time_from_mask(time, values, finite_active, allow_edge_peak=True)
-    return None
-
-
-def _peak_time_from_mask(time: np.ndarray, values: np.ndarray, mask: np.ndarray, *, allow_edge_peak: bool) -> float | None:
-    candidates = np.where(mask & np.isfinite(values) & np.isfinite(time))[0]
-    if candidates.size == 0:
-        return None
-    candidate_values = values[candidates]
-    max_value = float(np.nanmax(candidate_values))
-    if not np.isfinite(max_value) or max_value <= 1e-9:
-        return None
-    max_index = int(candidates[int(np.nanargmax(candidate_values))])
-    if not allow_edge_peak and (max_index == int(candidates[0]) or max_index == int(candidates[-1])):
-        return None
-    return float(time[max_index])
-
-
-def _odd_window(value: int, max_size: int) -> int:
-    size = max(1, min(int(value), int(max_size)))
-    if size % 2 == 0:
-        size = max(1, size - 1)
-    return size
 
 
 __all__ = ["generate_second_modeled_voltage_lut"]

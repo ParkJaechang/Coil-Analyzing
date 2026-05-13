@@ -1,4 +1,4 @@
-"""UI helpers for user-triggered finite second modeled LUT generation."""
+﻿"""UI helpers for user-triggered finite second modeled LUT generation."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
 from .ui_second_modeling_plots import add_peak_alignment_markers
+from .ui_second_modeling_plots import plot_labeled_frame
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
 
 
@@ -20,6 +20,7 @@ TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
 SMOOTHED_FIELD_LABEL = "실측 자기장 smoothing"
 ALIGNED_FIELD_LABEL = "피크 정렬 실측 자기장"
+SECOND_MODELING_FIELD_LABEL = "보정 계산용 실측 자기장"
 RESIDUAL_LABEL = "오차 (목표 - 보정 계산용 실측)"
 PEAK_TARGET_LABEL = "목표 첫 피크"
 PEAK_MEASURED_LABEL = "실측 첫 피크"
@@ -29,6 +30,8 @@ ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"
 SECOND_VOLTAGE_LABEL = "2차 보정 전압"
 SECOND_LIMITED_VOLTAGE_LABEL = "전압 제한 후 2차 command"
 CORRECTION_DELTA_LABEL = "보정 전압 변화량"
+RAW_CORRECTION_DELTA_LABEL = "raw 보정 전압 변화량"
+STABILIZED_CORRECTION_DELTA_LABEL = "안정화 후 보정 전압 변화량"
 RAW_HALLBZ_LABEL = "Raw HallBz"
 EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
 NORMALIZED_FIELD_LABEL = "정규화 자기장 (±50mT)"
@@ -147,24 +150,28 @@ def render_second_modeling_controls(
     with st.expander("2차 보정 gain 설명", expanded=False):
         st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다.")
         st.caption("0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
-        st.caption("값이 클수록 2차 전압이 더 강하게 바뀌지만, 노이즈나 과보정 영향도 커질 수 있습니다.")
+        st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다.")
         st.caption("기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
         st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장")
         st.caption("보정 전압 변화량 = gain × 오차 / 50mT × 5V")
-        st.caption("2차 command = 1차 command + 보정 전압 변화량")
+        st.caption("2차 command = 1차 command + 안정화된 보정 전압 변화량")
         st.caption("최종 2차 command는 ±5V로 제한됩니다.")
     residual_mode_label = st.selectbox(
         "2차 보정 residual 계산 방식",
-        options=["첫 피크 정렬 residual", "시간축 그대로 residual"],
+        options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"],
         index=0,
         key="second_modeling_residual_alignment_mode",
         help=(
             "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. "
             "첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. "
+            "첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다. "
             "coil 응답이 목표보다 지연되는 경우에는 첫 피크 정렬 방식이 더 안정적입니다."
         ),
     )
-    residual_alignment_mode = "pointwise" if residual_mode_label == "시간축 그대로 residual" else "first_peak_aligned"
+    residual_alignment_mode = {
+        "시간축 그대로 residual": "pointwise",
+        "첫 피크 정렬 residual": "first_peak_aligned",
+    }.get(residual_mode_label, "first_peak_aligned_stabilized")
     selected_file = feedback_selection.get("filename")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (
@@ -323,7 +330,7 @@ def _render_second_modeling_result(
         st.markdown("##### 3. 1차 실구동 결과")
         st.caption("이 데이터는 2차 모델링에 사용된 1차 실구동 결과입니다.")
         st.plotly_chart(
-            _plot_labeled_frame(
+            plot_labeled_frame(
                 build_native_actual_drive_raw_plot_frame(native_review_frame),
                 [
                     RAW_HALLBZ_LABEL,
@@ -344,7 +351,7 @@ def _render_second_modeling_result(
             with st.expander("Raw 데이터 상세 보기", expanded=True):
                 st.caption("이 plot은 실구동 result의 native relative timebase를 사용하며, command/target grid interpolation을 사용하지 않습니다.")
                 st.plotly_chart(
-                    _plot_labeled_frame(
+                    plot_labeled_frame(
                         build_native_actual_drive_raw_plot_frame(native_review_frame),
                         [
                             RAW_HALLBZ_LABEL,
@@ -372,9 +379,16 @@ def _render_second_modeling_result(
     plot_frames = build_second_modeling_plot_frames(command_profile)
     st.markdown("##### 실구동 결과 검토")
     st.plotly_chart(
-        _plot_labeled_frame(
+        plot_labeled_frame(
             plot_frames["field"],
-            [TARGET_FIELD_LABEL, MEASURED_FIELD_LABEL, SMOOTHED_FIELD_LABEL, ALIGNED_FIELD_LABEL, RESIDUAL_LABEL],
+            [
+                TARGET_FIELD_LABEL,
+                MEASURED_FIELD_LABEL,
+                SMOOTHED_FIELD_LABEL,
+                ALIGNED_FIELD_LABEL,
+                SECOND_MODELING_FIELD_LABEL,
+                RESIDUAL_LABEL,
+            ],
             title="목표 자기장 vs 실측 자기장",
             yaxis_title="자기장 / 오차 (mT)",
         ),
@@ -384,6 +398,8 @@ def _render_second_modeling_result(
     st.caption("2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
     st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다.")
     st.caption("첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
+    st.caption("전압 보정량에는 zero-start/ramp/taper/polarity guard를 적용해 시작 전압이 비정상적으로 음수가 되지 않도록 합니다.")
+    st.caption("Raw 실측 데이터는 그대로 보존되고, 계산에는 smoothing 및 안정화된 residual을 사용합니다.")
     st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다.")
     st.markdown("##### 피크 정렬 확인")
     st.plotly_chart(
@@ -397,9 +413,15 @@ def _render_second_modeling_result(
     )
     st.markdown("##### 2차 보정 command")
     st.plotly_chart(
-        _plot_labeled_frame(
+        plot_labeled_frame(
             plot_frames["voltage"],
-            [FIRST_VOLTAGE_LABEL, CORRECTION_DELTA_LABEL, SECOND_VOLTAGE_LABEL, SECOND_LIMITED_VOLTAGE_LABEL],
+            [
+                FIRST_VOLTAGE_LABEL,
+                RAW_CORRECTION_DELTA_LABEL,
+                STABILIZED_CORRECTION_DELTA_LABEL,
+                SECOND_VOLTAGE_LABEL,
+                SECOND_LIMITED_VOLTAGE_LABEL,
+            ],
             title="2차 보정 command",
             yaxis_title="전압 (V)",
         ),
@@ -417,7 +439,7 @@ def _render_second_modeling_result(
         )
         st.caption("이 plot은 실구동 result의 native relative timebase를 사용하며, command/target grid interpolation을 사용하지 않습니다.")
         st.plotly_chart(
-            _plot_labeled_frame(
+            plot_labeled_frame(
                 raw_plot_frame,
                 [
                     RAW_HALLBZ_LABEL,
@@ -501,12 +523,17 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     _copy_numeric(command_profile, field, "measured_field_aligned_mT", ALIGNED_FIELD_LABEL)
     if ALIGNED_FIELD_LABEL not in field.columns and SMOOTHED_FIELD_LABEL in field.columns:
         field[ALIGNED_FIELD_LABEL] = field[SMOOTHED_FIELD_LABEL]
+    _copy_numeric(command_profile, field, "second_modeling_measured_field_mT", SECOND_MODELING_FIELD_LABEL)
+    if SECOND_MODELING_FIELD_LABEL not in field.columns and ALIGNED_FIELD_LABEL in field.columns:
+        field[SECOND_MODELING_FIELD_LABEL] = field[ALIGNED_FIELD_LABEL]
     _copy_numeric(command_profile, field, "first_model_residual_mT", RESIDUAL_LABEL)
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "actual_drive_voltage_normalized_v", ACTUAL_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_modeled_voltage_v", SECOND_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_limited_voltage_v", SECOND_LIMITED_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "raw_second_correction_delta_v", RAW_CORRECTION_DELTA_LABEL)
+    _copy_numeric(command_profile, voltage, "second_correction_delta_v_smooth", STABILIZED_CORRECTION_DELTA_LABEL)
     _copy_numeric(command_profile, voltage, "second_correction_delta_v", CORRECTION_DELTA_LABEL)
 
     if "raw_hallbz_mT" in command_profile.columns:
@@ -551,33 +578,8 @@ def _copy_numeric(source: pd.DataFrame, target: pd.DataFrame, source_column: str
         target[label] = pd.to_numeric(source[source_column], errors="coerce")
 
 
-def _plot_labeled_frame(frame: pd.DataFrame, columns: list[str], *, title: str, yaxis_title: str) -> go.Figure:
-    figure = go.Figure()
-    for column in columns:
-        if column not in frame.columns:
-            continue
-        figure.add_trace(
-            go.Scatter(
-                x=frame["time_s"],
-                y=frame[column],
-                mode="lines",
-                name=column,
-                hovertemplate="시간=%{x:.4f}s<br>값=%{y:.4f}<extra>" + column + "</extra>",
-            )
-        )
-    figure.update_layout(
-        template="plotly_white",
-        height=360,
-        title=title,
-        xaxis_title="시간 (s)",
-        yaxis_title=yaxis_title,
-        legend_title="항목",
-    )
-    return figure
-
-
-def _plot_peak_alignment_frame(frame: pd.DataFrame, metadata: dict[str, object], *, title: str, yaxis_title: str) -> go.Figure:
-    figure = _plot_labeled_frame(
+def _plot_peak_alignment_frame(frame: pd.DataFrame, metadata: dict[str, object], *, title: str, yaxis_title: str):
+    figure = plot_labeled_frame(
         frame,
         [TARGET_FIELD_LABEL, SMOOTHED_FIELD_LABEL, ALIGNED_FIELD_LABEL],
         title=title,
