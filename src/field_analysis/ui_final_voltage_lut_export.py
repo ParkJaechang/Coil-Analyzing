@@ -91,14 +91,18 @@ def render_final_voltage_lut_export_panel(
     if selected_export == "2차 보정 command" and second_available:
         voltage_source_column = "second_limited_voltage_v"
         file_prefix = "second_modeled_voltage_lut"
+        tail_suffix = _tail_suffix(command_profile)
         st.info(
             "현재 추출 대상: 2차 보정 command\n\n"
             "voltage_v = second_limited_voltage_v\n\n"
-            "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다."
+            "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다.\n\n"
+            "2차 보정 command에는 자기장 0 복귀 tail 0.25 cycle이 포함될 수 있습니다.\n\n"
+            "다운로드되는 2차 LUT는 active cycle + tail 구간을 포함합니다."
         )
     else:
         voltage_source_column = first_source_column
         file_prefix = "first_modeled_voltage_lut"
+        tail_suffix = ""
         st.info(
             "현재 추출 대상: 1차 모델링 command\n\n"
             "voltage_v = 1차 모델링 command\n\n"
@@ -110,7 +114,7 @@ def render_final_voltage_lut_export_panel(
     if waveform_type is not None and freq_hz is not None and cycle_count is not None:
         file_name = (
             f"{file_prefix}_{_safe_name_part(waveform_type)}_"
-            f"{_format_number_for_filename(freq_hz)}Hz_{_format_number_for_filename(cycle_count)}cycle.csv"
+            f"{_format_number_for_filename(freq_hz)}Hz_{_format_number_for_filename(cycle_count)}cycle{tail_suffix}.csv"
         )
     with st.expander("상세 진단", expanded=False):
         st.caption(f"exported_voltage_source_column: `{voltage_source_column}`")
@@ -162,3 +166,14 @@ def _format_number_for_filename(value: object | None) -> str:
     if not np.isfinite(number):
         return ""
     return f"{number:g}"
+
+
+def _tail_suffix(command_profile: pd.DataFrame) -> str:
+    if "post_cycle_zero_tail_enabled" not in command_profile.columns or not len(command_profile):
+        return ""
+    if not bool(command_profile["post_cycle_zero_tail_enabled"].iloc[0]):
+        return ""
+    if "post_cycle_zero_tail_cycle_count" not in command_profile.columns:
+        return "_plustail"
+    tail_cycle = _format_number_for_filename(command_profile["post_cycle_zero_tail_cycle_count"].iloc[0])
+    return f"_plus{tail_cycle}tail" if tail_cycle else "_plustail"

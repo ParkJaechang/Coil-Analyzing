@@ -8,13 +8,12 @@ from tempfile import NamedTemporaryFile
 import numpy as np
 import pandas as pd
 import streamlit as st
-
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
 from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_second_modeling_plots import plot_labeled_frame
+from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
-
 
 TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
@@ -31,15 +30,16 @@ SECOND_VOLTAGE_LABEL = "2차 보정 전압"
 SECOND_LIMITED_VOLTAGE_LABEL = "전압 제한 후 2차 command"
 CORRECTION_DELTA_LABEL = "보정 전압 변화량"
 RAW_CORRECTION_DELTA_LABEL = "raw 보정 전압 변화량"
+SMOOTHED_CORRECTION_DELTA_LABEL = "smoothing 후 보정 전압 변화량"
 STABILIZED_CORRECTION_DELTA_LABEL = "안정화 후 보정 전압 변화량"
+ACTIVE_CORRECTION_DELTA_LABEL = "active 보정 전압 변화량"
+TAIL_ZERO_RETURN_VOLTAGE_LABEL = "tail 자기장 0 복귀 전압"
 RAW_HALLBZ_LABEL = "Raw HallBz"
 EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
 NORMALIZED_FIELD_LABEL = "정규화 자기장 (±50mT)"
 BASELINE_REMOVED_FIELD_LABEL = "기준선 제거 후 자기장"
 RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
 NORMALIZED_VOLTAGE_LABEL = "정규화 전압 (±5V)"
-
-
 def _set_second_debug_step(step: str, *, clicked: bool = False) -> None:
     if clicked:
         st.session_state["quick_lut_second_button_clicked"] = True
@@ -49,8 +49,6 @@ def _set_second_debug_step(step: str, *, clicked: bool = False) -> None:
     history = st.session_state.setdefault("quick_lut_second_step_history", [])
     if isinstance(history, list):
         history.append(step)
-
-
 def _set_second_debug_error(message: str, exc: BaseException) -> None:
     st.session_state["quick_lut_second_step"] = "오류 발생"
     history = st.session_state.setdefault("quick_lut_second_step_history", [])
@@ -58,8 +56,6 @@ def _set_second_debug_error(message: str, exc: BaseException) -> None:
         history.append("오류 발생")
     st.session_state["quick_lut_second_error"] = message
     st.session_state["quick_lut_second_last_exception"] = f"{type(exc).__name__}: {exc}"
-
-
 def _render_second_runtime_trace(*, expanded: bool) -> None:
     rows = [
         ("button_clicked", st.session_state.get("quick_lut_second_button_clicked", False)),
@@ -84,8 +80,6 @@ def _render_second_runtime_trace(*, expanded: bool) -> None:
         history = st.session_state.get("quick_lut_second_step_history")
         if isinstance(history, list) and history:
             st.caption("단계별 trace: " + " → ".join(str(item) for item in history))
-
-
 def render_second_modeling_controls(
     *,
     command_profile: pd.DataFrame,
@@ -137,9 +131,16 @@ def render_second_modeling_controls(
         _render_second_runtime_trace(expanded=True)
         st.info("2차 보정 command를 만들려면 먼저 TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 업로드/선택하십시오.")
         return
+    gain_mode_label = st.selectbox(
+        "2차 보정 gain mode",
+        options=["자동 추천 gain", "수동 gain"],
+        index=0,
+        key="second_modeling_correction_gain_mode",
+    )
+    correction_gain_mode = "manual" if gain_mode_label == "수동 gain" else "auto"
     gain = float(
         st.number_input(
-            "2차 보정 gain",
+            "수동 2차 보정 gain",
             min_value=0.0,
             max_value=1.0,
             value=0.25,
@@ -148,14 +149,10 @@ def render_second_modeling_controls(
         )
     )
     with st.expander("2차 보정 gain 설명", expanded=False):
-        st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다.")
-        st.caption("0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
-        st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다.")
-        st.caption("기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
-        st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장")
-        st.caption("보정 전압 변화량 = gain × 오차 / 50mT × 5V")
-        st.caption("2차 command = 1차 command + 안정화된 보정 전압 변화량")
-        st.caption("최종 2차 command는 ±5V로 제한됩니다.")
+        st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다. 0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
+        st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다. 기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
+        st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / 50mT × 5V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 ±5V로 제한됩니다.")
+        st.caption("자동 추천 gain은 residual 크기와 남은 전압 headroom을 보고 보정량이 과해지지 않도록 계산합니다. 수동 gain은 사용자가 직접 보정 반영 비율을 지정합니다.")
     residual_mode_label = st.selectbox(
         "2차 보정 residual 계산 방식",
         options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"],
@@ -227,6 +224,7 @@ def render_second_modeling_controls(
             cycle_count=cycle_count,
             waveform_type=waveform_type if use_current_metadata else None,
             correction_gain=gain,
+            correction_gain_mode=correction_gain_mode,
             residual_alignment_mode=residual_alignment_mode,
         )
         _set_second_debug_step("second modeled voltage 계산 완료")
@@ -394,13 +392,10 @@ def _render_second_modeling_result(
         ),
         use_container_width=True,
     )
-    st.caption("Raw 실측 자기장은 그대로 표시합니다.")
-    st.caption("2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
-    st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다.")
-    st.caption("첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
-    st.caption("전압 보정량에는 zero-start/ramp/taper/polarity guard를 적용해 시작 전압이 비정상적으로 음수가 되지 않도록 합니다.")
-    st.caption("Raw 실측 데이터는 그대로 보존되고, 계산에는 smoothing 및 안정화된 residual을 사용합니다.")
-    st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다.")
+    st.caption("Raw 실측 자기장은 그대로 표시합니다. 2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
+    st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다. 첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
+    st.caption("전압 보정량에는 zero-start/ramp/taper/polarity guard를 적용해 시작 전압이 비정상적으로 음수가 되지 않도록 합니다. Raw 실측 데이터는 그대로 보존되고, 계산에는 smoothing 및 안정화된 residual을 사용합니다.")
+    st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다. active 구간에서는 목표 자기장 추종 보정을 적용합니다. tail 구간에서는 자기장을 0으로 복귀시키기 위한 추가 전압을 적용합니다. active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다. tail 끝에서는 전압이 0으로 수렴합니다.")
     st.markdown("##### 피크 정렬 확인")
     st.plotly_chart(
         _plot_peak_alignment_frame(
@@ -417,8 +412,7 @@ def _render_second_modeling_result(
             plot_frames["voltage"],
             [
                 FIRST_VOLTAGE_LABEL,
-                RAW_CORRECTION_DELTA_LABEL,
-                STABILIZED_CORRECTION_DELTA_LABEL,
+                CORRECTION_DELTA_LABEL,
                 SECOND_VOLTAGE_LABEL,
                 SECOND_LIMITED_VOLTAGE_LABEL,
             ],
@@ -427,10 +421,13 @@ def _render_second_modeling_result(
         ),
         use_container_width=True,
     )
+    st.caption("active와 tail을 따로 계산해 붙이지 않고, active+tail 전체에서 하나의 residual과 하나의 보정 전압을 계산합니다.")
+    st.caption("tail 구간의 목표 자기장은 0mT입니다. tail 끝에서는 전압이 0V로 수렴합니다.")
     st.caption("이 전압은 1차 실구동 결과를 이용해 다시 만든 2차 후보입니다.")
     st.caption("1차 command plot과 별도입니다.")
     st.caption("최종 LUT 추출에서 2차 보정 command를 선택할 경우 이 전압 샘플이 저장됩니다.")
     st.caption("2차 결과가 생겨도 최종 LUT 추출 대상은 자동으로 바뀌지 않습니다.")
+    render_correction_discontinuity_diagnostics(st, metadata, title="보정 전압 불연속 진단")
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         raw_plot_frame = (
             build_native_actual_drive_raw_plot_frame(native_review_frame)
@@ -516,6 +513,7 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     raw = pd.DataFrame({"time_s": time_s})
 
     _copy_numeric(command_profile, field, "physical_target_output_mT", TARGET_FIELD_LABEL)
+    _copy_numeric(command_profile, field, "target_field_for_second_mT", "2차 계산용 목표 자기장")
     _copy_numeric(command_profile, field, "measured_field_normalized_mT", MEASURED_FIELD_LABEL)
     _copy_numeric(command_profile, field, "measured_field_smoothed_mT", SMOOTHED_FIELD_LABEL)
     if SMOOTHED_FIELD_LABEL not in field.columns and MEASURED_FIELD_LABEL in field.columns:
@@ -527,14 +525,18 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     if SECOND_MODELING_FIELD_LABEL not in field.columns and ALIGNED_FIELD_LABEL in field.columns:
         field[SECOND_MODELING_FIELD_LABEL] = field[ALIGNED_FIELD_LABEL]
     _copy_numeric(command_profile, field, "first_model_residual_mT", RESIDUAL_LABEL)
+    _copy_numeric(command_profile, field, "residual_for_second_mT", "2차 계산용 residual")
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "actual_drive_voltage_normalized_v", ACTUAL_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_modeled_voltage_v", SECOND_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_limited_voltage_v", SECOND_LIMITED_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "raw_second_correction_delta_v", RAW_CORRECTION_DELTA_LABEL)
-    _copy_numeric(command_profile, voltage, "second_correction_delta_v_smooth", STABILIZED_CORRECTION_DELTA_LABEL)
-    _copy_numeric(command_profile, voltage, "second_correction_delta_v", CORRECTION_DELTA_LABEL)
+    _copy_numeric(command_profile, voltage, "smoothed_correction_delta_v", SMOOTHED_CORRECTION_DELTA_LABEL)
+    _copy_numeric(command_profile, voltage, "second_correction_delta_v", STABILIZED_CORRECTION_DELTA_LABEL)
+    _copy_numeric(command_profile, voltage, "active_correction_delta_v", ACTIVE_CORRECTION_DELTA_LABEL)
+    _copy_numeric(command_profile, voltage, "tail_voltage_v", TAIL_ZERO_RETURN_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "correction_delta_v", CORRECTION_DELTA_LABEL)
 
     if "raw_hallbz_mT" in command_profile.columns:
         raw[RAW_HALLBZ_LABEL] = pd.to_numeric(command_profile["raw_hallbz_mT"], errors="coerce")

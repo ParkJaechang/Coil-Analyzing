@@ -140,11 +140,11 @@ def test_second_modeling_defaults_to_first_peak_aligned_stabilized_residual(tmp_
     assert metadata["correction_stabilization_enabled"] is True
     assert metadata["correction_zero_start_guard_enabled"] is True
     assert metadata["correction_ramp_in_enabled"] is True
-    assert metadata["correction_taper_out_enabled"] is True
+    assert metadata["correction_taper_out_enabled"] is False
     assert metadata["correction_polarity_guard_enabled"] is True
     assert metadata["correction_envelope_applied"] is True
     assert metadata["correction_delta_smoothing_enabled"] is True
-    assert metadata["measured_field_smoothing_scope"] == "full_native_window_with_tail_margin"
+    assert metadata["measured_field_smoothing_scope"] == "native_window_until_zero_return"
     assert np.isclose(metadata["phase_alignment_shift_s"], 0.12, atol=0.035)
     assert np.isclose(metadata["phase_alignment_shift_cycles"], 0.12, atol=0.035)
     assert {
@@ -173,7 +173,121 @@ def test_second_modeling_defaults_to_first_peak_aligned_stabilized_residual(tmp_
     first_positive_lobe = active & (frame["first_modeled_voltage_v"].to_numpy(dtype=float) >= 0.05)
     assert np.nanmin(frame.loc[first_positive_lobe, "second_limited_voltage_v"]) >= -1e-12
     assert frame.loc[start_index, "correction_envelope"] == 0.0
-    assert frame.loc[active_indices[-1], "correction_envelope"] == 0.0
+    assert frame.loc[active_indices[-1], "correction_envelope"] > 0.99
+
+
+def test_second_modeling_stabilization_uses_start_gate_without_global_offset(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+        residual_alignment_mode="first_peak_aligned_stabilized",
+    )
+
+    source = (SRC_ROOT / "field_analysis" / "finite_second_modeling_stabilization.py").read_text(encoding="utf-8")
+    assert "- raw[start_index]" not in source
+    assert "correction_start_gate_duration_s" in metadata
+    assert np.isclose(metadata["correction_start_gate_duration_s"], 0.25, atol=1e-12)
+    assert metadata["correction_start_gate_applied_only_to_initial_segment"] is True
+    assert metadata["polarity_guard_mode"] == "start_segment_only"
+    assert metadata["polarity_guard_discontinuity_risk"] == "low_start_segment_only"
+    assert {
+        "raw_correction_delta_v",
+        "smoothed_correction_delta_v",
+        "stabilized_correction_delta_v",
+        "start_gate",
+        "taper_gate",
+        "correction_envelope",
+        "second_voltage_before_polarity_guard_v",
+        "second_voltage_after_polarity_guard_v",
+        "correction_nan_mask",
+        "correction_active_mask",
+        "source_range_valid_mask",
+        "polarity_guard_applied_mask",
+    }.issubset(frame.columns)
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    active_indices = np.flatnonzero(active)
+    start_index = int(active_indices[0])
+    after_gate = int(np.flatnonzero(frame["time_s"].to_numpy(dtype=float) >= 0.25)[0])
+    mid_index = int(active_indices[len(active_indices) // 2])
+    assert np.isclose(frame.loc[start_index, "start_gate"], 0.0)
+    assert frame.loc[after_gate, "start_gate"] >= 0.999
+    assert np.isclose(frame.loc[mid_index, "correction_envelope"], 1.0, atol=0.02)
+    assert np.isclose(
+        frame.loc[mid_index, "stabilized_correction_delta_v"],
+        frame.loc[mid_index, "smoothed_correction_delta_v"],
+        atol=0.10,
+    )
+    assert np.allclose(frame["second_correction_delta_v"], frame["stabilized_correction_delta_v"], equal_nan=True)
+
+
+def test_second_modeling_preserves_active_end_correction_and_adds_zero_return_tail(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        profile,
+        actual,
+        freq_hz=1.5,
+        cycle_count=1.5,
+        correction_gain=0.25,
+    )
+
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    tail = frame["tail_window_mask"].astype(bool).to_numpy()
+    active_indices = np.flatnonzero(active)
+    tail_indices = np.flatnonzero(tail)
+    active_end_index = int(active_indices[-1])
+    before_end_index = int(active_indices[-2])
+
+    assert metadata["active_taper_out_enabled"] is False
+    assert metadata["active_end_correction_preserved"] is True
+    assert metadata["post_cycle_zero_tail_enabled"] is True
+    assert metadata["post_cycle_zero_tail_cycle_count"] >= 0.25
+    assert np.isclose(
+        metadata["post_cycle_zero_tail_duration_s"],
+        metadata["post_cycle_zero_tail_cycle_count"] / 1.5,
+    )
+    assert len(frame) > len(profile)
+    assert tail.any()
+    assert np.isclose(frame.loc[active_end_index, "taper_gate"], 1.0)
+    assert np.isclose(frame.loc[before_end_index, "taper_gate"], 1.0)
+    assert np.isclose(
+        frame.loc[active_end_index, "stabilized_correction_delta_v"],
+        frame.loc[active_end_index, "smoothed_correction_delta_v"],
+        atol=0.12,
+    )
+    assert np.allclose(frame.loc[tail, "tail_target_field_mT"], 0.0)
+    assert np.isclose(frame.loc[tail_indices[-1], "second_limited_voltage_v"], 0.0, atol=1e-9)
+    assert np.isclose(frame.loc[tail_indices[-1], "tail_voltage_v"], 0.0, atol=1e-9)
+    assert "active_to_tail_voltage_jump_v" in metadata
+    assert metadata["active_to_tail_continuity_status"] in {"ok", "warning_jump_detected"}
+
+
+def test_second_modeling_discontinuity_diagnostics_exist(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    _frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+    )
+
+    assert "correction_discontinuity_detected" in metadata
+    assert "correction_discontinuity_time_s" in metadata
+    assert "correction_discontinuity_source" in metadata
+    assert "max_abs_delta_step_v" in metadata
+    assert "max_abs_second_voltage_step_v" in metadata
+    assert "discontinuity_threshold_v" in metadata
 
 
 def test_second_modeling_first_peak_aligned_without_stabilization_is_preserved(tmp_path: Path) -> None:
@@ -264,9 +378,10 @@ def test_second_modeling_preserves_first_command_profile_and_limited_voltage(tmp
 
     assert metadata["second_modeling_status"] == "ok"
     pd.testing.assert_frame_equal(profile, original)
-    assert np.allclose(frame["first_modeled_voltage_v"], original["limited_voltage_v"])
-    assert np.allclose(frame["limited_voltage_v"], original["limited_voltage_v"])
-    assert not np.allclose(frame["second_limited_voltage_v"], original["limited_voltage_v"])
+    first_slice = frame.iloc[: len(original)]
+    assert np.allclose(first_slice["first_modeled_voltage_v"], original["limited_voltage_v"])
+    assert np.allclose(first_slice["limited_voltage_v"], original["limited_voltage_v"])
+    assert not np.allclose(first_slice["second_limited_voltage_v"], original["limited_voltage_v"])
 
 
 def test_second_modeling_uses_first_command_not_final_voltage_as_input(tmp_path: Path) -> None:
@@ -278,8 +393,9 @@ def test_second_modeling_uses_first_command_not_final_voltage_as_input(tmp_path:
     frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
 
     assert metadata["second_modeling_status"] == "ok"
-    assert np.allclose(frame["first_modeled_voltage_v"], profile["limited_voltage_v"])
-    assert not np.allclose(frame["first_modeled_voltage_v"], profile["final_voltage_v"])
+    first_slice = frame.iloc[: len(profile)]
+    assert np.allclose(first_slice["first_modeled_voltage_v"], profile["limited_voltage_v"])
+    assert not np.allclose(first_slice["first_modeled_voltage_v"], profile["final_voltage_v"])
 
 
 def test_second_modeling_rejects_unsupported_cycle_without_delta(tmp_path: Path) -> None:
@@ -340,6 +456,22 @@ def test_final_lut_export_prefers_second_limited_voltage_when_available(tmp_path
     assert export["metadata"]["harmonic_export_involved"] is False
 
 
+def test_second_lut_export_includes_zero_return_tail_samples(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    frame, metadata = generate_second_modeled_voltage_lut(_first_profile(), actual, freq_hz=1.5, cycle_count=1.5)
+    frame["second_modeling_available"] = True
+    frame["second_modeling_status"] = "ok"
+
+    export = build_final_modeled_voltage_lut_export(frame, freq_hz=1.5, cycle_count=1.5, waveform="sine")
+
+    assert metadata["post_cycle_zero_tail_enabled"] is True
+    assert len(export["frame"]) == len(frame)
+    assert list(export["frame"].columns) == ["sample_index", "time_s", "voltage_v"]
+    assert np.isclose(export["frame"]["voltage_v"].iloc[-1], 0.0, atol=1e-9)
+    assert np.allclose(export["frame"]["voltage_v"], frame["second_limited_voltage_v"])
+
+
 def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_labels() -> None:
     from field_analysis.ui_second_modeling import build_native_actual_drive_raw_plot_frame, build_second_modeling_plot_frames
 
@@ -378,7 +510,13 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "보정 계산용 실측 자기장" in source
     assert "피크 정렬 확인" in source
     assert "raw 보정 전압 변화량" in source
+    assert "smoothing 후 보정 전압 변화량" in source
     assert "안정화 후 보정 전압 변화량" in source
+    assert "tail 자기장 0 복귀 전압" in source
+    assert "active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다" in source
+    assert "자동 추천 gain" in source
+    assert "수동 gain" in source
+    assert "보정 전압 불연속 진단" in source
     assert "native relative timebase" in source
     assert "command/target grid interpolation을 사용하지 않습니다" in source
 
@@ -399,7 +537,10 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
                 "second_limited_voltage_v": [0.0],
                 "second_correction_delta_v": [0.0],
                 "raw_second_correction_delta_v": [0.2],
+                "smoothed_correction_delta_v": [0.1],
                 "second_correction_delta_v_smooth": [0.0],
+                "tail_voltage_v": [0.0],
+                "active_correction_delta_v": [0.0],
             }
         )
     )
@@ -411,7 +552,10 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "실측 자기장 smoothing" in frames["field"].columns
     assert "보정 계산용 실측 자기장" in frames["field"].columns
     assert "raw 보정 전압 변화량" in frames["voltage"].columns
+    assert "smoothing 후 보정 전압 변화량" in frames["voltage"].columns
     assert "안정화 후 보정 전압 변화량" in frames["voltage"].columns
+    assert "tail 자기장 0 복귀 전압" in frames["voltage"].columns
+    assert "active 보정 전압 변화량" in frames["voltage"].columns
     assert np.isclose(frames["raw"]["Raw HallBz"].iloc[0], 1.0)
     assert np.isclose(frames["raw"]["부호 보정 자기장 (-HallBz)"].iloc[0], -1.0)
     native = build_native_actual_drive_raw_plot_frame(

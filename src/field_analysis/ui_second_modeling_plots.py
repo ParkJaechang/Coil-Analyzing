@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -30,6 +32,26 @@ def plot_labeled_frame(frame: pd.DataFrame, columns: list[str], *, title: str, y
         legend_title="항목",
     )
     return figure
+
+
+def render_correction_discontinuity_diagnostics(st: Any, metadata: dict[str, object], *, title: str) -> None:
+    diagnostic_keys = [
+        "correction_discontinuity_detected",
+        "correction_discontinuity_time_s",
+        "correction_discontinuity_source",
+        "max_abs_delta_step_v",
+        "max_abs_second_voltage_step_v",
+        "discontinuity_threshold_v",
+        "polarity_guard_mode",
+    ]
+    with st.expander(title, expanded=False):
+        st.dataframe(
+            pd.DataFrame([(key, metadata.get(key)) for key in diagnostic_keys], columns=["항목", "값"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        if metadata.get("correction_discontinuity_detected"):
+            st.warning("2차 보정 전압에 큰 불연속이 감지되었습니다. 상세 진단에서 원인을 확인하십시오.")
 
 
 def add_peak_alignment_markers(
