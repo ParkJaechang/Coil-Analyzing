@@ -3,17 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
+from io import BytesIO
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from .continuous_steady_state_extraction import (
+    adapt_continuous_source_frame,
     build_continuous_actual_drive_review_case,
+    build_continuous_phase_aligned_command_profile,
     build_continuous_steady_state_modeling_case,
     evaluate_continuous_steady_state_validation,
 )
+from .dataset_library import list_manifest_entries, load_dataset_library_settings, read_dataset_entry_bytes
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
+from .ui_upload_state import category_payloads
 
 
 ModelingCaseBuilder = Callable[..., dict[str, Any]]
@@ -32,12 +37,29 @@ def render_continuous_steady_state_runtime_panel(
     st.caption("Continuous mode에서는 1.5cycle command를 생성하지 않습니다.")
     st.caption("Continuous mode에서는 zero-return tail을 기본 사용하지 않습니다.")
 
-    candidate_names, candidates = _continuous_candidate_frames(analysis_lookup)
+    candidate_names, candidates, scan = discover_continuous_candidate_frames(analysis_lookup)
+    st.markdown("##### Continuous 후보 scan 결과")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"source": key, "candidate_count": value}
+                for key, value in dict(scan.get("continuous_candidate_source_counts") or {}).items()
+            ]
+            + [{"source": "schema_rejected", "candidate_count": int(scan.get("continuous_candidate_rejected_count") or 0)}]
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
     selected_name = None
     if candidate_names:
         selected_name = st.selectbox("Continuous source dataset", candidate_names, key="continuous_steady_source_dataset")
+        scan["continuous_candidate_selected_source"] = selected_name.split(":", 1)[0]
+        scan["continuous_candidate_selected_file"] = selected_name.split(":", 1)[1] if ":" in selected_name else selected_name
+        st.session_state["continuous_steady_state_selected_candidate"] = selected_name
+        st.session_state["continuous_steady_state_candidate_scan"] = scan
     else:
         st.info("Continuous extraction에 사용할 time_s/Voltage1_V/HallBz 호환 dataset이 없습니다.")
+        st.session_state["continuous_steady_state_candidate_scan"] = scan
 
     if st.button("Steady-state 1cycle 추출", key="continuous_steady_state_extract_button"):
         if selected_name is None:
@@ -60,6 +82,7 @@ def render_continuous_steady_state_runtime_panel(
                 st.session_state["continuous_steady_state_extraction_result"] = case
                 st.session_state["continuous_steady_state_window_frame"] = case["steady_state_one_cycle_frame"]
                 st.session_state["continuous_steady_state_metadata"] = case["metadata"]
+                st.session_state["continuous_steady_state_dirty"] = False
                 st.success("Steady-state 1cycle 추출 완료")
 
     case = st.session_state.get("continuous_steady_state_extraction_result")
@@ -68,6 +91,8 @@ def render_continuous_steady_state_runtime_panel(
         metadata = dict(case.get("metadata") or {})
         if isinstance(window, pd.DataFrame) and not window.empty:
             st.markdown("#### 선택된 steady-state 1cycle")
+            st.caption(f"startup transient 제외 cycle: {metadata.get('discarded_startup_cycles')}")
+            st.markdown("#### cycle stability metrics")
             st.caption("이 1cycle이 continuous steady-state modeling에 사용됩니다.")
             st.plotly_chart(_plot_continuous_window(window), use_container_width=True)
             st.dataframe(pd.DataFrame([metadata]), use_container_width=True, hide_index=True)
@@ -127,17 +152,15 @@ def render_continuous_actual_drive_runtime_panel(
         else:
             command_profile = first.get("command_profile")
             metadata = dict(first.get("metadata") or {})
-            metadata.update(
-                {
-                    "second_modeling_input_mode": "continuous_steady_state",
-                    "second_drive_actual_data_used": "steady_state_one_cycle_only",
-                    "continuous_repeating_lut": True,
-                    "continuous_export_cycle_count": 1.0,
-                    "continuous_zero_return_tail_enabled": False,
-                }
+            second_profile, second_meta = build_continuous_second_command_profile(
+                command_profile,
+                steady,
+                freq_hz=float(freq_hz or 1.0),
+                waveform_type=str(waveform_type or "sine"),
             )
+            metadata.update(second_meta)
             st.session_state["quick_lut_second_model_result_continuous"] = {
-                "command_profile": command_profile.copy(deep=True) if isinstance(command_profile, pd.DataFrame) else command_profile,
+                "command_profile": second_profile.copy(deep=True),
                 "actual_drive_steady_window_frame": steady.copy(deep=True),
                 "metadata": metadata,
             }
@@ -180,21 +203,156 @@ def _render_continuous_validation_section(*, waveform_type: str | None, freq_hz:
     st.dataframe(pd.DataFrame([result["metrics"]]), use_container_width=True, hide_index=True)
 
 
-def _continuous_candidate_frames(analysis_lookup: dict) -> tuple[list[str], dict[str, pd.DataFrame]]:
+def discover_continuous_candidate_frames(
+    analysis_lookup: dict,
+    *,
+    upload_payloads: list[tuple[str, bytes]] | None = None,
+    dataset_library_payloads: list[tuple[str, bytes]] | None = None,
+) -> tuple[list[str], dict[str, pd.DataFrame], dict[str, Any]]:
     candidates: dict[str, pd.DataFrame] = {}
+    rejected: list[str] = []
+    counts = {"analysis_lookup": 0, "upload_memory_continuous": 0, "dataset_library": 0}
     for key, analysis in (analysis_lookup or {}).items():
         frame = getattr(getattr(analysis, "parsed", None), "normalized_frame", None)
-        if isinstance(frame, pd.DataFrame) and _is_continuous_candidate(frame):
-            candidates[str(key)] = frame
+        _try_add_candidate(
+            candidates,
+            rejected,
+            f"analysis_lookup:{key}",
+            frame,
+            source_key="analysis_lookup",
+            counts=counts,
+        )
+    for name, payload in (upload_payloads if upload_payloads is not None else _load_upload_memory_continuous_payloads()):
+        _try_add_candidate(
+            candidates,
+            rejected,
+            f"upload_memory:{name}",
+            _read_csv_payload(name, payload),
+            source_key="upload_memory_continuous",
+            counts=counts,
+        )
+    for name, payload in (dataset_library_payloads if dataset_library_payloads is not None else _load_dataset_library_continuous_payloads()):
+        _try_add_candidate(
+            candidates,
+            rejected,
+            f"dataset_library:{name}",
+            _read_csv_payload(name, payload),
+            source_key="dataset_library",
+            counts=counts,
+        )
+    scan = {
+        "continuous_candidate_source_counts": counts,
+        "continuous_candidate_rejected_count": len(rejected),
+        "continuous_candidate_reject_reasons": rejected,
+    }
+    return sorted(candidates.keys()), candidates, scan
+
+
+def _continuous_candidate_frames(analysis_lookup: dict) -> tuple[list[str], dict[str, pd.DataFrame]]:
+    names, candidates, _scan = discover_continuous_candidate_frames(analysis_lookup)
     return sorted(candidates.keys()), candidates
 
 
 def _is_continuous_candidate(frame: pd.DataFrame) -> bool:
-    columns = set(frame.columns)
-    has_time = bool({"time_s", "time_s_abs", "TimeMs"} & columns)
-    has_voltage = bool({"raw_voltage_v", "raw_actual_drive_voltage_v", "Voltage1_V", "command_voltage_v"} & columns)
-    has_hall = bool({"raw_hallbz_mT", "hallbz_raw_mT", "HallBz"} & columns)
-    return has_time and has_voltage and has_hall
+    try:
+        adapt_continuous_source_frame(frame)
+    except ValueError:
+        return False
+    return True
+
+
+def _try_add_candidate(
+    candidates: dict[str, pd.DataFrame],
+    rejected: list[str],
+    name: str,
+    frame: pd.DataFrame | None,
+    *,
+    source_key: str,
+    counts: dict[str, int],
+) -> None:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return
+    try:
+        adapted, _metadata = adapt_continuous_source_frame(frame)
+    except ValueError as exc:
+        rejected.append(f"{name}: {exc}")
+        return
+    candidates[name] = adapted
+    counts[source_key] = int(counts.get(source_key, 0)) + 1
+
+
+def _read_csv_payload(name: str, payload: bytes) -> pd.DataFrame | None:
+    if not str(name).lower().endswith(".csv"):
+        return None
+    try:
+        return pd.read_csv(BytesIO(payload))
+    except Exception:
+        return None
+
+
+def _load_upload_memory_continuous_payloads() -> list[tuple[str, bytes]]:
+    try:
+        return category_payloads("continuous", None, include_cached_uploads=True)
+    except Exception:
+        return []
+
+
+def _load_dataset_library_continuous_payloads() -> list[tuple[str, bytes]]:
+    try:
+        settings = load_dataset_library_settings()
+        dataset_root = str(settings.get("dataset_root") or "").strip()
+        if not dataset_root:
+            return []
+        payloads: list[tuple[str, bytes]] = []
+        for entry in list_manifest_entries(dataset_root, dataset_mode="continuous"):
+            relative_path = str(entry.get("path") or "")
+            payloads.append((relative_path, read_dataset_entry_bytes(dataset_root, relative_path)))
+        return payloads
+    except Exception:
+        return []
+
+
+def build_continuous_second_command_profile(
+    first_command_profile: pd.DataFrame,
+    steady_actual_window_frame: pd.DataFrame,
+    *,
+    freq_hz: float,
+    waveform_type: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if not isinstance(first_command_profile, pd.DataFrame) or first_command_profile.empty:
+        raise ValueError("continuous first command profile is required")
+    actual = steady_actual_window_frame.copy()
+    time_s = pd.to_numeric(first_command_profile["time_s"], errors="coerce")
+    actual = actual.copy()
+    if "time_s" not in actual.columns:
+        raise ValueError("steady actual window requires time_s")
+    for column in ("normalized_physical_target_output_mT", "measured_field_normalized_mT"):
+        if column not in actual.columns:
+            raise ValueError(f"steady actual window requires {column}")
+    limited_column = "limited_voltage_v" if "limited_voltage_v" in first_command_profile.columns else "first_modeled_voltage_v"
+    actual["limited_voltage_v"] = pd.to_numeric(first_command_profile[limited_column], errors="coerce").to_numpy(dtype=float)
+    actual["voltage_normalized_v"] = actual["limited_voltage_v"]
+    actual["time_s"] = time_s.to_numpy(dtype=float)
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        actual,
+        freq_hz=float(freq_hz),
+        waveform_type=waveform_type,
+    )
+    second = first_command_profile.copy(deep=True).reset_index(drop=True)
+    for column in command.columns:
+        second[column] = command[column].to_numpy() if len(command[column]) == len(second) else command[column]
+    second["second_limited_voltage_v"] = command["limited_voltage_v"].to_numpy(dtype=float)
+    metadata.update(
+        {
+            "continuous_second_modeling_uses_phase_aligned_kernel": True,
+            "continuous_second_modeling_input_window": "steady_state_one_cycle_only",
+            "continuous_second_modeling_tail_disabled": True,
+            "continuous_second_export_cycle_count": 1.0,
+            "second_modeling_input_mode": "continuous_steady_state",
+            "second_drive_actual_data_used": "steady_state_one_cycle_only",
+        }
+    )
+    return second, metadata
 
 
 def _parse_actual_drive_upload(

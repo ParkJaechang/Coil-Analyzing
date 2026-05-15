@@ -6,7 +6,12 @@ import numpy as np
 import pandas as pd
 
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
+from field_analysis.continuous_steady_state_schema import adapt_continuous_source_frame
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit
+from field_analysis.finite_second_modeling_stabilization import align_measured_field_for_residual
+from field_analysis.finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling
+from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
+from field_analysis.finite_second_modeling_tail import compute_second_modeling_gain
 
 CONTINUOUS_PRODUCTION_CYCLE_COUNT = 1.0
 DEFAULT_MIN_DISCARD_CYCLES = 2
@@ -154,6 +159,105 @@ def build_continuous_steady_state_modeling_case(
     return {"steady_state_one_cycle_frame": window, "metadata": metadata}
 
 
+def build_continuous_phase_aligned_command_profile(
+    steady_state_one_cycle_frame: pd.DataFrame,
+    *,
+    freq_hz: float,
+    waveform_type: str | None = None,
+    correction_gain: float = 0.25,
+    correction_gain_mode: str = "auto",
+    voltage_limit_v: float = 5.0,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    frame = steady_state_one_cycle_frame.copy()
+    if frame.empty:
+        return frame, {
+            "continuous_first_modeling_available": False,
+            "continuous_first_modeling_status": "empty_steady_state_window",
+        }
+    time_s = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    measured = _first_numeric_column(frame, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
+    target = _first_numeric_column(frame, ("normalized_physical_target_output_mT", "physical_target_output_mT")).to_numpy(dtype=float)
+    first_voltage = _continuous_first_voltage(frame).to_numpy(dtype=float)
+    active_mask = np.isfinite(time_s) & np.isfinite(measured) & np.isfinite(target)
+    measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
+        time_s,
+        measured,
+        time_s,
+        active_mask,
+        freq_hz=float(freq_hz),
+        cycle_count=1.0,
+    )
+    measured_aligned, alignment_meta = align_measured_field_for_residual(
+        time_s,
+        target,
+        measured_smoothed,
+        active_mask,
+        freq_hz=float(freq_hz),
+        residual_alignment_mode="first_peak_aligned",
+    )
+    measured_for_modeling = measured_aligned if alignment_meta.get("phase_alignment_status") == "ok" else measured_smoothed
+    residual = target - measured_for_modeling
+    unit_delta = residual / 50.0 * float(voltage_limit_v)
+    gain, gain_meta = compute_second_modeling_gain(
+        unit_delta,
+        first_voltage,
+        active_mask,
+        manual_gain=float(correction_gain),
+        gain_mode=correction_gain_mode,
+        voltage_limit_v=float(voltage_limit_v),
+        tail_mask=np.zeros_like(active_mask, dtype=bool),
+    )
+    raw_delta = unit_delta * float(gain)
+    correction_delta, stabilization_meta, arrays = stabilize_correction_delta(
+        raw_delta,
+        first_voltage,
+        time_s,
+        active_mask,
+        freq_hz=float(freq_hz),
+        cycle_count=1.0,
+        enabled=True,
+        tail_mask=np.zeros_like(active_mask, dtype=bool),
+    )
+    first_modeled = first_voltage + correction_delta
+    limited = np.clip(first_modeled, -float(voltage_limit_v), float(voltage_limit_v))
+    command = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "first_modeled_voltage_v": first_modeled,
+            "limited_voltage_v": limited,
+            "correction_delta_v": correction_delta,
+            "raw_correction_delta_v": raw_delta,
+            "smoothed_correction_delta_v": arrays.get("smoothed_correction_delta_v", correction_delta),
+            "measured_field_smoothed_mT": measured_smoothed,
+            "measured_field_aligned_mT": measured_aligned,
+            "residual_for_modeling_mT": residual,
+            "continuous_loop_output": True,
+            "loop_endpoint_policy": "period_exclusive",
+            "continuous_export_cycle_count": 1.0,
+            "freq_hz": float(freq_hz),
+            "waveform_type": waveform_type,
+        }
+    )
+    metadata = {
+        **_base_metadata(freq_hz=freq_hz),
+        **smoothing_meta,
+        **alignment_meta,
+        **gain_meta,
+        **stabilization_meta,
+        "continuous_first_modeling_available": True,
+        "continuous_first_modeling_uses_phase_aligned_kernel": True,
+        "continuous_first_modeling_tail_disabled": True,
+        "continuous_first_modeling_cycle_count": 1.0,
+        "continuous_loop_output": True,
+        "continuous_modeling_kernel_source": "finite_second_modeling_shared_kernel",
+        "continuous_export_cycle_count": 1.0,
+        "loop_endpoint_policy": "period_exclusive",
+        "fourier_resynthesis_involved": False,
+        "harmonic_export_involved": False,
+    }
+    return command.reset_index(drop=True), metadata
+
+
 def evaluate_cycle_stability(frame: pd.DataFrame, *, freq_hz: float) -> tuple[pd.DataFrame, dict[str, Any]]:
     source = _coerce_continuous_source_frame(frame)
     period_s = 1.0 / max(float(freq_hz), 1e-12)
@@ -298,25 +402,8 @@ def evaluate_continuous_steady_state_validation(
 
 
 def _coerce_continuous_source_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    if "time_s_abs" in frame.columns:
-        time_s = pd.to_numeric(frame["time_s_abs"], errors="coerce")
-    elif "time_s" in frame.columns:
-        time_s = pd.to_numeric(frame["time_s"], errors="coerce")
-    elif "TimeMs" in frame.columns:
-        time_s = pd.to_numeric(frame["TimeMs"], errors="coerce") / 1000.0
-    else:
-        raise ValueError("continuous steady-state extraction requires time_s or TimeMs")
-    hall = _first_numeric_column(frame, ("raw_hallbz_mT", "hallbz_raw_mT", "HallBz"))
-    voltage = _first_numeric_column(frame, ("raw_voltage_v", "raw_actual_drive_voltage_v", "Voltage1_V", "command_voltage_v"))
-    source = pd.DataFrame(
-        {
-            "time_s_abs": time_s.to_numpy(dtype=float),
-            "raw_hallbz_mT": hall.to_numpy(dtype=float),
-            "measured_field_effective_mT": -hall.to_numpy(dtype=float),
-            "raw_voltage_v": voltage.to_numpy(dtype=float),
-        }
-    ).dropna(subset=["time_s_abs"])
-    return source.sort_values("time_s_abs").reset_index(drop=True)
+    source, _metadata = adapt_continuous_source_frame(frame)
+    return source
 
 
 def _detect_cycle_boundaries(source: pd.DataFrame, *, freq_hz: float) -> dict[str, Any]:
@@ -436,6 +523,13 @@ def _first_numeric_column(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.S
         if column in frame.columns:
             return pd.to_numeric(frame[column], errors="coerce")
     raise ValueError(f"missing one of required columns: {columns}")
+
+
+def _continuous_first_voltage(frame: pd.DataFrame) -> pd.Series:
+    for column in ("limited_voltage_v", "voltage_normalized_v", "raw_voltage_v", "Voltage1_V"):
+        if column in frame.columns:
+            return pd.to_numeric(frame[column], errors="coerce")
+    return pd.Series(np.zeros(len(frame), dtype=float))
 
 
 def _base_metadata(*, freq_hz: float) -> dict[str, Any]:

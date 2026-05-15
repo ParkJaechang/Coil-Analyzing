@@ -65,6 +65,7 @@ from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
 from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
 from .continuous_steady_state_extraction import build_continuous_steady_state_modeling_case
+from .continuous_steady_state_extraction import build_continuous_phase_aligned_command_profile
 from .ui_continuous_steady_state import (
     render_continuous_actual_drive_runtime_panel,
     render_continuous_steady_state_runtime_panel,
@@ -2384,6 +2385,12 @@ def _render_quick_lut_tab_v2(
         return
 
     if compensation_clicked:
+        continuous_extraction_case = None
+        if modeling_input_mode == "continuous_steady_state":
+            continuous_extraction_case = st.session_state.get("continuous_steady_state_extraction_result")
+            if not isinstance(continuous_extraction_case, dict):
+                st.warning("먼저 Steady-state 1cycle 추출을 실행하십시오.")
+                return
         compensation_title = f"{main_field_axis} 파형 보정"
         compensation_basis = f"fixed rounded-triangle measured {main_field_axis} waveform"
         clamp_label = f"목표 {main_field_axis} 크기"
@@ -2484,6 +2491,15 @@ def _render_quick_lut_tab_v2(
                 compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
             if modeling_input_mode == "continuous_steady_state":
+                steady_window = continuous_extraction_case.get("steady_state_one_cycle_frame") if isinstance(continuous_extraction_case, dict) else None
+                if isinstance(steady_window, pd.DataFrame) and not steady_window.empty:
+                    first_command_profile, continuous_first_meta = build_continuous_phase_aligned_command_profile(
+                        steady_window,
+                        freq_hz=float(target_freq),
+                        waveform_type=str(target_waveform) if target_waveform is not None else None,
+                    )
+                    st.session_state["quick_lut_first_model_result_continuous_metadata"] = continuous_first_meta
+                    st.session_state["continuous_first_modeling_run_id"] = _runtime_git_value("rev-parse", "--short", "HEAD")
                 first_command_profile["modeling_input_mode"] = "continuous_steady_state"
                 first_command_profile["continuous_production_cycle_count"] = 1.0
                 first_command_profile["continuous_repeating_lut"] = True

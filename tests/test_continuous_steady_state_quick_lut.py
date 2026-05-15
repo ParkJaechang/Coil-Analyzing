@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -11,6 +12,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_frame
+from field_analysis.ui_continuous_steady_state import (
+    build_continuous_second_command_profile,
+    discover_continuous_candidate_frames,
+)
 
 APP_UI = SRC_ROOT / "field_analysis" / "app_ui_snapshot.py"
 CONT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_steady_state.py"
@@ -119,3 +124,80 @@ def test_continuous_export_drops_period_endpoint_for_loop_safe_lut() -> None:
     assert exported.columns.tolist() == ["sample_index", "time_s", "voltage_v"]
     assert exported["time_s"].tolist() == [0.0, 0.25, 0.5, 0.75]
     assert exported["sample_index"].tolist() == [0, 1, 2, 3]
+
+
+def test_upload_memory_continuous_candidate_discovery_accepts_cached_payload() -> None:
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_sine_1Hz.csv", csv_bytes)],
+        dataset_library_payloads=[],
+    )
+
+    assert names == ["upload_memory:continuous_sine_1Hz.csv"]
+    assert scan["continuous_candidate_source_counts"]["upload_memory_continuous"] == 1
+    assert scan["continuous_candidate_rejected_count"] == 0
+    assert "raw_hallbz_mT" in candidates[names[0]].columns
+
+
+def test_dataset_library_continuous_candidate_discovery_accepts_library_payload() -> None:
+    csv_bytes = b"time_s,command_voltage_v,raw_hallbz_mT\n0,0,0\n0.01,1,-1\n0.02,0,0\n"
+
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[],
+        dataset_library_payloads=[("library/continuous_case.csv", csv_bytes)],
+    )
+
+    assert names == ["dataset_library:library/continuous_case.csv"]
+    assert scan["continuous_candidate_source_counts"]["dataset_library"] == 1
+    assert scan["continuous_candidate_rejected_count"] == 0
+    assert "raw_voltage_v" in candidates[names[0]].columns
+
+
+def test_continuous_candidate_discovery_rejects_final_lut_schema() -> None:
+    csv_bytes = b"sample_index,time_s,voltage_v\n0,0,0\n1,0.1,1\n"
+
+    names, _candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("first_modeled_voltage_lut.csv", csv_bytes)],
+        dataset_library_payloads=[],
+    )
+
+    assert names == []
+    assert scan["continuous_candidate_rejected_count"] == 1
+    assert "final_voltage_lut_not_measured_input" in scan["continuous_candidate_reject_reasons"][0]
+
+
+def test_continuous_second_command_profile_is_not_placeholder_copy() -> None:
+    period = 0.5
+    time_s = np.linspace(0.0, period, 80, endpoint=False)
+    first_command = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "limited_voltage_v": 2.0 * np.sin(2.0 * np.pi * time_s / period),
+        }
+    )
+    steady_actual = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "measured_field_normalized_mT": 42.0 * np.sin(2.0 * np.pi * time_s / period - 0.1),
+            "normalized_physical_target_output_mT": 50.0 * np.sin(2.0 * np.pi * time_s / period),
+            "voltage_normalized_v": 2.0 * np.sin(2.0 * np.pi * time_s / period),
+        }
+    )
+
+    second, metadata = build_continuous_second_command_profile(
+        first_command,
+        steady_actual,
+        freq_hz=2.0,
+        waveform_type="sine",
+    )
+
+    assert metadata["continuous_second_modeling_uses_phase_aligned_kernel"] is True
+    assert metadata["continuous_second_modeling_tail_disabled"] is True
+    assert metadata["continuous_second_modeling_input_window"] == "steady_state_one_cycle_only"
+    assert "second_limited_voltage_v" in second.columns
+    assert "correction_delta_v" in second.columns
+    assert not np.allclose(second["second_limited_voltage_v"], first_command["limited_voltage_v"])

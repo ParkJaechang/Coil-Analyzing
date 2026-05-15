@@ -12,7 +12,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.continuous_steady_state_extraction import (
+    adapt_continuous_source_frame,
     build_continuous_steady_state_modeling_case,
+    build_continuous_phase_aligned_command_profile,
     evaluate_cycle_stability,
     extract_steady_state_one_cycle_window,
 )
@@ -128,6 +130,69 @@ def test_cycle_boundary_falls_back_to_fixed_period_when_zero_crossing_unavailabl
     assert metadata["fixed_period_fallback_used"] is True
     assert metadata["detected_cycle_count"] >= 4
     assert not metrics.empty
+
+
+def test_continuous_schema_adapter_accepts_alias_columns() -> None:
+    frame = pd.DataFrame(
+        {
+            "Time": [0.0, 0.01, 0.02],
+            "command_voltage_v": [0.0, 1.0, 0.0],
+            "HallZ": [1.0, -2.0, 1.0],
+        }
+    )
+
+    adapted, metadata = adapt_continuous_source_frame(frame)
+
+    assert metadata["continuous_schema_status"] == "ok"
+    assert metadata["continuous_schema_time_column"] == "Time"
+    assert metadata["continuous_schema_voltage_column"] == "command_voltage_v"
+    assert metadata["continuous_schema_hall_column"] == "HallZ"
+    assert adapted.columns.tolist() == ["time_s_abs", "raw_hallbz_mT", "measured_field_effective_mT", "raw_voltage_v"]
+    assert np.allclose(adapted["measured_field_effective_mT"], -adapted["raw_hallbz_mT"])
+
+
+def test_continuous_schema_adapter_rejects_final_voltage_lut() -> None:
+    frame = pd.DataFrame({"sample_index": [0, 1], "time_s": [0.0, 0.1], "voltage_v": [0.0, 1.0]})
+
+    try:
+        adapt_continuous_source_frame(frame)
+    except ValueError as exc:
+        assert "final_voltage_lut_not_measured_input" in str(exc)
+    else:
+        raise AssertionError("final LUT schema must be rejected as continuous measured input")
+
+
+def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tail() -> None:
+    case = build_continuous_steady_state_modeling_case(
+        _continuous_frame(freq_hz=2.0),
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        case["steady_state_one_cycle_frame"],
+        freq_hz=2.0,
+        waveform_type="sine",
+    )
+
+    assert metadata["continuous_first_modeling_uses_phase_aligned_kernel"] is True
+    assert metadata["continuous_modeling_kernel_source"] == "finite_second_modeling_shared_kernel"
+    assert metadata["continuous_first_modeling_tail_disabled"] is True
+    assert metadata["continuous_first_modeling_cycle_count"] == 1.0
+    assert metadata["continuous_loop_output"] is True
+    assert metadata["loop_endpoint_policy"] == "period_exclusive"
+    assert {
+        "first_modeled_voltage_v",
+        "limited_voltage_v",
+        "correction_delta_v",
+        "measured_field_smoothed_mT",
+        "measured_field_aligned_mT",
+        "residual_for_modeling_mT",
+    }.issubset(command.columns)
+    assert "tail_voltage_v" not in command.columns
+    assert command["time_s"].min() == 0.0
+    assert command["time_s"].max() < 0.5
 
 
 def test_continuous_modeling_case_is_finite_like_one_cycle_and_loop_safe() -> None:
