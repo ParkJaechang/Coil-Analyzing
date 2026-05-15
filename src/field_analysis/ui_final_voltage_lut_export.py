@@ -10,11 +10,12 @@ def build_final_voltage_lut_frame(command_profile: pd.DataFrame, *, voltage_sour
     missing = [column for column in ("time_s", voltage_source_column) if column not in command_profile.columns]
     if missing:
         raise ValueError(f"Missing final voltage LUT source columns: {missing}")
+    source = _loop_safe_command_profile(command_profile)
     return pd.DataFrame(
         {
-            "sample_index": np.arange(len(command_profile), dtype=int),
-            "time_s": pd.to_numeric(command_profile["time_s"], errors="coerce"),
-            "voltage_v": pd.to_numeric(command_profile[voltage_source_column], errors="coerce"),
+            "sample_index": np.arange(len(source), dtype=int),
+            "time_s": pd.to_numeric(source["time_s"], errors="coerce"),
+            "voltage_v": pd.to_numeric(source[voltage_source_column], errors="coerce"),
         }
     )
 
@@ -56,7 +57,11 @@ def render_final_voltage_lut_export_panel(
     # Source-contract marker for tests and PR review: exported CSV uses plotted final
     # command voltage samples; not Fourier; not harmonic resynthesis; columns:
     # sample_index, time_s, voltage_v.
-    if not finite_cycle_mode:
+    if command_profile is not None and not getattr(command_profile, "empty", True):
+        continuous_loop_output = _profile_bool(command_profile, "continuous_loop_output")
+    else:
+        continuous_loop_output = False
+    if not finite_cycle_mode and not continuous_loop_output:
         st.info("최종 전압 LUT 추출 사용 불가: finite 보정 결과에서만 다운로드할 수 있습니다.")
         return
     if command_profile is None or command_profile.empty:
@@ -96,7 +101,7 @@ def render_final_voltage_lut_export_panel(
             "현재 추출 대상: 2차 보정 command\n\n"
             "voltage_v = second_limited_voltage_v\n\n"
             "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다.\n\n"
-            "2차 보정 command에는 자기장 0 복귀 tail 0.25 cycle이 포함될 수 있습니다.\n\n"
+            "2차 보정 command에는 사용자가 지정한 자기장 0 복귀 시간만큼 tail이 포함될 수 있습니다.\n\n"
             "다운로드되는 2차 LUT는 active cycle + tail 구간을 포함합니다."
         )
     else:
@@ -177,3 +182,45 @@ def _tail_suffix(command_profile: pd.DataFrame) -> str:
         return "_plustail"
     tail_cycle = _format_number_for_filename(command_profile["post_cycle_zero_tail_cycle_count"].iloc[0])
     return f"_plus{tail_cycle}tail" if tail_cycle else "_plustail"
+
+
+def _profile_bool(command_profile: pd.DataFrame, column: str) -> bool:
+    if column not in command_profile.columns or command_profile.empty:
+        return False
+    value = command_profile[column].iloc[0]
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y"}
+    return bool(value)
+
+
+def _loop_safe_command_profile(command_profile: pd.DataFrame) -> pd.DataFrame:
+    if not _profile_bool(command_profile, "continuous_loop_output"):
+        return command_profile
+    if command_profile.empty or str(command_profile.get("loop_endpoint_policy", pd.Series([""])).iloc[0]) != "period_exclusive":
+        return command_profile
+    freq_hz = _first_numeric(command_profile, "freq_hz")
+    if freq_hz is None or freq_hz <= 0.0:
+        return command_profile
+    period_s = 1.0 / freq_hz
+    time_s = pd.to_numeric(command_profile["time_s"], errors="coerce")
+    keep = time_s < period_s - max(period_s * 1e-9, 1e-12)
+    if not bool(keep.any()):
+        return command_profile
+    return command_profile.loc[keep].reset_index(drop=True)
+
+
+def _first_numeric(frame: pd.DataFrame, column: str) -> float | None:
+    if column not in frame.columns or frame.empty:
+        return None
+    try:
+        value = float(frame[column].iloc[0])
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+# Continuous steady-state export contract marker:
+# continuous_loop_output=True exports a loop-safe 1cycle LUT with
+# loop_endpoint_policy=period_exclusive and columns sample_index, time_s, voltage_v.

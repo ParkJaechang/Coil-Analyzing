@@ -131,44 +131,29 @@ def render_second_modeling_controls(
         _render_second_runtime_trace(expanded=True)
         st.info("2차 보정 command를 만들려면 먼저 TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 업로드/선택하십시오.")
         return
-    gain_mode_label = st.selectbox(
-        "2차 보정 gain mode",
-        options=["자동 추천 gain", "수동 gain"],
-        index=0,
-        key="second_modeling_correction_gain_mode",
-    )
+    gain_mode_label = st.selectbox("2차 보정 gain mode", options=["자동 추천 gain", "수동 gain"], index=0, key="second_modeling_correction_gain_mode")
     correction_gain_mode = "manual" if gain_mode_label == "수동 gain" else "auto"
     gain = float(
-        st.number_input(
-            "수동 2차 보정 gain",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.25,
-            step=0.05,
-            key="second_modeling_correction_gain",
-        )
+        st.number_input("수동 2차 보정 gain", min_value=0.0, max_value=1.0, value=0.25, step=0.05, key="second_modeling_correction_gain")
     )
     with st.expander("2차 보정 gain 설명", expanded=False):
         st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다. 0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
         st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다. 기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
         st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / 50mT × 5V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 ±5V로 제한됩니다.")
         st.caption("자동 추천 gain은 residual 크기와 남은 전압 headroom을 보고 보정량이 과해지지 않도록 계산합니다. 수동 gain은 사용자가 직접 보정 반영 비율을 지정합니다.")
-    residual_mode_label = st.selectbox(
-        "2차 보정 residual 계산 방식",
-        options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"],
-        index=0,
-        key="second_modeling_residual_alignment_mode",
-        help=(
-            "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. "
-            "첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. "
-            "첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다. "
-            "coil 응답이 목표보다 지연되는 경우에는 첫 피크 정렬 방식이 더 안정적입니다."
-        ),
-    )
+    residual_help = "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. 첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. 첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다."
+    residual_mode_label = st.selectbox("2차 보정 residual 계산 방식", options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"], index=0, key="second_modeling_residual_alignment_mode", help=residual_help)
     residual_alignment_mode = {
         "시간축 그대로 residual": "pointwise",
         "첫 피크 정렬 residual": "first_peak_aligned",
     }.get(residual_mode_label, "first_peak_aligned_stabilized")
+    tail_help = "residual 기반 tail은 목표 0mT와 실측 자기장의 차이를 보정 전압으로 변환합니다. 지정 시간 0 복귀 제어는 active 종료 시점의 자기장 상태를 기준으로 지정 시간 안에 자기장이 0으로 수렴하도록 tail 전압을 계산합니다. tail 끝에서는 전압도 0V로 수렴합니다."
+    tail_mode_label = st.selectbox("자기장 0 복귀 tail 방식", options=["지정 시간 0 복귀 제어", "residual 기반 tail", "사용 안 함"], index=0, key="second_modeling_tail_return_mode", help=tail_help)
+    tail_return_mode = {"사용 안 함": "disabled", "residual 기반 tail": "residual"}.get(tail_mode_label, "finite_time_zero_return")
+    tail_seconds = float(st.number_input("자기장 0 복귀 시간 (s)", min_value=0.05, max_value=2.0, value=0.25, step=0.05, key="second_modeling_tail_duration_s"))
+    tail_cycle_count = float(tail_seconds * freq_hz) if np.isfinite(freq_hz) else 0.0
+    st.caption(f"cycle 종료 후 이 시간 동안 자기장을 0으로 복귀시키는 tail 전압을 생성합니다. 이 값은 tail command 길이와 동일합니다. 현재 주파수 기준 약 {tail_cycle_count:.2f} cycle입니다.")
+    st.caption("이 시간 안에 tail 전압이 자기장을 0으로 보내도록 계산합니다. 실측 데이터가 부족해도 가짜 보정 계산용 실측 자기장을 만들지 않습니다.")
     selected_file = feedback_selection.get("filename")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (
@@ -226,6 +211,11 @@ def render_second_modeling_controls(
             correction_gain=gain,
             correction_gain_mode=correction_gain_mode,
             residual_alignment_mode=residual_alignment_mode,
+            tail_return_mode=tail_return_mode,
+            post_cycle_zero_tail_enabled=tail_return_mode != "disabled",
+            post_cycle_zero_tail_cycle_count=tail_cycle_count,
+            post_cycle_zero_tail_duration_s=tail_seconds,
+            tail_duration_mode="seconds",
         )
         _set_second_debug_step("second modeled voltage 계산 완료")
         metadata = {
@@ -396,6 +386,7 @@ def _render_second_modeling_result(
     st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다. 첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
     st.caption("전압 보정량에는 zero-start/ramp/taper/polarity guard를 적용해 시작 전압이 비정상적으로 음수가 되지 않도록 합니다. Raw 실측 데이터는 그대로 보존되고, 계산에는 smoothing 및 안정화된 residual을 사용합니다.")
     st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다. active 구간에서는 목표 자기장 추종 보정을 적용합니다. tail 구간에서는 자기장을 0으로 복귀시키기 위한 추가 전압을 적용합니다. active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다. tail 끝에서는 전압이 0으로 수렴합니다.")
+    st.caption("tail 전압은 active 종료 시점의 실제 자기장 상태를 지정 시간 안에 0으로 보내기 위한 단일 방향 복귀 pulse입니다. 남은 자기장이 양수이면 tail 전압은 음전압 방향으로 제한되고, release 구간에서 단조롭게 0V로 수렴합니다.")
     st.markdown("##### 피크 정렬 확인")
     st.plotly_chart(
         _plot_peak_alignment_frame(

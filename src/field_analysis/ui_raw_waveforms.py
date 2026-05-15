@@ -13,6 +13,7 @@ from .ui_raw_waveforms_labels import (
     FIXED_GAIN_LABEL,
     infer_new_dataset_filename_metadata,
 )
+from .ui_raw_waveforms_actual_drive import render_raw_waveforms_actual_drive_upload_section
 from .ui_raw_waveforms_plot import render_raw_waveform_plot
 from .ui_raw_waveforms_plot import render_finite_symmetric_peak_review
 from .ui_raw_waveforms_plot import render_waveform_normalization_summary
@@ -131,6 +132,8 @@ def render_raw_waveforms_tab(
     transient_measurements: list | None = None,
     transient_preprocess_results: list | None = None,
 ) -> None:
+    render_raw_waveforms_actual_drive_upload_section()
+
     data_items = _build_raw_waveform_data_items(
         test_ids=test_ids,
         analysis_lookup=analysis_lookup,

@@ -42,11 +42,109 @@ def test_second_modeling_tail_timebase_is_monotonic_and_continuous(tmp_path: Pat
     assert metadata["tail_continuity_blend_enabled"] is True
 
 
-def test_second_modeling_uses_unified_active_tail_residual_and_correction(tmp_path: Path) -> None:
+def test_second_modeling_tail_start_does_not_reset_to_zero_when_active_end_is_nonzero(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_slow_zero_return_actual_drive_csv(actual)
+    profile = _first_profile()
+    active_end_row = int(profile["time_s"].idxmax())
+    profile.loc[active_end_row, "limited_voltage_v"] = -0.8
+    profile.loc[active_end_row, "recommended_voltage_v"] = -0.8
+
+    frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
+
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    tail = frame["tail_window_mask"].astype(bool).to_numpy()
+    active_end_index = int(np.flatnonzero(active)[-1])
+    tail_start_index = int(np.flatnonzero(tail)[0])
+
+    assert metadata["tail_voltage_generated_independently_from_first_voltage"] is True
+    assert metadata["tail_start_reset_to_zero_detected"] is False
+    assert metadata["active_to_tail_zero_reset_detected"] is False
+    assert metadata["active_to_tail_voltage_jump_v"] <= 1e-9
+    assert np.isclose(
+        frame.loc[tail_start_index, "second_limited_voltage_v"],
+        frame.loc[active_end_index, "second_limited_voltage_v"],
+        atol=1e-9,
+    )
+    assert not np.isclose(frame.loc[tail_start_index, "second_limited_voltage_v"], 0.0, atol=1e-9)
+    assert np.isclose(frame.loc[tail_start_index, "first_modeled_voltage_v"], 0.0, atol=1e-12)
+
+
+def test_second_modeling_seconds_tail_duration_uses_exact_user_seconds(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
     _write_actual_drive_csv(actual)
 
-    frame, metadata = generate_second_modeled_voltage_lut(_first_profile(), actual, freq_hz=1.5, cycle_count=1.5)
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.5,
+        cycle_count=1.5,
+        tail_duration_mode="seconds",
+        post_cycle_zero_tail_duration_s=0.2,
+    )
+
+    assert metadata["tail_duration_mode"] == "seconds"
+    assert np.isclose(metadata["tail_duration_s"], 0.2)
+    assert np.isclose(metadata["tail_cycle_count"], 0.3)
+    assert np.isclose(metadata["total_command_duration_s"], 1.2, atol=0.01)
+    assert np.isclose(frame["time_s"].max(), 1.2, atol=0.02)
+
+
+def test_second_modeling_cycle_tail_duration_mode_is_preserved(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
+    _write_actual_drive_csv(actual)
+
+    _frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.5,
+        cycle_count=1.5,
+        tail_duration_mode="cycle",
+        post_cycle_zero_tail_cycle_count=0.3,
+    )
+
+    assert metadata["tail_duration_mode"] == "cycle"
+    assert np.isclose(metadata["tail_cycle_count"], 0.3)
+    assert np.isclose(metadata["tail_duration_s"], 0.2)
+
+
+def test_second_modeling_tail_duration_ui_markers_exist() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_second_modeling.py").read_text(encoding="utf-8")
+
+    assert "자기장 0 복귀 tail 방식" in source
+    assert "자기장 0 복귀 시간 (s)" in source
+    assert "이 시간 안에 tail 전압이 자기장을 0으로 보내도록 계산합니다." in source
+    assert "tail 길이 (cycle)" not in source
+
+
+def test_second_modeling_tail_b0_uses_native_actual_measured_field_at_active_end(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.08)
+
+    frame, metadata = generate_second_modeled_voltage_lut(_first_profile(), actual, freq_hz=1.0, cycle_count=1.0)
+
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    active_end_index = int(np.flatnonzero(active)[-1])
+    assert metadata["tail_B0_source"] == "native_smoothed_measured_at_active_end"
+    assert np.isclose(
+        metadata["tail_B0_mT"],
+        frame.loc[active_end_index, "measured_field_smoothed_native_mT"],
+        atol=1e-9,
+        equal_nan=True,
+    )
+
+
+def test_second_modeling_uses_unified_active_tail_residual_and_correction(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_slow_zero_return_actual_drive_csv(actual)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        tail_return_mode="residual",
+    )
 
     active = frame["active_window_mask"].astype(bool).to_numpy()
     tail = frame["tail_window_mask"].astype(bool).to_numpy()
@@ -73,6 +171,58 @@ def test_second_modeling_uses_unified_active_tail_residual_and_correction(tmp_pa
         frame["first_modeled_voltage_v"] + frame["correction_delta_v"],
         equal_nan=True,
     )
+
+
+def test_second_modeling_does_not_last_value_hold_missing_tail_measured_data(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    lines = actual.read_text(encoding="utf-8").splitlines()
+    header_index = next(index for index, line in enumerate(lines) if line.startswith("Row,TimeMs"))
+    rows = [line for line in lines[header_index + 1 :] if float(line.split(",")[1]) <= 1219.0]
+    actual.write_text("\n".join([*lines[: header_index + 1], *rows]), encoding="utf-8")
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        tail_duration_mode="seconds",
+        post_cycle_zero_tail_duration_s=0.25,
+    )
+
+    tail = frame["tail_window_mask"].astype(bool).to_numpy()
+    missing_tail = tail & ~frame["measured_support_valid_mask"].astype(bool).to_numpy()
+    assert missing_tail.any()
+    assert frame.loc[missing_tail, "measured_field_for_second_mT"].isna().all()
+    assert metadata["measured_tail_synthetic_fill_used"] is False
+    assert metadata["measured_tail_last_value_hold_used"] is False
+    assert metadata["measured_tail_fake_decay_used"] is False
+    assert metadata["measured_tail_actual_data_only"] is True
+
+
+def test_second_modeling_residual_tail_blocks_when_phase_shifted_tail_data_missing(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    lines = actual.read_text(encoding="utf-8").splitlines()
+    header_index = next(index for index, line in enumerate(lines) if line.startswith("Row,TimeMs"))
+    rows = [line for line in lines[header_index + 1 :] if float(line.split(",")[1]) <= 1219.0]
+    actual.write_text("\n".join([*lines[: header_index + 1], *rows]), encoding="utf-8")
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        tail_return_mode="residual",
+        tail_duration_mode="seconds",
+        post_cycle_zero_tail_duration_s=0.25,
+    )
+
+    assert "second_limited_voltage_v" not in frame.columns
+    assert metadata["second_modeling_available"] is False
+    assert metadata["second_modeling_status"] == "residual_tail_measured_data_unavailable"
+    assert metadata["residual_tail_available"] is False
+    assert metadata["residual_tail_unavailable_reason"] == "phase_shifted_tail_source_range_insufficient"
 
 
 def test_second_modeling_does_not_overlay_separate_tail_voltage(tmp_path: Path) -> None:
@@ -147,8 +297,9 @@ def test_second_modeling_measured_support_extends_to_detected_zero_return(tmp_pa
     assert metadata["measured_zero_return_status"] == "detected_zero_return"
     assert metadata["measured_support_end_mode"] == "detected_zero_return"
     assert np.isclose(metadata["measured_zero_return_time_s"], 1.75, atol=0.06)
-    assert metadata["post_cycle_zero_tail_cycle_count"] >= 0.65
-    assert frame["time_s"].max() >= float(metadata["measured_zero_return_time_s"]) - 0.02
+    assert np.isclose(metadata["post_cycle_zero_tail_cycle_count"], 0.25)
+    assert metadata["tail_return_mode"] == "finite_time_zero_return"
+    assert metadata["measured_support_end_s"] >= float(metadata["measured_zero_return_time_s"]) - 0.02
     assert np.allclose(frame.loc[frame["tail_window_mask"].astype(bool), "target_field_for_second_mT"], 0.0)
 
 
@@ -187,7 +338,9 @@ def test_second_modeling_measured_support_reports_ok_when_source_covers_required
     assert metadata["measured_field_source_switch_at_active_end"] is False
     assert metadata["measured_support_end_mode"] == "detected_zero_return"
     tail = frame["tail_window_mask"].astype(bool).to_numpy()
-    assert np.isfinite(frame.loc[tail, "measured_field_for_second_mT"]).all()
+    invalid_tail = tail & ~frame["measured_support_valid_mask"].astype(bool).to_numpy()
+    assert frame.loc[invalid_tail, "measured_field_for_second_mT"].isna().all()
+    assert metadata["measured_tail_actual_data_only"] is True
 
 
 def test_second_modeling_zero_flat_diagnostic_exists_without_mid_segment_mask_flat(tmp_path: Path) -> None:
@@ -290,10 +443,12 @@ def test_second_modeling_warns_when_tail_support_is_missing_without_fake_line_to
 
 def test_second_modeling_has_no_fake_line_to_zero_source() -> None:
     modeling_source = (SRC_ROOT / "field_analysis" / "finite_second_modeling.py").read_text(encoding="utf-8")
+    tail_source = (SRC_ROOT / "field_analysis" / "finite_second_modeling_tail_controller.py").read_text(encoding="utf-8")
 
-    assert "np.linspace(1.0, 0.0" not in modeling_source
-    assert "active_end_fallback" not in modeling_source
-    assert "fake_line_to_zero_fallback_used" in modeling_source
+    combined = modeling_source + tail_source
+    assert "np.linspace(1.0, 0.0" not in combined
+    assert "active_end_fallback" not in combined
+    assert "fake_line_to_zero_fallback_used" in combined
 
 
 def test_stabilization_accepts_read_only_raw_delta() -> None:

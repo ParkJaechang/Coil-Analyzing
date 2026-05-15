@@ -64,6 +64,11 @@ from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
 from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
+from .continuous_steady_state_extraction import build_continuous_steady_state_modeling_case
+from .ui_continuous_steady_state import (
+    render_continuous_actual_drive_runtime_panel,
+    render_continuous_steady_state_runtime_panel,
+)
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_second_modeling import render_second_modeling_controls
@@ -87,6 +92,10 @@ DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
 UI_SUPPORTED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (0.75,)
 UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5
+
+
+def _build_continuous_steady_state_modeling_case_for_quick_lut(*args, **kwargs):
+    return build_continuous_steady_state_modeling_case(*args, **kwargs)
 
 
 def _runtime_git_value(*args: str) -> str:
@@ -2225,12 +2234,33 @@ def _render_quick_lut_tab_v2(
             "Support Reference is a support-conditioned preview, not the physical target. "
             "`Predicted Output`은 1차 모델링 command에 대한 forward prediction입니다."
         )
+        modeling_input_mode_label = st.radio(
+            "모델링 입력 방식",
+            options=["Finite startup-aware", "Continuous steady-state"],
+            index=0,
+            key="quick_lut_modeling_input_mode",
+            horizontal=True,
+        )
+        modeling_input_mode = "continuous_steady_state" if modeling_input_mode_label == "Continuous steady-state" else "finite_startup_aware"
+        st.session_state["quick_lut_modeling_input_mode_value"] = modeling_input_mode
+        continuous_production_cycle_count = 1.0
+        continuous_repeating_lut = modeling_input_mode == "continuous_steady_state"
+        continuous_zero_return_tail_enabled = False
+        if modeling_input_mode == "continuous_steady_state":
+            st.info(
+                "Continuous steady-state mode는 연속 구동 데이터에서 안정화된 1cycle만 추출해 모델링합니다.\n\n"
+                "생성된 1cycle voltage LUT는 반복 출력용입니다.\n\n"
+                "초반 들뜸/startup transient 응답은 모델링에 사용하지 않습니다.\n\n"
+                "Continuous mode에서는 1.5cycle을 생성하지 않습니다."
+            )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
             value=True,
             help="끄면 기존 steady-state 1-cycle 보정 로직을 사용합니다. 켜면 0초 시작/종료를 포함한 finite run 보정을 계산합니다.",
             key="finite_cycle_mode_v2",
         )
+        if modeling_input_mode == "continuous_steady_state":
+            finite_cycle_mode = False
         if finite_cycle_mode:
             cycle_options = [float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS]
             st.caption(
@@ -2263,6 +2293,9 @@ def _render_quick_lut_tab_v2(
         else:
             target_cycle_count = None
             preview_tail_cycles = 0.25
+        if modeling_input_mode == "continuous_steady_state":
+            target_cycle_count = 1.0
+            preview_tail_cycles = 0.0
     with right:
         st.markdown("#### 1. LUT 데이터 준비")
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
@@ -2275,6 +2308,10 @@ def _render_quick_lut_tab_v2(
             "finite_cycle_mode": finite_cycle_mode,
             "target_cycle_count": target_cycle_count,
             "preview_tail_cycles": preview_tail_cycles,
+            "modeling_input_mode": modeling_input_mode,
+            "continuous_production_cycle_count": continuous_production_cycle_count,
+            "continuous_repeating_lut": continuous_repeating_lut,
+            "zero_return_tail_enabled": continuous_zero_return_tail_enabled,
         }
         if st.button("Quick LUT 설정 적용", use_container_width=True, key="apply_quick_lut_settings"):
             st.session_state["quick_lut_applied_config"] = quick_config_snapshot
@@ -2283,7 +2320,11 @@ def _render_quick_lut_tab_v2(
             st.session_state["quick_lut_dirty"] = True
             st.warning("설정이 변경되었습니다. 다시 실행하려면 실행 버튼을 누르십시오.")
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
-        compensation_button_label = "1차 모델링 실행"
+        compensation_button_label = (
+            "Continuous 1차 모델링 실행"
+            if modeling_input_mode == "continuous_steady_state"
+            else "1차 모델링 실행"
+        )
         compensation_clicked = st.button(
             compensation_button_label,
             use_container_width=True,
@@ -2295,6 +2336,18 @@ def _render_quick_lut_tab_v2(
         )
         st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
         st.caption("2차 보정 결과가 아닙니다.")
+
+    if modeling_input_mode == "continuous_steady_state":
+        render_continuous_steady_state_runtime_panel(
+            analysis_lookup=analysis_lookup,
+            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
+            modeling_case_builder=_build_continuous_steady_state_modeling_case_for_quick_lut,
+        )
+        render_continuous_actual_drive_runtime_panel(
+            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
+        )
 
     feedback_selection = render_quick_lut_feedback_input_section(
         finite_cycle_mode=bool(finite_cycle_mode),
@@ -2430,6 +2483,17 @@ def _render_quick_lut_tab_v2(
                 )
                 compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
+            if modeling_input_mode == "continuous_steady_state":
+                first_command_profile["modeling_input_mode"] = "continuous_steady_state"
+                first_command_profile["continuous_production_cycle_count"] = 1.0
+                first_command_profile["continuous_repeating_lut"] = True
+                first_command_profile["startup_transient_excluded"] = True
+                first_command_profile["steady_state_cycle_extraction_used"] = True
+                first_command_profile["zero_return_tail_enabled"] = False
+                first_command_profile["continuous_zero_return_tail_enabled"] = False
+                first_command_profile["continuous_loop_output"] = True
+                first_command_profile["continuous_export_cycle_count"] = 1.0
+                first_command_profile["loop_endpoint_policy"] = "period_exclusive"
             st.session_state["quick_lut_first_model_result"] = {
                 "command_profile": first_command_profile.copy(deep=True),
                 "metadata": {
@@ -2438,8 +2502,17 @@ def _render_quick_lut_tab_v2(
                     "freq_hz": float(target_freq),
                     "cycle_count": float(target_cycle_count) if target_cycle_count is not None else None,
                     "command_source_column": "limited_voltage_v",
+                    "modeling_input_mode": modeling_input_mode,
+                    "continuous_production_cycle_count": 1.0 if modeling_input_mode == "continuous_steady_state" else None,
+                    "continuous_repeating_lut": modeling_input_mode == "continuous_steady_state",
+                    "zero_return_tail_enabled": False if modeling_input_mode == "continuous_steady_state" else None,
                 },
             }
+            if modeling_input_mode == "continuous_steady_state":
+                st.session_state["quick_lut_first_model_result_continuous"] = {
+                    "command_profile": first_command_profile.copy(deep=True),
+                    "metadata": st.session_state["quick_lut_first_model_result"]["metadata"],
+                }
             plot_command_profile = _prepare_semantic_compensation_plot_profile(first_command_profile)
             (
                 reference_profile,
