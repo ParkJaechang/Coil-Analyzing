@@ -141,6 +141,38 @@ def test_upload_memory_continuous_candidate_discovery_accepts_cached_payload() -
     assert "raw_hallbz_mT" in candidates[names[0]].columns
 
 
+def test_upload_memory_continuous_candidate_discovery_accepts_metadata_preamble_csv() -> None:
+    csv_bytes = (
+        b"# Date,2026-04-28 13:46:05\n"
+        b"# Frequency(Hz),1.000\n"
+        b"# Amplitude(V),5.000\n"
+        b"# Cycles,10.000\n"
+        b"# Repeat,1.000\n"
+        b"# PreDelay(s),1.000\n"
+        b"# PostDelay(s),1.000\n"
+        b"# HallSamples,90175\n"
+        b"# CurrentSamples,6107527\n"
+        b"# CommonRange(ms),0.00~12215.05 (span 12215.05)\n"
+        b"Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V\n"
+        b"0,0.0,0,0,1.0,0,0,0.0,0\n"
+        b"1,10.0,0,0,-2.0,0,0,1.0,0\n"
+        b"2,20.0,0,0,1.0,0,0,0.0,0\n"
+    )
+
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_sine_1Hz.csv", csv_bytes)],
+        dataset_library_payloads=[],
+    )
+
+    assert names == ["upload_memory:continuous_sine_1Hz.csv"]
+    assert scan["continuous_candidate_source_counts"]["upload_memory_continuous"] == 1
+    assert scan["continuous_candidate_rejected_count"] == 0
+    frame = candidates[names[0]]
+    assert frame["time_s_abs"].tolist() == [0.0, 0.01, 0.02]
+    assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"])
+
+
 def test_dataset_library_continuous_candidate_discovery_accepts_library_payload() -> None:
     csv_bytes = b"time_s,command_voltage_v,raw_hallbz_mT\n0,0,0\n0.01,1,-1\n0.02,0,0\n"
 
@@ -168,6 +200,36 @@ def test_continuous_candidate_discovery_rejects_final_lut_schema() -> None:
     assert names == []
     assert scan["continuous_candidate_rejected_count"] == 1
     assert "final_voltage_lut_not_measured_input" in scan["continuous_candidate_reject_reasons"][0]
+    assert "final_voltage_lut_not_measured_input" in scan["continuous_candidate_rejection_reasons"][0]
+
+
+def test_continuous_candidate_discovery_reports_parse_and_schema_rejection_reasons() -> None:
+    names, _candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[
+            ("continuous_broken.csv", b"# Date,2026\n# no data header\n"),
+            ("continuous_missing_hall.csv", b"time_s,Voltage1_V\n0,0\n"),
+        ],
+        dataset_library_payloads=[],
+    )
+
+    assert names == []
+    assert scan["continuous_candidate_rejected_count"] == 2
+    reasons = "\n".join(scan["continuous_candidate_rejection_reasons"])
+    assert "csv_parse_error" in reasons
+    assert "continuous_schema_missing" in reasons
+
+
+def test_continuous_runtime_panel_has_schema_rejected_message_markers() -> None:
+    source = CONT_UI.read_text(encoding="utf-8")
+
+    for marker in [
+        "schema rejected",
+        "Continuous 파일은 찾았지만 schema 인식에 실패했습니다.",
+        "Continuous source 파일은 발견되었지만 time/voltage/field 컬럼 매핑에 실패했습니다.",
+        "continuous_candidate_rejection_reasons",
+    ]:
+        assert marker in source
 
 
 def test_continuous_second_command_profile_is_not_placeholder_copy() -> None:

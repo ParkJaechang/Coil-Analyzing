@@ -147,8 +147,40 @@ def test_continuous_schema_adapter_accepts_alias_columns() -> None:
     assert metadata["continuous_schema_time_column"] == "Time"
     assert metadata["continuous_schema_voltage_column"] == "command_voltage_v"
     assert metadata["continuous_schema_hall_column"] == "HallZ"
-    assert adapted.columns.tolist() == ["time_s_abs", "raw_hallbz_mT", "measured_field_effective_mT", "raw_voltage_v"]
+    assert {
+        "time_s",
+        "time_s_abs",
+        "raw_hallbz_mT",
+        "measured_field_effective_mT",
+        "measured_field_baseline_removed_mT",
+        "measured_field_normalized_mT",
+        "raw_voltage_v",
+        "voltage_normalized_v",
+    }.issubset(adapted.columns)
     assert np.allclose(adapted["measured_field_effective_mT"], -adapted["raw_hallbz_mT"])
+
+
+def test_continuous_schema_adapter_accepts_extended_alias_and_normalized_field_only() -> None:
+    frame = pd.DataFrame(
+        {
+            "Time_ms": [0.0, 10.0, 20.0],
+            "normalized_actual_drive_voltage_v": [0.0, 2.5, 0.0],
+            "normalized_measured_field_mT": [0.0, 40.0, 0.0],
+        }
+    )
+
+    adapted, metadata = adapt_continuous_source_frame(frame)
+
+    assert metadata["continuous_schema_status"] == "ok"
+    assert metadata["continuous_schema_time_column"] == "Time_ms"
+    assert metadata["continuous_schema_voltage_column"] == "normalized_actual_drive_voltage_v"
+    assert metadata["continuous_schema_hall_or_field_column"] == "normalized_measured_field_mT"
+    assert metadata["raw_hallbz_available"] is False
+    assert metadata["normalized_field_available"] is True
+    assert np.allclose(adapted["time_s_abs"], [0.0, 0.01, 0.02])
+    assert adapted["raw_hallbz_mT"].isna().all()
+    assert np.allclose(adapted["measured_field_normalized_mT"], [0.0, 40.0, 0.0])
+    assert np.allclose(adapted["voltage_normalized_v"], [0.0, 2.5, 0.0])
 
 
 def test_continuous_schema_adapter_rejects_final_voltage_lut() -> None:

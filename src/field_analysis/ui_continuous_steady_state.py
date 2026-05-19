@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
-from io import BytesIO
+from io import StringIO
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -58,8 +58,18 @@ def render_continuous_steady_state_runtime_panel(
         st.session_state["continuous_steady_state_selected_candidate"] = selected_name
         st.session_state["continuous_steady_state_candidate_scan"] = scan
     else:
-        st.info("Continuous extraction에 사용할 time_s/Voltage1_V/HallBz 호환 dataset이 없습니다.")
+        rejected_count = int(scan.get("continuous_candidate_rejected_count") or 0)
+        if rejected_count:
+            st.warning("Continuous 파일은 찾았지만 schema 인식에 실패했습니다.")
+            st.caption("Continuous source 파일은 발견되었지만 time/voltage/field 컬럼 매핑에 실패했습니다.")
+            st.caption("아래 schema rejected table에서 컬럼명과 reject reason을 확인하십시오.")
+        else:
+            st.info("Continuous 파일을 찾지 못했습니다.")
         st.session_state["continuous_steady_state_candidate_scan"] = scan
+    rejected_reasons = list(scan.get("continuous_candidate_rejection_reasons") or [])
+    if rejected_reasons:
+        st.markdown("##### schema rejected")
+        st.dataframe(pd.DataFrame({"reason": rejected_reasons}), use_container_width=True, hide_index=True)
 
     if st.button("Steady-state 1cycle 추출", key="continuous_steady_state_extract_button"):
         if selected_name is None:
@@ -223,20 +233,28 @@ def discover_continuous_candidate_frames(
             counts=counts,
         )
     for name, payload in (upload_payloads if upload_payloads is not None else _load_upload_memory_continuous_payloads()):
+        frame, parse_error = _read_csv_payload(name, payload)
+        if parse_error is not None:
+            rejected.append(f"upload_memory:{name}: {parse_error}")
+            continue
         _try_add_candidate(
             candidates,
             rejected,
             f"upload_memory:{name}",
-            _read_csv_payload(name, payload),
+            frame,
             source_key="upload_memory_continuous",
             counts=counts,
         )
     for name, payload in (dataset_library_payloads if dataset_library_payloads is not None else _load_dataset_library_continuous_payloads()):
+        frame, parse_error = _read_csv_payload(name, payload)
+        if parse_error is not None:
+            rejected.append(f"dataset_library:{name}: {parse_error}")
+            continue
         _try_add_candidate(
             candidates,
             rejected,
             f"dataset_library:{name}",
-            _read_csv_payload(name, payload),
+            frame,
             source_key="dataset_library",
             counts=counts,
         )
@@ -244,6 +262,7 @@ def discover_continuous_candidate_frames(
         "continuous_candidate_source_counts": counts,
         "continuous_candidate_rejected_count": len(rejected),
         "continuous_candidate_reject_reasons": rejected,
+        "continuous_candidate_rejection_reasons": rejected,
     }
     return sorted(candidates.keys()), candidates, scan
 
@@ -281,13 +300,17 @@ def _try_add_candidate(
     counts[source_key] = int(counts.get(source_key, 0)) + 1
 
 
-def _read_csv_payload(name: str, payload: bytes) -> pd.DataFrame | None:
+def _read_csv_payload(name: str, payload: bytes) -> tuple[pd.DataFrame | None, str | None]:
     if not str(name).lower().endswith(".csv"):
-        return None
+        return None, None
     try:
-        return pd.read_csv(BytesIO(payload))
-    except Exception:
-        return None
+        text = payload.decode("utf-8-sig", errors="replace")
+        data_lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        if not data_lines:
+            return None, "csv_parse_error:no_data_rows_after_metadata_preamble"
+        return pd.read_csv(StringIO("\n".join(data_lines))), None
+    except Exception as exc:  # noqa: BLE001 - candidate scan should surface reject reasons in UI.
+        return None, f"csv_parse_error:{type(exc).__name__}:{exc}"
 
 
 def _load_upload_memory_continuous_payloads() -> list[tuple[str, bytes]]:
