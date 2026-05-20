@@ -121,6 +121,10 @@ def adapt_continuous_source_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, di
         "normalized_field_available": normalized_field_available,
         "continuous_source_file": frame.attrs.get("continuous_source_file"),
         "continuous_source_freq_hz": frame.attrs.get("continuous_source_freq_hz"),
+        "continuous_source_freq_source": frame.attrs.get("continuous_source_freq_source"),
+        "continuous_source_freq_inferred_from_filename": frame.attrs.get("continuous_source_freq_inferred_from_filename", False),
+        "continuous_source_freq_inferred_from_preamble": frame.attrs.get("continuous_source_freq_inferred_from_preamble", False),
+        "continuous_source_freq_user_override": frame.attrs.get("continuous_source_freq_user_override", False),
     }
     source.attrs.update({key: value for key, value in metadata.items() if value is not None})
     return source.sort_values("time_s_abs").reset_index(drop=True), metadata

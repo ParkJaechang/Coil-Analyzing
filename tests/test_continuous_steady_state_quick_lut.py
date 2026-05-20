@@ -15,6 +15,8 @@ from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_f
 from field_analysis.ui_continuous_steady_state import (
     build_continuous_second_command_profile,
     discover_continuous_candidate_frames,
+    infer_continuous_source_frequency,
+    rank_continuous_candidates_for_target,
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
@@ -181,6 +183,93 @@ def test_upload_memory_continuous_candidate_discovery_accepts_metadata_preamble_
     assert frame.attrs["continuous_source_file"] == "continuous_sine_1Hz.csv"
     assert frame["time_s_abs"].tolist() == [0.0, 0.01, 0.02]
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"])
+
+
+def test_continuous_source_frequency_inferred_from_filename_when_preamble_missing() -> None:
+    assert infer_continuous_source_frequency("continuous_sine_0.25Hz.csv")[0] == 0.25
+    assert infer_continuous_source_frequency("continuous_sine_2Hz.csv")[0] == 2.0
+    assert infer_continuous_source_frequency("continuous_rounded_triangle_3Hz.csv")[0] == 3.0
+    assert infer_continuous_source_frequency("continuous_any_4Hz_extra.csv")[0] == 4.0
+
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_sine_0.5Hz.csv", csv_bytes)],
+        dataset_library_payloads=[],
+        target_freq_hz=0.5,
+    )
+
+    assert names == ["upload_memory:continuous_sine_0.5Hz.csv"]
+    frame = candidates[names[0]]
+    assert frame.attrs["continuous_source_freq_hz"] == 0.5
+    assert frame.attrs["continuous_source_freq_source"] == "filename"
+    assert scan["continuous_candidate_details"][0]["frequency_match_status"] == "match"
+
+
+def test_preamble_frequency_takes_priority_over_filename_frequency() -> None:
+    csv_bytes = (
+        b"# Frequency(Hz),5.000\n"
+        b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    )
+
+    names, candidates, _scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_sine_4Hz.csv", csv_bytes)],
+        dataset_library_payloads=[],
+        target_freq_hz=5.0,
+    )
+
+    frame = candidates[names[0]]
+    assert frame.attrs["continuous_source_freq_hz"] == 5.0
+    assert frame.attrs["continuous_source_freq_source"] == "preamble"
+
+
+def test_continuous_candidates_are_ranked_by_target_frequency_match() -> None:
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[
+            ("continuous_sine_2Hz.csv", csv_bytes),
+            ("continuous_sine_3Hz.csv", csv_bytes),
+            ("continuous_sine_5Hz.csv", csv_bytes),
+        ],
+        dataset_library_payloads=[],
+        target_freq_hz=3.0,
+    )
+
+    assert names[0] == "upload_memory:continuous_sine_3Hz.csv"
+    assert scan["continuous_candidate_matching_count"] == 1
+    assert scan["continuous_candidate_details"][0]["frequency_match_status"] == "match"
+    ranked = rank_continuous_candidates_for_target(candidates, target_freq_hz=3.0)
+    assert ranked[0]["name"] == "upload_memory:continuous_sine_3Hz.csv"
+    assert ranked[0]["frequency_match_status"] == "match"
+    assert ranked[1]["frequency_match_status"] == "mismatch"
+
+
+def test_mismatch_extraction_reports_source_target_error_details() -> None:
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    names, candidates, _scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_sine_2Hz.csv", csv_bytes)],
+        dataset_library_payloads=[],
+        target_freq_hz=3.0,
+    )
+
+    result = run_continuous_steady_state_extraction(
+        selected_candidate_name=names[0],
+        selected_frame=candidates[names[0]],
+        waveform_type="sine",
+        freq_hz=3.0,
+    )
+
+    metadata = result["extraction_result"]["metadata"]
+    assert result["status"] == "error"
+    assert result["error_reason"] == "unavailable_frequency_mismatch"
+    assert metadata["frequency_match_status"] == "mismatch"
+    assert metadata["source_freq_hz"] == 2.0
+    assert metadata["target_freq_hz"] == 3.0
+    assert metadata["frequency_error_pct"] > 30.0
+    assert metadata["continuous_source_freq_source"] == "filename"
 
 
 def test_dataset_library_continuous_candidate_discovery_accepts_library_payload() -> None:

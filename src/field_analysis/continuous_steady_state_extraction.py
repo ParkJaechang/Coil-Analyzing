@@ -47,8 +47,10 @@ def extract_steady_state_one_cycle_window(
                 "quick_lut_target_freq_hz": float(freq_hz),
                 "source_freq_hz": source_freq_hz,
                 "target_freq_hz": float(freq_hz),
+                "frequency_error_pct": freq_error * 100.0,
                 "frequency_match_status": "mismatch",
                 "frequency_mismatch_blocked": True,
+                "continuous_source_freq_source": source_attrs.get("continuous_source_freq_source"),
                 "expected_period_s": period_s,
                 "continuous_source_duration_s": source_duration_s,
                 "continuous_estimated_cycles": source_duration_s * float(freq_hz),
@@ -94,8 +96,14 @@ def extract_steady_state_one_cycle_window(
         "quick_lut_target_freq_hz": float(freq_hz),
         "source_freq_hz": source_freq_hz if np.isfinite(source_freq_hz) else None,
         "target_freq_hz": float(freq_hz),
+        "frequency_error_pct": (
+            abs(source_freq_hz - float(freq_hz)) / max(abs(float(freq_hz)), 1e-12) * 100.0
+            if np.isfinite(source_freq_hz)
+            else None
+        ),
         "frequency_match_status": freq_match_status,
         "frequency_mismatch_blocked": False,
+        "continuous_source_freq_source": source_attrs.get("continuous_source_freq_source"),
         "expected_period_s": period_s,
         "selected_cycle_start_s": start_s,
         "selected_cycle_end_s": end_s,

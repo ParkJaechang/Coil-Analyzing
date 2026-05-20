@@ -3,26 +3,35 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
-from io import StringIO
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from .continuous_candidate_discovery import (
+    discover_continuous_candidate_frames,
+    is_continuous_candidate as _is_continuous_candidate,
+    load_dataset_library_continuous_payloads as _load_dataset_library_continuous_payloads,
+    load_upload_memory_continuous_payloads as _load_upload_memory_continuous_payloads,
+)
 from .continuous_steady_state_extraction import (
-    adapt_continuous_source_frame,
     build_continuous_actual_drive_review_case,
     build_continuous_phase_aligned_command_profile,
     build_continuous_steady_state_modeling_case,
     evaluate_continuous_steady_state_validation,
 )
+from .continuous_candidate_frequency import (
+    attach_continuous_frequency_attrs,
+    continuous_candidate_label,
+    infer_continuous_source_frequency,
+    matching_candidate_names,
+    rank_continuous_candidates_for_target,
+)
 from .continuous_steady_state_runtime import (
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
-from .dataset_library import list_manifest_entries, load_dataset_library_settings, read_dataset_entry_bytes
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
-from .ui_upload_state import category_payloads
 
 
 ModelingCaseBuilder = Callable[..., dict[str, Any]]
@@ -41,7 +50,8 @@ def render_continuous_steady_state_runtime_panel(
     st.caption("Continuous mode에서는 1.5cycle command를 생성하지 않습니다.")
     st.caption("Continuous mode에서는 zero-return tail을 기본 사용하지 않습니다.")
 
-    candidate_names, candidates, scan = discover_continuous_candidate_frames(analysis_lookup)
+    target_freq = float(freq_hz or 1.0)
+    candidate_names, candidates, scan = discover_continuous_candidate_frames(analysis_lookup, target_freq_hz=target_freq)
     st.markdown("##### Continuous 후보 scan 결과")
     st.dataframe(
         pd.DataFrame(
@@ -54,19 +64,45 @@ def render_continuous_steady_state_runtime_panel(
         use_container_width=True,
         hide_index=True,
     )
+    details = list(scan.get("continuous_candidate_details") or [])
+    details_by_name = {str(detail.get("name")): detail for detail in details}
+    if details:
+        st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
     selected_name = None
     if candidate_names:
-        selected_name = st.selectbox("Continuous source dataset", candidate_names, key="continuous_steady_source_dataset")
+        previous_target = st.session_state.get("continuous_steady_state_target_freq_hz")
+        exact_matches = matching_candidate_names(details)
+        current_selection = st.session_state.get("continuous_steady_source_dataset")
+        if previous_target is not None and abs(float(previous_target) - target_freq) > 1e-9:
+            if exact_matches and current_selection not in exact_matches:
+                st.session_state.pop("continuous_steady_source_dataset", None)
+        st.session_state["continuous_steady_state_target_freq_hz"] = target_freq
+        selected_name = st.selectbox(
+            "Continuous source dataset",
+            candidate_names,
+            key="continuous_steady_source_dataset",
+            format_func=lambda name: continuous_candidate_label(details_by_name.get(name, {"name": name})),
+        )
+        selected_detail = details_by_name.get(selected_name, {})
+        if selected_detail.get("frequency_match_status") == "unknown":
+            st.checkbox(
+                "현재 Quick LUT 주파수로 이 continuous 데이터를 사용",
+                key="continuous_unknown_frequency_attribution_enabled",
+            )
         scan["continuous_candidate_selected_source"] = selected_name.split(":", 1)[0]
         scan["continuous_candidate_selected_file"] = selected_name.split(":", 1)[1] if ":" in selected_name else selected_name
+        scan["continuous_candidate_schema_status"] = selected_detail.get("schema_status")
         signature = {
             "selected_name": selected_name,
             "waveform_type": str(waveform_type or "sine"),
-            "freq_hz": float(freq_hz or 1.0),
+            "freq_hz": target_freq,
         }
         if st.session_state.get("continuous_steady_state_run_signature") not in (None, signature):
             st.session_state["continuous_steady_state_dirty"] = True
         st.session_state["continuous_steady_state_selected_candidate"] = selected_name
+        st.session_state["continuous_steady_state_selected_source_freq_hz"] = selected_detail.get("source_freq_hz")
+        st.session_state["continuous_steady_state_frequency_match_status"] = selected_detail.get("frequency_match_status")
+        st.session_state["continuous_steady_state_selection_signature"] = signature
         st.session_state["continuous_steady_state_selected_frame"] = candidates[selected_name].copy(deep=True)
         st.session_state["continuous_steady_state_standardized_frame"] = candidates[selected_name].copy(deep=True)
         st.session_state["continuous_steady_state_pending_signature"] = signature
@@ -90,9 +126,19 @@ def render_continuous_steady_state_runtime_panel(
             st.session_state["continuous_steady_state_metadata"] = {"steady_state_extraction_status": "unavailable_no_source"}
             st.warning("Continuous source dataset이 없어 Steady-state 1cycle 추출을 실행할 수 없습니다.")
         else:
+            selected_detail = details_by_name.get(selected_name, {})
+            selected_frame = candidates[selected_name]
+            if selected_detail.get("frequency_match_status") == "unknown" and st.session_state.get(
+                "continuous_unknown_frequency_attribution_enabled"
+            ):
+                selected_frame = attach_continuous_frequency_attrs(
+                    selected_frame,
+                    name=selected_name,
+                    user_fallback_freq_hz=target_freq,
+                )
             bundle = run_continuous_steady_state_extraction(
                 selected_candidate_name=selected_name,
-                selected_frame=candidates[selected_name],
+                selected_frame=selected_frame,
                 waveform_type=waveform_type,
                 freq_hz=freq_hz,
                 modeling_case_builder=modeling_case_builder,
@@ -102,7 +148,11 @@ def render_continuous_steady_state_runtime_panel(
                 metadata = dict(case.get("metadata") or {}) if isinstance(case, dict) else {"steady_state_extraction_status": "error"}
                 metadata["error_reason"] = bundle.get("error_reason")
                 st.session_state["continuous_steady_state_metadata"] = metadata
+                st.session_state["continuous_steady_state_last_error_metadata"] = metadata
                 st.session_state["continuous_steady_state_extraction_status"] = metadata.get("steady_state_extraction_status")
+                st.session_state["continuous_steady_state_extraction_blocked_reason"] = metadata.get("extraction_blocked_reason")
+                if metadata.get("extraction_blocked_reason") == "frequency_mismatch":
+                    _render_frequency_mismatch_detail(metadata, matching_candidate_names(details))
                 st.warning(f"Steady-state 1cycle 추출 결과가 유효하지 않습니다: {bundle.get('error_reason')}")
             else:
                 st.session_state["continuous_steady_state_extraction_result"] = case
@@ -235,139 +285,9 @@ def _render_continuous_validation_section(*, waveform_type: str | None, freq_hz:
     st.dataframe(pd.DataFrame([result["metrics"]]), use_container_width=True, hide_index=True)
 
 
-def discover_continuous_candidate_frames(
-    analysis_lookup: dict,
-    *,
-    upload_payloads: list[tuple[str, bytes]] | None = None,
-    dataset_library_payloads: list[tuple[str, bytes]] | None = None,
-) -> tuple[list[str], dict[str, pd.DataFrame], dict[str, Any]]:
-    candidates: dict[str, pd.DataFrame] = {}
-    rejected: list[str] = []
-    counts = {"analysis_lookup": 0, "upload_memory_continuous": 0, "dataset_library": 0}
-    for key, analysis in (analysis_lookup or {}).items():
-        frame = getattr(getattr(analysis, "parsed", None), "normalized_frame", None)
-        _try_add_candidate(
-            candidates,
-            rejected,
-            f"analysis_lookup:{key}",
-            frame,
-            source_key="analysis_lookup",
-            counts=counts,
-        )
-    for name, payload in (upload_payloads if upload_payloads is not None else _load_upload_memory_continuous_payloads()):
-        frame, parse_error = _read_csv_payload(name, payload)
-        if parse_error is not None:
-            rejected.append(f"upload_memory:{name}: {parse_error}")
-            continue
-        _try_add_candidate(
-            candidates,
-            rejected,
-            f"upload_memory:{name}",
-            frame,
-            source_key="upload_memory_continuous",
-            counts=counts,
-        )
-    for name, payload in (dataset_library_payloads if dataset_library_payloads is not None else _load_dataset_library_continuous_payloads()):
-        frame, parse_error = _read_csv_payload(name, payload)
-        if parse_error is not None:
-            rejected.append(f"dataset_library:{name}: {parse_error}")
-            continue
-        _try_add_candidate(
-            candidates,
-            rejected,
-            f"dataset_library:{name}",
-            frame,
-            source_key="dataset_library",
-            counts=counts,
-        )
-    scan = {
-        "continuous_candidate_source_counts": counts,
-        "continuous_candidate_rejected_count": len(rejected),
-        "continuous_candidate_reject_reasons": rejected,
-        "continuous_candidate_rejection_reasons": rejected,
-    }
-    return sorted(candidates.keys()), candidates, scan
-
-
 def _continuous_candidate_frames(analysis_lookup: dict) -> tuple[list[str], dict[str, pd.DataFrame]]:
     names, candidates, _scan = discover_continuous_candidate_frames(analysis_lookup)
     return sorted(candidates.keys()), candidates
-
-
-def _is_continuous_candidate(frame: pd.DataFrame) -> bool:
-    try:
-        adapt_continuous_source_frame(frame)
-    except ValueError:
-        return False
-    return True
-
-
-def _try_add_candidate(
-    candidates: dict[str, pd.DataFrame],
-    rejected: list[str],
-    name: str,
-    frame: pd.DataFrame | None,
-    *,
-    source_key: str,
-    counts: dict[str, int],
-) -> None:
-    if not isinstance(frame, pd.DataFrame) or frame.empty:
-        return
-    try:
-        adapted, _metadata = adapt_continuous_source_frame(frame)
-    except ValueError as exc:
-        rejected.append(f"{name}: {exc}")
-        return
-    candidates[name] = adapted
-    counts[source_key] = int(counts.get(source_key, 0)) + 1
-
-
-def _read_csv_payload(name: str, payload: bytes) -> tuple[pd.DataFrame | None, str | None]:
-    if not str(name).lower().endswith(".csv"):
-        return None, None
-    try:
-        text = payload.decode("utf-8-sig", errors="replace")
-        attrs: dict[str, Any] = {"continuous_source_file": str(name)}
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped.startswith("#"):
-                continue
-            key, sep, value = stripped[1:].partition(",")
-            if sep and key.strip() == "Frequency(Hz)":
-                try:
-                    attrs["continuous_source_freq_hz"] = float(value.strip())
-                except ValueError:
-                    pass
-        data_lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-        if not data_lines:
-            return None, "csv_parse_error:no_data_rows_after_metadata_preamble"
-        frame = pd.read_csv(StringIO("\n".join(data_lines)))
-        frame.attrs.update(attrs)
-        return frame, None
-    except Exception as exc:  # noqa: BLE001 - candidate scan should surface reject reasons in UI.
-        return None, f"csv_parse_error:{type(exc).__name__}:{exc}"
-
-
-def _load_upload_memory_continuous_payloads() -> list[tuple[str, bytes]]:
-    try:
-        return category_payloads("continuous", None, include_cached_uploads=True)
-    except Exception:
-        return []
-
-
-def _load_dataset_library_continuous_payloads() -> list[tuple[str, bytes]]:
-    try:
-        settings = load_dataset_library_settings()
-        dataset_root = str(settings.get("dataset_root") or "").strip()
-        if not dataset_root:
-            return []
-        payloads: list[tuple[str, bytes]] = []
-        for entry in list_manifest_entries(dataset_root, dataset_mode="continuous"):
-            relative_path = str(entry.get("path") or "")
-            payloads.append((relative_path, read_dataset_entry_bytes(dataset_root, relative_path)))
-        return payloads
-    except Exception:
-        return []
 
 
 def build_continuous_second_command_profile(
@@ -459,6 +379,48 @@ def _render_continuous_extraction_result(case: dict[str, Any], source_frame: Any
         st.warning("cycle stability metrics가 비어 있습니다.")
 
 
+def _frequency_block_metadata(detail: dict[str, Any], *, reason: str = "frequency_mismatch") -> dict[str, Any]:
+    return {
+        "steady_state_extraction_status": "unavailable_frequency_mismatch",
+        "extraction_blocked_reason": reason,
+        "continuous_source_file": detail.get("filename"),
+        "source_freq_hz": detail.get("source_freq_hz"),
+        "target_freq_hz": detail.get("target_freq_hz"),
+        "frequency_error_pct": detail.get("frequency_error_pct"),
+        "continuous_source_freq_source": detail.get("continuous_source_freq_source"),
+        "frequency_match_status": detail.get("frequency_match_status"),
+        "frequency_mismatch_blocked": reason == "frequency_mismatch",
+    }
+
+
+def _render_frequency_mismatch_detail(metadata: dict[str, Any], matching_candidates: list[str]) -> None:
+    st.warning("선택된 continuous source의 주파수와 현재 Quick LUT target 주파수가 다릅니다.")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "file": metadata.get("continuous_source_file"),
+                    "source_freq_hz": metadata.get("source_freq_hz"),
+                    "target_freq_hz": metadata.get("target_freq_hz"),
+                    "error_pct": metadata.get("frequency_error_pct"),
+                    "frequency_source": metadata.get("continuous_source_freq_source"),
+                    "blocked_reason": metadata.get("extraction_blocked_reason"),
+                }
+            ]
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        f"source: {metadata.get('source_freq_hz')} Hz / target: {metadata.get('target_freq_hz')} Hz / "
+        f"error: {metadata.get('frequency_error_pct')}%"
+    )
+    if matching_candidates:
+        st.caption("현재 target과 일치하는 후보: " + ", ".join(matching_candidates))
+    else:
+        st.caption(f"현재 target {metadata.get('target_freq_hz')} Hz에 해당하는 continuous source가 없습니다.")
+
+
 def _render_continuous_runtime_debug(case: dict[str, Any] | None) -> None:
     with st.expander("Continuous runtime debug", expanded=False):
         window = case.get("steady_state_one_cycle_frame") if isinstance(case, dict) else None
@@ -467,6 +429,14 @@ def _render_continuous_runtime_debug(case: dict[str, Any] | None) -> None:
         command = first.get("command_profile") if isinstance(first, dict) else None
         debug = {
             "selected candidate": st.session_state.get("continuous_steady_state_selected_candidate"),
+            "target freq_hz": st.session_state.get("continuous_steady_state_target_freq_hz"),
+            "selected source freq_hz": st.session_state.get("continuous_steady_state_selected_source_freq_hz"),
+            "frequency match status": st.session_state.get("continuous_steady_state_frequency_match_status"),
+            "frequency error %": metadata.get("frequency_error_pct"),
+            "matching candidate count": (st.session_state.get("continuous_steady_state_candidate_scan") or {}).get(
+                "continuous_candidate_matching_count"
+            ),
+            "blocked reason": st.session_state.get("continuous_steady_state_extraction_blocked_reason"),
             "schema status": (st.session_state.get("continuous_steady_state_candidate_scan") or {}).get("continuous_candidate_schema_status"),
             "extraction status": metadata.get("steady_state_extraction_status") or st.session_state.get("continuous_steady_state_extraction_status"),
             "window rows": len(window) if isinstance(window, pd.DataFrame) else 0,
