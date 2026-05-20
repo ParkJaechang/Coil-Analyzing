@@ -55,6 +55,8 @@ def test_quick_lut_continuous_runtime_path_calls_extractor_and_is_button_gated()
     assert "st.button(\"Steady-state 1cycle" in source
     assert "render_continuous_steady_state_runtime_panel(" in app_source
     assert "Continuous 1차 모델링 실행" in source
+    assert "Steady-state 1cycle 추출이 유효하지 않아 Continuous 1차 모델링을 실행할 수 없습니다." in source
+    assert "continuous_first_modeling_input_valid" in source
     assert "quick_lut_modeling_input_mode" in source
 
 
@@ -169,6 +171,8 @@ def test_upload_memory_continuous_candidate_discovery_accepts_metadata_preamble_
     assert scan["continuous_candidate_source_counts"]["upload_memory_continuous"] == 1
     assert scan["continuous_candidate_rejected_count"] == 0
     frame = candidates[names[0]]
+    assert frame.attrs["continuous_source_freq_hz"] == 1.0
+    assert frame.attrs["continuous_source_file"] == "continuous_sine_1Hz.csv"
     assert frame["time_s_abs"].tolist() == [0.0, 0.01, 0.02]
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"])
 
@@ -225,6 +229,9 @@ def test_continuous_runtime_panel_has_schema_rejected_message_markers() -> None:
 
     for marker in [
         "schema rejected",
+        "expected period_s",
+        "selected duration_s",
+        "duration ratio",
         "Continuous 파일은 찾았지만 schema 인식에 실패했습니다.",
         "Continuous source 파일은 발견되었지만 time/voltage/field 컬럼 매핑에 실패했습니다.",
         "continuous_candidate_rejection_reasons",

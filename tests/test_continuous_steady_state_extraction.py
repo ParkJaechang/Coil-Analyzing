@@ -56,6 +56,8 @@ def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_c
     assert metadata["zero_return_tail_enabled"] is False
     assert metadata["selected_cycle_index"] >= 2
     assert metadata["selected_cycle_count"] == 1.0
+    assert metadata["selected_cycle_duration_status"] == "ok"
+    assert abs(float(metadata["selected_cycle_duration_ratio"]) - 1.0) <= 0.05
     assert metadata["continuous_window_cycle_count"] == 1.0
     assert window["cycle_phase_s"].min() >= 0.0
     assert window["cycle_phase_s"].max() < 0.5
@@ -79,6 +81,72 @@ def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_c
         "steady_state_selected_mask",
         "steady_state_cycle_index",
     }.issubset(window.columns)
+
+
+def test_two_hz_continuous_selected_duration_is_full_one_cycle() -> None:
+    window, metadata = extract_steady_state_one_cycle_window(
+        _continuous_frame(freq_hz=2.0, cycles=8),
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+
+    assert metadata["expected_period_s"] == 0.5
+    assert metadata["selected_cycle_duration_status"] == "ok"
+    assert abs(float(metadata["selected_cycle_duration_s"]) - 0.5) <= 0.025
+    assert 0.95 <= float(metadata["selected_cycle_duration_ratio"]) <= 1.05
+    assert window["time_s"].max() <= 0.5
+
+
+def test_three_hz_continuous_selected_duration_is_full_one_cycle() -> None:
+    window, metadata = extract_steady_state_one_cycle_window(
+        _continuous_frame(freq_hz=3.0, cycles=8),
+        waveform_type="sine",
+        freq_hz=3.0,
+        min_discard_cycles=2,
+    )
+
+    assert metadata["expected_period_s"] == 1.0 / 3.0
+    assert metadata["selected_cycle_duration_status"] == "ok"
+    assert abs(float(metadata["selected_cycle_duration_s"]) - (1.0 / 3.0)) <= 0.02
+    assert 0.95 <= float(metadata["selected_cycle_duration_ratio"]) <= 1.05
+    assert window["time_s"].max() <= (1.0 / 3.0)
+
+
+def test_source_frequency_mismatch_blocks_continuous_extraction() -> None:
+    source = _continuous_frame(freq_hz=2.0, cycles=8)
+    source.attrs["continuous_source_freq_hz"] = 2.0
+    source.attrs["continuous_source_file"] = "continuous_sine_2Hz.csv"
+
+    window, metadata = extract_steady_state_one_cycle_window(
+        source,
+        waveform_type="sine",
+        freq_hz=3.0,
+        min_discard_cycles=2,
+    )
+
+    assert window.empty
+    assert metadata["steady_state_extraction_status"] == "unavailable_frequency_mismatch"
+    assert metadata["frequency_match_status"] == "mismatch"
+    assert metadata["frequency_mismatch_blocked"] is True
+    assert metadata["continuous_source_freq_hz"] == 2.0
+    assert metadata["quick_lut_target_freq_hz"] == 3.0
+
+
+def test_duration_validation_rejects_half_cycle_window() -> None:
+    source = _continuous_frame(freq_hz=3.0, cycles=8)
+
+    window, metadata = extract_steady_state_one_cycle_window(
+        source,
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+
+    assert window.empty
+    assert metadata["steady_state_extraction_status"] == "unavailable_invalid_cycle_duration"
+    assert metadata["selected_cycle_duration_status"] in {"rejected_half_cycle_window", "rejected_invalid_duration"}
+    assert float(metadata["selected_cycle_duration_ratio"]) < 0.75
 
 
 def test_cycle_stability_metrics_identify_stable_late_cycles() -> None:
@@ -111,6 +179,9 @@ def test_cycle_boundary_uses_positive_voltage_zero_crossing_when_available() -> 
 
     assert metadata["cycle_boundary_method"] == "voltage_positive_zero_crossing"
     assert metadata["zero_cross_detection_status"] == "ok"
+    assert metadata["positive_going_zero_crossing_count"] >= 6
+    assert metadata["negative_going_zero_crossing_count"] >= 6
+    assert metadata["half_cycle_boundary_rejected"] is True
     assert metadata["fixed_period_fallback_used"] is False
     assert metadata["detected_cycle_count"] >= 6
     first_start = float(metadata["cycle_start_times_s"][0])

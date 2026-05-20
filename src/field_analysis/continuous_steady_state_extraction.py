@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from field_analysis.compensation import FIELD_ROUTE_NORMALIZED_TARGET_PP, _finite_target_template
+from field_analysis.continuous_cycle_boundaries import detect_cycle_boundaries
 from field_analysis.continuous_steady_state_schema import adapt_continuous_source_frame
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit
 from field_analysis.finite_second_modeling_stabilization import align_measured_field_for_residual
@@ -27,13 +28,47 @@ def extract_steady_state_one_cycle_window(
     representative_cycle_mode: str = "last_stable_cycle",
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     source = _coerce_continuous_source_frame(frame)
+    source_attrs = dict(getattr(source, "attrs", {}) or {})
+    source_time = pd.to_numeric(source["time_s_abs"], errors="coerce").to_numpy(dtype=float)
+    finite_time = source_time[np.isfinite(source_time)]
+    source_duration_s = float(np.nanmax(finite_time) - np.nanmin(finite_time)) if finite_time.size else 0.0
+    period_s = 1.0 / max(float(freq_hz), 1e-12)
+    source_freq_hz = _safe_float(source_attrs.get("continuous_source_freq_hz"))
+    freq_match_status = "unknown_source_frequency"
+    if np.isfinite(source_freq_hz):
+        freq_error = abs(source_freq_hz - float(freq_hz)) / max(abs(float(freq_hz)), 1e-12)
+        freq_match_status = "ok" if freq_error <= 0.02 else "mismatch"
+        if freq_match_status != "ok":
+            return pd.DataFrame(), _base_metadata(freq_hz=freq_hz) | {
+                "steady_state_extraction_status": "unavailable_frequency_mismatch",
+                "extraction_blocked_reason": "frequency_mismatch",
+                "continuous_source_file": source_attrs.get("continuous_source_file"),
+                "continuous_source_freq_hz": source_freq_hz,
+                "quick_lut_target_freq_hz": float(freq_hz),
+                "source_freq_hz": source_freq_hz,
+                "target_freq_hz": float(freq_hz),
+                "frequency_match_status": "mismatch",
+                "frequency_mismatch_blocked": True,
+                "expected_period_s": period_s,
+                "continuous_source_duration_s": source_duration_s,
+                "continuous_estimated_cycles": source_duration_s * float(freq_hz),
+            }
+    estimated_cycles = source_duration_s * float(freq_hz)
+    if estimated_cycles < 3.0:
+        return pd.DataFrame(), _base_metadata(freq_hz=freq_hz) | {
+            "steady_state_extraction_status": "unavailable_timebase_invalid",
+            "extraction_blocked_reason": "continuous_duration_too_short",
+            "continuous_timebase_status": "too_short_for_continuous",
+            "expected_period_s": period_s,
+            "continuous_source_duration_s": source_duration_s,
+            "continuous_estimated_cycles": estimated_cycles,
+        }
     metrics, stability_meta = evaluate_cycle_stability(source, freq_hz=freq_hz)
     selected_cycle_index = select_representative_steady_cycle(
         metrics,
         min_discard_cycles=min_discard_cycles,
         mode=representative_cycle_mode,
     )
-    period_s = 1.0 / max(float(freq_hz), 1e-12)
     cycle_starts = list(stability_meta.get("cycle_start_times_s") or [])
     if 0 <= int(selected_cycle_index) < max(len(cycle_starts) - 1, 0):
         start_s = float(cycle_starts[int(selected_cycle_index)])
@@ -41,11 +76,56 @@ def extract_steady_state_one_cycle_window(
     else:
         start_s = float(selected_cycle_index) * period_s
         end_s = start_s + period_s
+    selected_duration_s = float(end_s - start_s)
+    duration_ratio = selected_duration_s / max(period_s, 1e-12)
+    dt_s = float(np.nanmedian(np.diff(finite_time))) if finite_time.size > 1 else period_s / 100.0
+    support_ok = bool(finite_time.size and np.nanmin(finite_time) <= start_s + max(dt_s, 1e-12) and np.nanmax(finite_time) >= end_s - max(2.0 * dt_s, 0.02 * period_s))
+    if 0.45 <= duration_ratio <= 0.55:
+        duration_status = "rejected_half_cycle_window"
+    elif abs(duration_ratio - 1.0) > 0.10:
+        duration_status = "rejected_invalid_duration"
+    elif not support_ok:
+        duration_status = "rejected_incomplete_one_cycle_support"
+    else:
+        duration_status = "ok"
+    duration_meta = {
+        "continuous_source_file": source_attrs.get("continuous_source_file"),
+        "continuous_source_freq_hz": source_freq_hz if np.isfinite(source_freq_hz) else None,
+        "quick_lut_target_freq_hz": float(freq_hz),
+        "source_freq_hz": source_freq_hz if np.isfinite(source_freq_hz) else None,
+        "target_freq_hz": float(freq_hz),
+        "frequency_match_status": freq_match_status,
+        "frequency_mismatch_blocked": False,
+        "expected_period_s": period_s,
+        "selected_cycle_start_s": start_s,
+        "selected_cycle_end_s": end_s,
+        "selected_cycle_duration_s": selected_duration_s,
+        "selected_cycle_duration_ratio": duration_ratio,
+        "selected_cycle_duration_status": duration_status,
+        "selected_cycle_duration_tolerance": 0.05,
+        "selected_cycle_duration_error_pct": abs(duration_ratio - 1.0) * 100.0,
+        "continuous_time_column": source.attrs.get("continuous_schema_time_column"),
+        "continuous_time_unit_detected": "milliseconds" if source.attrs.get("continuous_schema_time_column") in {"TimeMs", "Time_ms"} else "seconds",
+        "continuous_time_scale_to_seconds": 0.001 if source.attrs.get("continuous_schema_time_column") in {"TimeMs", "Time_ms"} else 1.0,
+        "continuous_source_duration_s": source_duration_s,
+        "continuous_estimated_cycles": estimated_cycles,
+        "continuous_timebase_status": "ok",
+    }
+    if duration_status != "ok":
+        return pd.DataFrame(), _base_metadata(freq_hz=freq_hz) | {
+            **stability_meta,
+            **duration_meta,
+            "steady_state_extraction_status": "unavailable_invalid_cycle_duration",
+            "steady_state_support_status": "unavailable",
+            "extraction_blocked_reason": duration_status,
+            "selected_cycle_index": int(selected_cycle_index),
+        }
     mask = (source["time_s_abs"] >= start_s) & (source["time_s_abs"] < end_s)
     if not bool(mask.any()):
         empty = pd.DataFrame()
         return empty, _base_metadata(freq_hz=freq_hz) | {
             **stability_meta,
+            **duration_meta,
             "steady_state_extraction_status": "unavailable_missing_one_cycle_support",
             "steady_state_support_status": "unavailable",
             "selected_cycle_index": selected_cycle_index,
@@ -111,11 +191,10 @@ def extract_steady_state_one_cycle_window(
     ]
     metadata = _base_metadata(freq_hz=freq_hz) | {
         **stability_meta,
+        **duration_meta,
         "steady_state_extraction_status": "ok",
         "steady_state_support_status": "ok",
         "selected_cycle_index": int(selected_cycle_index),
-        "selected_cycle_start_s": start_s,
-        "selected_cycle_end_s": end_s,
         "selected_cycle_count": 1.0,
         "discarded_startup_cycles": int(min_discard_cycles),
         "representative_cycle_mode": representative_cycle_mode,
@@ -407,115 +486,7 @@ def _coerce_continuous_source_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _detect_cycle_boundaries(source: pd.DataFrame, *, freq_hz: float) -> dict[str, Any]:
-    period_s = 1.0 / max(float(freq_hz), 1e-12)
-    time_s = pd.to_numeric(source["time_s_abs"], errors="coerce").to_numpy(dtype=float)
-    voltage = pd.to_numeric(source["raw_voltage_v"], errors="coerce").to_numpy(dtype=float)
-    finite = np.isfinite(time_s) & np.isfinite(voltage)
-    time_s = time_s[finite]
-    voltage = voltage[finite]
-    if time_s.size < 4:
-        starts = _fixed_period_cycle_starts(source, period_s)
-        return _boundary_metadata(
-            method="fixed_period",
-            status="insufficient_samples",
-            starts=starts,
-            period_s=period_s,
-            confidence=0.0,
-            fallback=True,
-        )
-
-    smoothed = _smooth_for_zero_crossing(voltage, period_s=period_s, time_s=time_s)
-    crossings: list[float] = []
-    for idx in range(len(smoothed) - 1):
-        left = smoothed[idx]
-        right = smoothed[idx + 1]
-        if not (np.isfinite(left) and np.isfinite(right)):
-            continue
-        if left <= 0.0 < right:
-            dt = time_s[idx + 1] - time_s[idx]
-            denom = right - left
-            crossing = time_s[idx] if abs(denom) < 1e-12 else time_s[idx] - left * dt / denom
-            if not crossings or crossing - crossings[-1] >= 0.45 * period_s:
-                crossings.append(float(crossing))
-
-    if len(crossings) >= 2:
-        intervals = np.diff(np.asarray(crossings, dtype=float))
-        median_interval = float(np.nanmedian(intervals)) if intervals.size else period_s
-        period_error = abs(median_interval - period_s) / max(period_s, 1e-12)
-        confidence = float(max(0.0, min(1.0, 1.0 - period_error)))
-        if confidence >= 0.65:
-            return _boundary_metadata(
-                method="voltage_positive_zero_crossing",
-                status="ok",
-                starts=crossings,
-                period_s=period_s,
-                confidence=confidence,
-                fallback=False,
-            )
-
-    starts = _fixed_period_cycle_starts(source, period_s)
-    return _boundary_metadata(
-        method="fixed_period",
-        status="insufficient_crossings",
-        starts=starts,
-        period_s=period_s,
-        confidence=0.0,
-        fallback=True,
-    )
-
-
-def _smooth_for_zero_crossing(voltage: np.ndarray, *, period_s: float, time_s: np.ndarray) -> np.ndarray:
-    if voltage.size < 5:
-        return voltage
-    dt = float(np.nanmedian(np.diff(time_s))) if time_s.size > 1 else period_s / 80.0
-    samples_per_period = max(int(round(period_s / max(dt, 1e-12))), 5)
-    window = max(5, int(round(samples_per_period * 0.03)))
-    if window % 2 == 0:
-        window += 1
-    window = min(window, max(5, voltage.size // 3 * 2 + 1))
-    if window >= voltage.size:
-        window = voltage.size - 1 if voltage.size % 2 == 0 else voltage.size
-    if window < 5:
-        return voltage
-    series = pd.Series(voltage, dtype=float)
-    return (
-        series.rolling(window, center=True, min_periods=1)
-        .median()
-        .rolling(window, center=True, min_periods=1)
-        .mean()
-        .to_numpy(dtype=float)
-    )
-
-
-def _fixed_period_cycle_starts(source: pd.DataFrame, period_s: float) -> list[float]:
-    time_s = pd.to_numeric(source["time_s_abs"], errors="coerce").to_numpy(dtype=float)
-    finite = time_s[np.isfinite(time_s)]
-    if finite.size == 0:
-        return []
-    start = float(np.nanmin(finite))
-    end = float(np.nanmax(finite))
-    count = int(np.floor((end - start) / max(period_s, 1e-12))) + 1
-    return [start + idx * period_s for idx in range(max(count + 1, 0))]
-
-
-def _boundary_metadata(
-    *,
-    method: str,
-    status: str,
-    starts: list[float],
-    period_s: float,
-    confidence: float,
-    fallback: bool,
-) -> dict[str, Any]:
-    return {
-        "cycle_boundary_method": method,
-        "cycle_boundary_confidence": float(confidence),
-        "detected_cycle_count": max(len(starts) - 1, 0),
-        "period_s": float(period_s),
-        "cycle_start_times_s": [float(item) for item in starts],
-        "zero_cross_detection_status": status,
-        "fixed_period_fallback_used": bool(fallback),
-    }
+    return detect_cycle_boundaries(source, freq_hz=freq_hz)
 
 
 def _first_numeric_column(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
@@ -547,3 +518,10 @@ def _base_metadata(*, freq_hz: float) -> dict[str, Any]:
 
 def _safe_pct(delta: float, denom: float) -> float:
     return float(delta / max(abs(denom), 1e-9) * 100.0)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")

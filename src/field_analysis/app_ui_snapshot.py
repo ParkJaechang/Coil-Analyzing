@@ -2391,6 +2391,22 @@ def _render_quick_lut_tab_v2(
             if not isinstance(continuous_extraction_case, dict):
                 st.warning("먼저 Steady-state 1cycle 추출을 실행하십시오.")
                 return
+            continuous_meta = dict(continuous_extraction_case.get("metadata") or {})
+            invalid_reason = None
+            if continuous_meta.get("steady_state_extraction_status") != "ok":
+                invalid_reason = continuous_meta.get("steady_state_extraction_status")
+            elif continuous_meta.get("selected_cycle_duration_status") not in (None, "ok"):
+                invalid_reason = continuous_meta.get("selected_cycle_duration_status")
+            elif continuous_meta.get("continuous_timebase_status") not in (None, "ok"):
+                invalid_reason = continuous_meta.get("continuous_timebase_status")
+            elif continuous_meta.get("frequency_match_status") == "mismatch":
+                invalid_reason = "frequency_mismatch"
+            if invalid_reason is not None:
+                st.session_state["continuous_first_modeling_input_valid"] = False
+                st.session_state["continuous_first_modeling_block_reason"] = invalid_reason
+                st.warning("Steady-state 1cycle 추출이 유효하지 않아 Continuous 1차 모델링을 실행할 수 없습니다.")
+                return
+            st.session_state["continuous_first_modeling_input_valid"] = True
         compensation_title = f"{main_field_axis} 파형 보정"
         compensation_basis = f"fixed rounded-triangle measured {main_field_axis} waveform"
         clamp_label = f"목표 {main_field_axis} 크기"

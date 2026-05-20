@@ -119,7 +119,10 @@ def adapt_continuous_source_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, di
         "continuous_schema_reject_reason": None,
         "raw_hallbz_available": raw_hall_available,
         "normalized_field_available": normalized_field_available,
+        "continuous_source_file": frame.attrs.get("continuous_source_file"),
+        "continuous_source_freq_hz": frame.attrs.get("continuous_source_freq_hz"),
     }
+    source.attrs.update({key: value for key, value in metadata.items() if value is not None})
     return source.sort_values("time_s_abs").reset_index(drop=True), metadata
 
 

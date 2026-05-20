@@ -102,6 +102,13 @@ def render_continuous_steady_state_runtime_panel(
         if isinstance(window, pd.DataFrame) and not window.empty:
             st.markdown("#### 선택된 steady-state 1cycle")
             st.caption(f"startup transient 제외 cycle: {metadata.get('discarded_startup_cycles')}")
+            st.caption(
+                "expected period_s: "
+                f"{metadata.get('expected_period_s')} / selected duration_s: "
+                f"{metadata.get('selected_cycle_duration_s')} / duration ratio: "
+                f"{metadata.get('selected_cycle_duration_ratio')} / boundary method: "
+                f"{metadata.get('cycle_boundary_method')}"
+            )
             st.markdown("#### cycle stability metrics")
             st.caption("이 1cycle이 continuous steady-state modeling에 사용됩니다.")
             st.plotly_chart(_plot_continuous_window(window), use_container_width=True)
@@ -305,10 +312,23 @@ def _read_csv_payload(name: str, payload: bytes) -> tuple[pd.DataFrame | None, s
         return None, None
     try:
         text = payload.decode("utf-8-sig", errors="replace")
+        attrs: dict[str, Any] = {"continuous_source_file": str(name)}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("#"):
+                continue
+            key, sep, value = stripped[1:].partition(",")
+            if sep and key.strip() == "Frequency(Hz)":
+                try:
+                    attrs["continuous_source_freq_hz"] = float(value.strip())
+                except ValueError:
+                    pass
         data_lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
         if not data_lines:
             return None, "csv_parse_error:no_data_rows_after_metadata_preamble"
-        return pd.read_csv(StringIO("\n".join(data_lines))), None
+        frame = pd.read_csv(StringIO("\n".join(data_lines)))
+        frame.attrs.update(attrs)
+        return frame, None
     except Exception as exc:  # noqa: BLE001 - candidate scan should surface reject reasons in UI.
         return None, f"csv_parse_error:{type(exc).__name__}:{exc}"
 
