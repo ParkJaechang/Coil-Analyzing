@@ -69,6 +69,8 @@ from .continuous_steady_state_extraction import build_continuous_phase_aligned_c
 from .ui_continuous_steady_state import (
     render_continuous_actual_drive_runtime_panel,
     render_continuous_steady_state_runtime_panel,
+    run_continuous_first_modeling,
+    run_continuous_steady_state_extraction,
 )
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
@@ -2388,9 +2390,24 @@ def _render_quick_lut_tab_v2(
         continuous_extraction_case = None
         if modeling_input_mode == "continuous_steady_state":
             continuous_extraction_case = st.session_state.get("continuous_steady_state_extraction_result")
-            if not isinstance(continuous_extraction_case, dict):
-                st.warning("먼저 Steady-state 1cycle 추출을 실행하십시오.")
-                return
+            if not isinstance(continuous_extraction_case, dict) or st.session_state.get("continuous_steady_state_dirty"):
+                extract_bundle = run_continuous_steady_state_extraction(
+                    selected_candidate_name=st.session_state.get("continuous_steady_state_selected_candidate"),
+                    selected_frame=st.session_state.get("continuous_steady_state_selected_frame"),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
+                    freq_hz=float(target_freq),
+                    modeling_case_builder=_build_continuous_steady_state_modeling_case_for_quick_lut,
+                )
+                continuous_extraction_case = extract_bundle.get("extraction_result")
+                if extract_bundle.get("status") == "ok" and isinstance(continuous_extraction_case, dict):
+                    st.session_state["continuous_steady_state_extraction_result"] = continuous_extraction_case
+                    st.session_state["continuous_steady_state_window_frame"] = continuous_extraction_case["steady_state_one_cycle_frame"]
+                    st.session_state["continuous_steady_state_metadata"] = continuous_extraction_case["metadata"]
+                    st.session_state["continuous_steady_state_extraction_status"] = "ok"
+                    st.session_state["continuous_steady_state_dirty"] = False
+                else:
+                    st.warning(f"먼저 유효한 Steady-state 1cycle 추출을 실행하십시오: {extract_bundle.get('error_reason')}")
+                    return
             continuous_meta = dict(continuous_extraction_case.get("metadata") or {})
             invalid_reason = None
             if continuous_meta.get("steady_state_extraction_status") != "ok":
@@ -2507,15 +2524,23 @@ def _render_quick_lut_tab_v2(
                 compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
             if modeling_input_mode == "continuous_steady_state":
-                steady_window = continuous_extraction_case.get("steady_state_one_cycle_frame") if isinstance(continuous_extraction_case, dict) else None
-                if isinstance(steady_window, pd.DataFrame) and not steady_window.empty:
-                    first_command_profile, continuous_first_meta = build_continuous_phase_aligned_command_profile(
-                        steady_window,
-                        freq_hz=float(target_freq),
-                        waveform_type=str(target_waveform) if target_waveform is not None else None,
-                    )
-                    st.session_state["quick_lut_first_model_result_continuous_metadata"] = continuous_first_meta
-                    st.session_state["continuous_first_modeling_run_id"] = _runtime_git_value("rev-parse", "--short", "HEAD")
+                first_bundle = run_continuous_first_modeling(
+                    extraction_result=continuous_extraction_case,
+                    freq_hz=float(target_freq),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
+                )
+                if first_bundle.get("status") != "ok":
+                    st.session_state["continuous_first_modeling_input_valid"] = False
+                    st.session_state["continuous_first_modeling_block_reason"] = first_bundle.get("error_reason")
+                    st.warning(f"Continuous 1차 모델링 command 생성에 실패했습니다: {first_bundle.get('error_reason')}")
+                    return
+                first_command_profile = first_bundle["command_profile"].copy(deep=True)
+                continuous_first_meta = dict(first_bundle.get("first_model_metadata") or {})
+                st.session_state["quick_lut_first_model_result_continuous_metadata"] = continuous_first_meta
+                st.session_state["continuous_first_modeling_run_id"] = _runtime_git_value("rev-parse", "--short", "HEAD")
+                st.markdown("#### Continuous 1차 모델링 command")
+                st.caption("1cycle 반복 출력용 voltage LUT")
+                st.caption("목표 자기장 vs 보정 계산용 실측 자기장 / 보정 전압 변화량")
                 first_command_profile["modeling_input_mode"] = "continuous_steady_state"
                 first_command_profile["continuous_production_cycle_count"] = 1.0
                 first_command_profile["continuous_repeating_lut"] = True

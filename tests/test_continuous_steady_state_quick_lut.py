@@ -15,6 +15,8 @@ from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_f
 from field_analysis.ui_continuous_steady_state import (
     build_continuous_second_command_profile,
     discover_continuous_candidate_frames,
+    run_continuous_first_modeling,
+    run_continuous_steady_state_extraction,
 )
 
 APP_UI = SRC_ROOT / "field_analysis" / "app_ui_snapshot.py"
@@ -57,6 +59,10 @@ def test_quick_lut_continuous_runtime_path_calls_extractor_and_is_button_gated()
     assert "Continuous 1차 모델링 실행" in source
     assert "Steady-state 1cycle 추출이 유효하지 않아 Continuous 1차 모델링을 실행할 수 없습니다." in source
     assert "continuous_first_modeling_input_valid" in source
+    assert "run_continuous_steady_state_extraction(" in source
+    assert "run_continuous_first_modeling(" in source
+    assert "Continuous 1차 모델링 command" in source
+    assert "1cycle 반복 출력용 voltage LUT" in source
     assert "quick_lut_modeling_input_mode" in source
 
 
@@ -232,11 +238,87 @@ def test_continuous_runtime_panel_has_schema_rejected_message_markers() -> None:
         "expected period_s",
         "selected duration_s",
         "duration ratio",
+        "Continuous extraction summary",
+        "Continuous 원본과 선택된 steady-state 구간",
+        "Continuous runtime debug",
         "Continuous 파일은 찾았지만 schema 인식에 실패했습니다.",
         "Continuous source 파일은 발견되었지만 time/voltage/field 컬럼 매핑에 실패했습니다.",
         "continuous_candidate_rejection_reasons",
     ]:
         assert marker in source
+
+
+def test_continuous_extraction_orchestrator_returns_renderable_result_bundle() -> None:
+    period = 0.5
+    time_s = np.linspace(0.0, period * 8, 640, endpoint=False)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "Voltage1_V": 3.0 * np.sin(2.0 * np.pi * time_s / period),
+            "HallBz": -(45.0 * np.sin(2.0 * np.pi * time_s / period - 0.05)),
+        }
+    )
+
+    bundle = run_continuous_steady_state_extraction(
+        selected_candidate_name="analysis_lookup:synthetic_2Hz",
+        selected_frame=frame,
+        waveform_type="sine",
+        freq_hz=2.0,
+    )
+
+    assert bundle["status"] == "ok"
+    case = bundle["extraction_result"]
+    assert isinstance(case["steady_state_one_cycle_frame"], pd.DataFrame)
+    assert not case["steady_state_one_cycle_frame"].empty
+    assert isinstance(case["stability_metrics"], pd.DataFrame)
+    assert not case["stability_metrics"].empty
+
+
+def test_continuous_first_modeling_orchestrator_uses_phase_aligned_kernel() -> None:
+    period = 0.5
+    time_s = np.linspace(0.0, period * 8, 640, endpoint=False)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "Voltage1_V": 3.0 * np.sin(2.0 * np.pi * time_s / period),
+            "HallBz": -(42.0 * np.sin(2.0 * np.pi * time_s / period - 0.08)),
+        }
+    )
+    extraction = run_continuous_steady_state_extraction(
+        selected_candidate_name="analysis_lookup:synthetic_2Hz",
+        selected_frame=frame,
+        waveform_type="sine",
+        freq_hz=2.0,
+    )
+
+    first = run_continuous_first_modeling(
+        extraction_result=extraction["extraction_result"],
+        waveform_type="sine",
+        freq_hz=2.0,
+    )
+
+    assert first["status"] == "ok"
+    command = first["command_profile"]
+    metadata = first["first_model_metadata"]
+    assert metadata["continuous_first_modeling_uses_phase_aligned_kernel"] is True
+    assert metadata["continuous_first_modeling_tail_disabled"] is True
+    assert metadata["continuous_loop_output"] is True
+    assert "correction_delta_v" in command.columns
+    assert "measured_field_smoothed_mT" in command.columns
+    assert "measured_field_aligned_mT" in command.columns
+    assert "residual_for_modeling_mT" in command.columns
+    assert command["time_s"].max() < period
+
+
+def test_continuous_first_modeling_orchestrator_rejects_empty_command_profile() -> None:
+    result = run_continuous_first_modeling(
+        extraction_result={"metadata": {"steady_state_extraction_status": "ok"}, "steady_state_one_cycle_frame": pd.DataFrame()},
+        waveform_type="sine",
+        freq_hz=2.0,
+    )
+
+    assert result["status"] == "error"
+    assert result["error_reason"] == "extraction_result_empty"
 
 
 def test_continuous_second_command_profile_is_not_placeholder_copy() -> None:

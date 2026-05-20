@@ -16,6 +16,10 @@ from .continuous_steady_state_extraction import (
     build_continuous_steady_state_modeling_case,
     evaluate_continuous_steady_state_validation,
 )
+from .continuous_steady_state_runtime import (
+    run_continuous_first_modeling,
+    run_continuous_steady_state_extraction,
+)
 from .dataset_library import list_manifest_entries, load_dataset_library_settings, read_dataset_entry_bytes
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .ui_upload_state import category_payloads
@@ -55,7 +59,17 @@ def render_continuous_steady_state_runtime_panel(
         selected_name = st.selectbox("Continuous source dataset", candidate_names, key="continuous_steady_source_dataset")
         scan["continuous_candidate_selected_source"] = selected_name.split(":", 1)[0]
         scan["continuous_candidate_selected_file"] = selected_name.split(":", 1)[1] if ":" in selected_name else selected_name
+        signature = {
+            "selected_name": selected_name,
+            "waveform_type": str(waveform_type or "sine"),
+            "freq_hz": float(freq_hz or 1.0),
+        }
+        if st.session_state.get("continuous_steady_state_run_signature") not in (None, signature):
+            st.session_state["continuous_steady_state_dirty"] = True
         st.session_state["continuous_steady_state_selected_candidate"] = selected_name
+        st.session_state["continuous_steady_state_selected_frame"] = candidates[selected_name].copy(deep=True)
+        st.session_state["continuous_steady_state_standardized_frame"] = candidates[selected_name].copy(deep=True)
+        st.session_state["continuous_steady_state_pending_signature"] = signature
         st.session_state["continuous_steady_state_candidate_scan"] = scan
     else:
         rejected_count = int(scan.get("continuous_candidate_rejected_count") or 0)
@@ -76,45 +90,46 @@ def render_continuous_steady_state_runtime_panel(
             st.session_state["continuous_steady_state_metadata"] = {"steady_state_extraction_status": "unavailable_no_source"}
             st.warning("Continuous source dataset이 없어 Steady-state 1cycle 추출을 실행할 수 없습니다.")
         else:
-            try:
-                case = modeling_case_builder(
-                    candidates[selected_name],
-                    waveform_type=str(waveform_type or "sine"),
-                    freq_hz=float(freq_hz or 1.0),
-                )
-            except Exception as exc:  # noqa: BLE001 - runtime UI must show parse/extraction failures.
-                st.session_state["continuous_steady_state_metadata"] = {
-                    "steady_state_extraction_status": "error",
-                    "error": str(exc),
-                }
-                st.error(f"Steady-state 1cycle 추출 실패: {exc}")
+            bundle = run_continuous_steady_state_extraction(
+                selected_candidate_name=selected_name,
+                selected_frame=candidates[selected_name],
+                waveform_type=waveform_type,
+                freq_hz=freq_hz,
+                modeling_case_builder=modeling_case_builder,
+            )
+            case = bundle.get("extraction_result")
+            if bundle.get("status") != "ok" or not isinstance(case, dict):
+                metadata = dict(case.get("metadata") or {}) if isinstance(case, dict) else {"steady_state_extraction_status": "error"}
+                metadata["error_reason"] = bundle.get("error_reason")
+                st.session_state["continuous_steady_state_metadata"] = metadata
+                st.session_state["continuous_steady_state_extraction_status"] = metadata.get("steady_state_extraction_status")
+                st.warning(f"Steady-state 1cycle 추출 결과가 유효하지 않습니다: {bundle.get('error_reason')}")
             else:
                 st.session_state["continuous_steady_state_extraction_result"] = case
                 st.session_state["continuous_steady_state_window_frame"] = case["steady_state_one_cycle_frame"]
                 st.session_state["continuous_steady_state_metadata"] = case["metadata"]
+                st.session_state["continuous_steady_state_extraction_status"] = "ok"
                 st.session_state["continuous_steady_state_dirty"] = False
+                st.session_state["continuous_steady_state_run_signature"] = st.session_state.get("continuous_steady_state_pending_signature")
                 st.success("Steady-state 1cycle 추출 완료")
 
     case = st.session_state.get("continuous_steady_state_extraction_result")
+    if st.session_state.get("continuous_steady_state_dirty") and isinstance(case, dict):
+        st.warning("설정 또는 데이터가 변경되었습니다. Steady-state 1cycle 추출을 다시 실행하십시오.")
+        st.caption("현재 표시 중인 결과는 이전 실행 결과입니다.")
     if isinstance(case, dict):
         window = case.get("steady_state_one_cycle_frame")
         metadata = dict(case.get("metadata") or {})
-        if isinstance(window, pd.DataFrame) and not window.empty:
-            st.markdown("#### 선택된 steady-state 1cycle")
-            st.caption(f"startup transient 제외 cycle: {metadata.get('discarded_startup_cycles')}")
-            st.caption(
-                "expected period_s: "
-                f"{metadata.get('expected_period_s')} / selected duration_s: "
-                f"{metadata.get('selected_cycle_duration_s')} / duration ratio: "
-                f"{metadata.get('selected_cycle_duration_ratio')} / boundary method: "
-                f"{metadata.get('cycle_boundary_method')}"
-            )
-            st.markdown("#### cycle stability metrics")
-            st.caption("이 1cycle이 continuous steady-state modeling에 사용됩니다.")
-            st.plotly_chart(_plot_continuous_window(window), use_container_width=True)
-            st.dataframe(pd.DataFrame([metadata]), use_container_width=True, hide_index=True)
+        if metadata.get("steady_state_extraction_status") != "ok":
+            st.warning(f"Steady-state 1cycle 추출 결과가 유효하지 않습니다: {metadata.get('steady_state_extraction_status')}")
+        elif isinstance(window, pd.DataFrame) and not window.empty:
+            _render_continuous_extraction_result(case, st.session_state.get("continuous_steady_state_standardized_frame"))
+        else:
+            st.warning("Steady-state 1cycle 추출 결과가 비어 있습니다.")
+        _render_continuous_runtime_debug(case)
         return case
 
+    _render_continuous_runtime_debug(None)
     st.caption("옵션 변경만으로 heavy calculation을 자동 실행하지 않습니다. `Steady-state 1cycle 추출` 버튼을 누르십시오.")
     return None
 
@@ -398,6 +413,83 @@ def build_continuous_second_command_profile(
     return second, metadata
 
 
+def _render_continuous_extraction_result(case: dict[str, Any], source_frame: Any) -> None:
+    window = case.get("steady_state_one_cycle_frame")
+    metadata = dict(case.get("metadata") or {})
+    if not isinstance(window, pd.DataFrame) or window.empty:
+        st.warning("Steady-state 1cycle 추출 결과가 비어 있습니다.")
+        return
+    summary_keys = [
+        "continuous_source_file",
+        "continuous_source_freq_hz",
+        "quick_lut_target_freq_hz",
+        "expected_period_s",
+        "selected_cycle_index",
+        "selected_cycle_start_s",
+        "selected_cycle_end_s",
+        "selected_cycle_duration_s",
+        "selected_cycle_duration_ratio",
+        "discarded_startup_cycles",
+        "cycle_boundary_method",
+        "steady_state_extraction_status",
+    ]
+    st.markdown("#### Continuous extraction summary")
+    st.dataframe(pd.DataFrame([{key: metadata.get(key) for key in summary_keys}]), use_container_width=True, hide_index=True)
+    st.markdown("#### 선택된 steady-state 1cycle")
+    st.caption(f"startup transient 제외 cycle: {metadata.get('discarded_startup_cycles')}")
+    st.caption(
+        "expected period_s: "
+        f"{metadata.get('expected_period_s')} / selected duration_s: "
+        f"{metadata.get('selected_cycle_duration_s')} / duration ratio: "
+        f"{metadata.get('selected_cycle_duration_ratio')} / boundary method: "
+        f"{metadata.get('cycle_boundary_method')}"
+    )
+    st.plotly_chart(_plot_continuous_window(window), use_container_width=True)
+    if isinstance(source_frame, pd.DataFrame) and not source_frame.empty:
+        st.markdown("#### Continuous 원본과 선택된 steady-state 구간")
+        st.plotly_chart(_plot_continuous_source_preview(source_frame, metadata), use_container_width=True)
+    st.markdown("#### cycle stability metrics")
+    metrics = case.get("stability_metrics")
+    if isinstance(metrics, pd.DataFrame) and not metrics.empty:
+        display = metrics.copy(deep=True)
+        if "cycle_index" in display.columns:
+            display["selected"] = pd.to_numeric(display["cycle_index"], errors="coerce") == int(metadata.get("selected_cycle_index", -1))
+        st.dataframe(display, use_container_width=True, hide_index=True)
+    else:
+        st.warning("cycle stability metrics가 비어 있습니다.")
+
+
+def _render_continuous_runtime_debug(case: dict[str, Any] | None) -> None:
+    with st.expander("Continuous runtime debug", expanded=False):
+        window = case.get("steady_state_one_cycle_frame") if isinstance(case, dict) else None
+        metadata = dict(case.get("metadata") or {}) if isinstance(case, dict) else {}
+        first = st.session_state.get("quick_lut_first_model_result_continuous")
+        command = first.get("command_profile") if isinstance(first, dict) else None
+        debug = {
+            "selected candidate": st.session_state.get("continuous_steady_state_selected_candidate"),
+            "schema status": (st.session_state.get("continuous_steady_state_candidate_scan") or {}).get("continuous_candidate_schema_status"),
+            "extraction status": metadata.get("steady_state_extraction_status") or st.session_state.get("continuous_steady_state_extraction_status"),
+            "window rows": len(window) if isinstance(window, pd.DataFrame) else 0,
+            "window columns": list(window.columns) if isinstance(window, pd.DataFrame) else [],
+            "selected duration": metadata.get("selected_cycle_duration_s"),
+            "expected period": metadata.get("expected_period_s"),
+            "duration ratio": metadata.get("selected_cycle_duration_ratio"),
+            "first model status": (first.get("metadata") or {}).get("continuous_first_modeling_status") if isinstance(first, dict) else None,
+            "command profile rows": len(command) if isinstance(command, pd.DataFrame) else 0,
+            "session_state keys present": [
+                key
+                for key in (
+                    "continuous_steady_state_extraction_result",
+                    "continuous_steady_state_window_frame",
+                    "continuous_steady_state_metadata",
+                    "quick_lut_first_model_result_continuous",
+                )
+                if key in st.session_state
+            ],
+        }
+        st.dataframe(pd.DataFrame([debug]), use_container_width=True, hide_index=True)
+
+
 def _parse_actual_drive_upload(
     filename: str,
     csv_bytes: bytes,
@@ -441,6 +533,38 @@ def _plot_continuous_window(frame: pd.DataFrame) -> go.Figure:
         height=360,
         title="선택된 steady-state 1cycle",
         xaxis_title="time_s (s)",
+        yaxis_title="value",
+    )
+    return figure
+
+
+def _plot_continuous_source_preview(frame: pd.DataFrame, metadata: dict[str, Any]) -> go.Figure:
+    figure = go.Figure()
+    x = frame["time_s_abs"] if "time_s_abs" in frame.columns else frame.get("time_s")
+    for column, label in [
+        ("measured_field_normalized_mT", "전체 normalized measured field"),
+        ("voltage_normalized_v", "voltage"),
+    ]:
+        if column in frame.columns:
+            figure.add_trace(go.Scatter(x=x, y=frame[column], mode="lines", name=label))
+    start_s = metadata.get("selected_cycle_start_s")
+    end_s = metadata.get("selected_cycle_end_s")
+    for value, label in [(start_s, "selected start"), (end_s, "selected end")]:
+        try:
+            x_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        figure.add_vline(x=x_value, line_dash="dash", annotation_text=label)
+    for boundary in list(metadata.get("cycle_start_times_s") or [])[:80]:
+        try:
+            figure.add_vline(x=float(boundary), line_width=1, line_color="rgba(0,0,0,0.12)")
+        except (TypeError, ValueError):
+            continue
+    figure.update_layout(
+        template="plotly_white",
+        height=320,
+        title="Continuous 원본과 선택된 steady-state 구간",
+        xaxis_title="absolute time_s (s)",
         yaxis_title="value",
     )
     return figure

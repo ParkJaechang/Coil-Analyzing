@@ -214,7 +214,9 @@ def extract_steady_state_one_cycle_window(
         "voltage_normalization_status": voltage_meta["status"],
         "target_normalization_status": target_meta["status"],
     }
-    return window.loc[:, output_columns].reset_index(drop=True), metadata
+    output = window.loc[:, output_columns].reset_index(drop=True)
+    output.attrs["cycle_stability_metrics"] = metrics.copy(deep=True)
+    return output, metadata
 
 
 def build_continuous_steady_state_modeling_case(
@@ -235,7 +237,10 @@ def build_continuous_steady_state_modeling_case(
         "continuous_export_cycle_count": 1.0,
         "loop_endpoint_policy": "period_exclusive",
     }
-    return {"steady_state_one_cycle_frame": window, "metadata": metadata}
+    stability_metrics = window.attrs.get("cycle_stability_metrics")
+    if not isinstance(stability_metrics, pd.DataFrame):
+        stability_metrics = pd.DataFrame()
+    return {"steady_state_one_cycle_frame": window, "metadata": metadata, "stability_metrics": stability_metrics}
 
 
 def build_continuous_phase_aligned_command_profile(
