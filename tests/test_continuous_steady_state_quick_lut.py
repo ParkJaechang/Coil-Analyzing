@@ -20,6 +20,7 @@ from field_analysis.ui_continuous_steady_state import (
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
+from field_analysis.continuous_candidate_frequency import attach_continuous_frequency_attrs
 
 APP_UI = SRC_ROOT / "field_analysis" / "app_ui_snapshot.py"
 CONT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_steady_state.py"
@@ -224,6 +225,17 @@ def test_preamble_frequency_takes_priority_over_filename_frequency() -> None:
     assert frame.attrs["continuous_source_freq_source"] == "preamble"
 
 
+def test_filename_frequency_takes_priority_over_generic_attrs() -> None:
+    frame = pd.DataFrame({"TimeMs": [0, 10], "Voltage1_V": [0.0, 1.0], "HallBz": [0.0, -1.0]})
+    frame.attrs["continuous_source_freq_hz"] = 9.0
+    frame.attrs["continuous_source_freq_source"] = "frame_attrs"
+
+    adapted = attach_continuous_frequency_attrs(frame, name="continuous_sine_1.5Hz.csv")
+
+    assert adapted.attrs["continuous_source_freq_hz"] == 1.5
+    assert adapted.attrs["continuous_source_freq_source"] == "filename"
+
+
 def test_continuous_candidates_are_ranked_by_target_frequency_match() -> None:
     csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
     names, candidates, scan = discover_continuous_candidate_frames(
@@ -239,6 +251,8 @@ def test_continuous_candidates_are_ranked_by_target_frequency_match() -> None:
 
     assert names[0] == "upload_memory:continuous_sine_3Hz.csv"
     assert scan["continuous_candidate_matching_count"] == 1
+    assert scan["matching_candidate_count"] == 1
+    assert scan["matching_candidate_names"] == ["upload_memory:continuous_sine_3Hz.csv"]
     assert scan["continuous_candidate_details"][0]["frequency_match_status"] == "match"
     ranked = rank_continuous_candidates_for_target(candidates, target_freq_hz=3.0)
     assert ranked[0]["name"] == "upload_memory:continuous_sine_3Hz.csv"

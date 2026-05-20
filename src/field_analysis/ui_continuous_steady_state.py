@@ -147,12 +147,16 @@ def render_continuous_steady_state_runtime_panel(
             if bundle.get("status") != "ok" or not isinstance(case, dict):
                 metadata = dict(case.get("metadata") or {}) if isinstance(case, dict) else {"steady_state_extraction_status": "error"}
                 metadata["error_reason"] = bundle.get("error_reason")
+                metadata["matching_candidate_count"] = int(scan.get("matching_candidate_count") or 0)
+                metadata["matching_candidate_names"] = list(scan.get("matching_candidate_names") or [])
                 st.session_state["continuous_steady_state_metadata"] = metadata
                 st.session_state["continuous_steady_state_last_error_metadata"] = metadata
                 st.session_state["continuous_steady_state_extraction_status"] = metadata.get("steady_state_extraction_status")
                 st.session_state["continuous_steady_state_extraction_blocked_reason"] = metadata.get("extraction_blocked_reason")
+                if "continuous_steady_state_extraction_result" in st.session_state:
+                    st.session_state["continuous_steady_state_dirty"] = True
                 if metadata.get("extraction_blocked_reason") == "frequency_mismatch":
-                    _render_frequency_mismatch_detail(metadata, matching_candidate_names(details))
+                    _render_frequency_mismatch_detail(metadata, list(scan.get("matching_candidate_names") or []))
                 st.warning(f"Steady-state 1cycle 추출 결과가 유효하지 않습니다: {bundle.get('error_reason')}")
             else:
                 st.session_state["continuous_steady_state_extraction_result"] = case
@@ -427,15 +431,21 @@ def _render_continuous_runtime_debug(case: dict[str, Any] | None) -> None:
         metadata = dict(case.get("metadata") or {}) if isinstance(case, dict) else {}
         first = st.session_state.get("quick_lut_first_model_result_continuous")
         command = first.get("command_profile") if isinstance(first, dict) else None
+        scan = st.session_state.get("continuous_steady_state_candidate_scan") or {}
+        selected_candidate = st.session_state.get("continuous_steady_state_selected_candidate")
+        selected_detail = next(
+            (detail for detail in list(scan.get("continuous_candidate_details") or []) if detail.get("name") == selected_candidate),
+            {},
+        )
         debug = {
-            "selected candidate": st.session_state.get("continuous_steady_state_selected_candidate"),
+            "selected candidate": selected_candidate,
             "target freq_hz": st.session_state.get("continuous_steady_state_target_freq_hz"),
             "selected source freq_hz": st.session_state.get("continuous_steady_state_selected_source_freq_hz"),
+            "freq source": selected_detail.get("continuous_source_freq_source"),
             "frequency match status": st.session_state.get("continuous_steady_state_frequency_match_status"),
             "frequency error %": metadata.get("frequency_error_pct"),
-            "matching candidate count": (st.session_state.get("continuous_steady_state_candidate_scan") or {}).get(
-                "continuous_candidate_matching_count"
-            ),
+            "matching candidate count": scan.get("continuous_candidate_matching_count"),
+            "matching candidate names": scan.get("matching_candidate_names"),
             "blocked reason": st.session_state.get("continuous_steady_state_extraction_blocked_reason"),
             "schema status": (st.session_state.get("continuous_steady_state_candidate_scan") or {}).get("continuous_candidate_schema_status"),
             "extraction status": metadata.get("steady_state_extraction_status") or st.session_state.get("continuous_steady_state_extraction_status"),

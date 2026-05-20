@@ -51,13 +51,16 @@ def discover_continuous_candidate_frames(
             continue
         _try_add_candidate(candidates, rejected, f"dataset_library:{name}", frame, source_key="dataset_library", counts=counts)
     details = build_continuous_candidate_details(candidates, target_freq_hz=target_freq_hz)
+    matching_names = matching_candidate_names(details)
     return [str(detail["name"]) for detail in details], candidates, {
         "continuous_candidate_source_counts": counts,
         "continuous_candidate_rejected_count": len(rejected),
         "continuous_candidate_reject_reasons": rejected,
         "continuous_candidate_rejection_reasons": rejected,
         "continuous_candidate_details": details,
-        "continuous_candidate_matching_count": len(matching_candidate_names(details)),
+        "continuous_candidate_matching_count": len(matching_names),
+        "matching_candidate_count": len(matching_names),
+        "matching_candidate_names": matching_names,
     }
 
 

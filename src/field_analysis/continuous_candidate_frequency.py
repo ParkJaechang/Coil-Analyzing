@@ -31,20 +31,23 @@ def attach_continuous_frequency_attrs(
     attrs = dict(getattr(frame, "attrs", {}) or {})
     freq = _safe_float(attrs.get("continuous_source_freq_hz"))
     source = attrs.get("continuous_source_freq_source")
-    if np.isfinite(freq):
+    if np.isfinite(freq) and source == "preamble":
         attrs["continuous_source_freq_hz"] = float(freq)
-        attrs["continuous_source_freq_source"] = str(source or "preamble")
+        attrs["continuous_source_freq_source"] = "preamble"
     else:
-        column_freq = _frequency_from_column(output)
-        if column_freq is not None:
-            attrs["continuous_source_freq_hz"] = column_freq
-            attrs["continuous_source_freq_source"] = "column"
+        filename_freq, filename_source = infer_continuous_source_frequency(name)
+        if filename_freq is not None:
+            attrs["continuous_source_freq_hz"] = filename_freq
+            attrs["continuous_source_freq_source"] = filename_source
+            attrs["continuous_source_freq_inferred_from_filename"] = True
+        elif np.isfinite(freq):
+            attrs["continuous_source_freq_hz"] = float(freq)
+            attrs["continuous_source_freq_source"] = str(source or "frame_attrs")
         else:
-            filename_freq, filename_source = infer_continuous_source_frequency(name)
-            if filename_freq is not None:
-                attrs["continuous_source_freq_hz"] = filename_freq
-                attrs["continuous_source_freq_source"] = filename_source
-                attrs["continuous_source_freq_inferred_from_filename"] = True
+            column_freq = _frequency_from_column(output)
+            if column_freq is not None:
+                attrs["continuous_source_freq_hz"] = column_freq
+                attrs["continuous_source_freq_source"] = "column"
             elif user_fallback_freq_hz is not None and np.isfinite(float(user_fallback_freq_hz)):
                 attrs["continuous_source_freq_hz"] = float(user_fallback_freq_hz)
                 attrs["continuous_source_freq_source"] = "user_attribution"
