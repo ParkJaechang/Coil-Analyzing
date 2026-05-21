@@ -75,6 +75,14 @@ from .ui_continuous_steady_state import (
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_second_modeling import render_second_modeling_controls
+from .quick_lut_target_config import (
+    build_quick_lut_target_config,
+    legacy_quick_lut_config,
+    modeling_metadata_from_target_config,
+    target_config_snapshot,
+    target_configs_equal,
+)
+from .ui_quick_lut_target_debug import render_quick_lut_target_debug, render_quick_lut_target_summary
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
@@ -1387,7 +1395,7 @@ def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
             "Previous finite cycle value `0.75` is not supported by the primary finite-cycle selector; "
             "reset to 1.0. 0.75 is not treated as 1.75."
         )
-        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+        st.session_state[widget_key] = 1.0
         return
 
     if not _cycle_in_set(float(requested), UI_SUPPORTED_FINITE_CYCLE_COUNTS):
@@ -2304,24 +2312,49 @@ def _render_quick_lut_tab_v2(
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
         st.markdown("#### 2. 1차 모델링 command")
         st.caption("아래 동작은 모두 같은 fixed target을 사용합니다: rounded triangle, 100pp fixed.")
-        quick_config_snapshot = {
-            "target_waveform": target_waveform,
-            "target_freq": target_freq,
-            "use_frequency_trend": use_frequency_trend,
-            "finite_cycle_mode": finite_cycle_mode,
-            "target_cycle_count": target_cycle_count,
-            "preview_tail_cycles": preview_tail_cycles,
-            "modeling_input_mode": modeling_input_mode,
-            "continuous_production_cycle_count": continuous_production_cycle_count,
-            "continuous_repeating_lut": continuous_repeating_lut,
-            "zero_return_tail_enabled": continuous_zero_return_tail_enabled,
-        }
+        quick_target_config = build_quick_lut_target_config(
+            modeling_input_mode=modeling_input_mode,
+            target_waveform_family=str(target_waveform) if target_waveform is not None else None,
+            target_freq_hz=float(target_freq),
+            target_cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+            use_frequency_trend=bool(use_frequency_trend),
+            finite_cycle_mode=bool(finite_cycle_mode),
+            preview_tail_cycles=float(preview_tail_cycles),
+        )
+        quick_config_snapshot = legacy_quick_lut_config(quick_target_config)
+        st.session_state["quick_lut_target_config"] = target_config_snapshot(quick_target_config)
+        st.session_state["quick_lut_target_config_source"] = "ui_user_selection"
+        applied_target_config = st.session_state.get("quick_lut_applied_target_config")
+        config_dirty = not target_configs_equal(applied_target_config, quick_target_config)
+        st.session_state["quick_lut_target_config_dirty"] = bool(config_dirty)
         if st.button("Quick LUT 설정 적용", use_container_width=True, key="apply_quick_lut_settings"):
+            st.session_state["quick_lut_applied_target_config"] = target_config_snapshot(quick_target_config)
             st.session_state["quick_lut_applied_config"] = quick_config_snapshot
             st.session_state["quick_lut_dirty"] = False
-        elif st.session_state.get("quick_lut_applied_config") not in (None, quick_config_snapshot):
+            st.session_state["quick_lut_target_config_dirty"] = False
+            st.session_state["quick_lut_config_applied_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+            applied_target_config = st.session_state.get("quick_lut_applied_target_config")
+            config_dirty = False
+        elif config_dirty:
             st.session_state["quick_lut_dirty"] = True
             st.warning("설정이 변경되었습니다. 다시 실행하려면 실행 버튼을 누르십시오.")
+            st.warning("설정이 변경되었습니다. Quick LUT 설정 적용을 누르십시오.")
+        st.caption(
+            f"현재 모델링 대상: {float(quick_target_config['target_freq_hz']):g} Hz / "
+            f"{float(quick_target_config['target_cycle_count']):g} cycle"
+        )
+        render_quick_lut_target_debug(
+            current_config=quick_target_config,
+            applied_config=applied_target_config if isinstance(applied_target_config, dict) else None,
+            dirty=bool(config_dirty),
+            last_modeling_config=st.session_state.get("quick_lut_config_used_for_modeling"),
+            first_model_config=(st.session_state.get("quick_lut_first_model_result") or {}).get("metadata", {}).get("modeled_target_config_snapshot")
+            if isinstance(st.session_state.get("quick_lut_first_model_result"), dict)
+            else None,
+            second_model_config=(st.session_state.get("quick_lut_second_model_result") or {}).get("metadata", {}).get("second_modeling_target_config_snapshot")
+            if isinstance(st.session_state.get("quick_lut_second_model_result"), dict)
+            else None,
+        )
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
         compensation_button_label = (
             "Continuous 1차 모델링 실행"
@@ -2339,6 +2372,30 @@ def _render_quick_lut_tab_v2(
         )
         st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
         st.caption("2차 보정 결과가 아닙니다.")
+
+    modeling_button_clicked = bool(estimate_clicked or compensation_clicked)
+    if modeling_button_clicked:
+        applied_for_modeling = st.session_state.get("quick_lut_applied_target_config")
+        if not isinstance(applied_for_modeling, dict) or config_dirty:
+            st.session_state["quick_lut_modeling_blocked_due_to_dirty_config"] = True
+            st.warning("Quick LUT target config가 적용되지 않았습니다. 먼저 Quick LUT 설정 적용을 누르십시오.")
+            st.caption(
+                f"UI current config: {quick_target_config['target_freq_hz']:g} Hz / "
+                f"{quick_target_config['target_cycle_count']:g} cycle"
+            )
+            return
+        st.session_state["quick_lut_modeling_blocked_due_to_dirty_config"] = False
+        st.session_state["quick_lut_config_used_for_modeling"] = target_config_snapshot(applied_for_modeling)
+        target_waveform = applied_for_modeling.get("target_waveform_family")
+        target_freq = float(applied_for_modeling["target_freq_hz"])
+        target_cycle_count = applied_for_modeling.get("target_cycle_count")
+        finite_cycle_mode = bool(applied_for_modeling.get("finite_cycle_mode"))
+        use_frequency_trend = bool(applied_for_modeling.get("use_frequency_trend"))
+        preview_tail_cycles = float(applied_for_modeling.get("preview_tail_cycles") or 0.0)
+        modeling_input_mode = str(applied_for_modeling.get("modeling_input_mode") or modeling_input_mode)
+        continuous_repeating_lut = bool(applied_for_modeling.get("continuous_repeating_lut"))
+        continuous_zero_return_tail_enabled = bool(applied_for_modeling.get("continuous_zero_return_tail_enabled") or False)
+        render_quick_lut_target_summary(applied_for_modeling, title="Applied Quick LUT target config")
 
     if modeling_input_mode == "continuous_steady_state":
         render_continuous_steady_state_runtime_panel(
@@ -2551,6 +2608,10 @@ def _render_quick_lut_tab_v2(
                 first_command_profile["continuous_loop_output"] = True
                 first_command_profile["continuous_export_cycle_count"] = 1.0
                 first_command_profile["loop_endpoint_policy"] = "period_exclusive"
+            target_config_for_result = target_config_snapshot(
+                st.session_state.get("quick_lut_config_used_for_modeling") or quick_target_config
+            )
+            first_target_metadata = modeling_metadata_from_target_config(target_config_for_result, prefix="modeled")
             st.session_state["quick_lut_first_model_result"] = {
                 "command_profile": first_command_profile.copy(deep=True),
                 "metadata": {
@@ -2563,6 +2624,7 @@ def _render_quick_lut_tab_v2(
                     "continuous_production_cycle_count": 1.0 if modeling_input_mode == "continuous_steady_state" else None,
                     "continuous_repeating_lut": modeling_input_mode == "continuous_steady_state",
                     "zero_return_tail_enabled": False if modeling_input_mode == "continuous_steady_state" else None,
+                    **first_target_metadata,
                 },
             }
             if modeling_input_mode == "continuous_steady_state":

@@ -10,7 +10,9 @@ import pandas as pd
 import streamlit as st
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
+from .quick_lut_target_config import target_config_snapshot
 from .ui_finite_tail_policy import render_finite_tail_policy_controls
+from .ui_second_modeling_cards import render_actual_drive_data_card
 from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_second_modeling_plots import plot_labeled_frame
 from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
@@ -89,6 +91,7 @@ def render_second_modeling_controls(
     cycle_count: float,
     waveform_type: str | None = None,
 ) -> None:
+    target_config = target_config_snapshot(st.session_state.get("quick_lut_applied_target_config"))
     st.session_state["quick_lut_second_render_reached"] = True
     st.session_state["quick_lut_second_has_command_profile"] = isinstance(command_profile, pd.DataFrame) and not command_profile.empty
     st.session_state["quick_lut_second_has_first_model"] = isinstance(st.session_state.get("quick_lut_first_model_result"), dict)
@@ -104,6 +107,7 @@ def render_second_modeling_controls(
     st.markdown("#### 4. 2차 보정 command")
     st.caption("사용자가 버튼을 눌렀을 때만 생성합니다. 업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다.")
     st.caption("Raw peak 값은 참고용입니다. 최종 적합성은 사용자가 그래프를 보고 판단합니다. 자동 합격/불합격 판정은 하지 않습니다.")
+    st.caption(f"현재 모델링 대상: {float(freq_hz):g} Hz / {float(cycle_count):g} cycle")
     supported = np.isfinite(cycle_count) and any(
         abs(float(cycle_count) - supported_cycle) <= 1e-9 for supported_cycle in (1.0, 1.5)
     )
@@ -232,6 +236,10 @@ def render_second_modeling_controls(
             },
             "quick_lut_actual_drive_selected_file": feedback_selection.get("filename"),
             "requested_cycle_count": float(cycle_count),
+            "second_modeling_target_config_snapshot": target_config,
+            "second_modeling_freq_match_status": "target_preserved",
+            "second_modeling_cycle_match_status": "target_preserved",
+            "second_modeling_duration_status": "target_cycle_duration",
         }
     except ValueError as exc:
         second_profile = command_profile.copy()
@@ -275,6 +283,10 @@ def render_second_modeling_controls(
     second_profile["second_modeling_available"] = bool(metadata.get("second_modeling_available", False))
     second_profile["second_modeling_status"] = str(metadata.get("second_modeling_status", "unavailable"))
     run_id = pd.Timestamp.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    metadata.setdefault("second_modeling_target_config_snapshot", target_config)
+    metadata.setdefault("second_modeling_freq_match_status", "target_preserved")
+    metadata.setdefault("second_modeling_cycle_match_status", "target_preserved")
+    metadata.setdefault("second_modeling_duration_status", "target_cycle_duration")
     metadata["quick_lut_second_model_run_id"] = run_id
     st.session_state["quick_lut_second_model_result"] = {
         "command_profile": second_profile,
@@ -318,7 +330,7 @@ def _render_second_modeling_result(
 ) -> None:
     with st.expander("상세 진단", expanded=False):
         st.dataframe(pd.DataFrame([metadata]), use_container_width=True)
-    _render_actual_drive_data_card(metadata, cycle_count=cycle_count)
+    render_actual_drive_data_card(metadata, cycle_count=cycle_count)
     if isinstance(native_review_frame, pd.DataFrame):
         st.markdown("##### 3. 1차 실구동 결과")
         st.caption("이 데이터는 2차 모델링에 사용된 1차 실구동 결과입니다.")
@@ -455,27 +467,6 @@ def _render_second_modeling_result(
         freq_hz=freq_hz,
         cycle_count=cycle_count,
     )
-
-
-def _render_actual_drive_data_card(metadata: dict[str, object], *, cycle_count: float) -> None:
-    source_file = metadata.get("quick_lut_actual_drive_selected_file") or metadata.get("actual_drive_source_file", "unknown")
-    file_freq = metadata.get("file_freq_hz", metadata.get("target_freq_hz"))
-    file_cycle = metadata.get("file_cycle_count", cycle_count)
-    rows = [
-        ("파일명", source_file),
-        ("데이터 source", metadata.get("feedback_source_label", metadata.get("metadata_source", "uploads/2nd 폴더 또는 업로드 파일"))),
-        ("schema", "TimeMs / Voltage1_V / HallBz"),
-        ("파일 metadata", f"freq={file_freq}, cycle={file_cycle}"),
-        ("현재 Quick LUT 설정", f"cycle={cycle_count}"),
-        ("match 상태", metadata.get("second_modeling_status", "unknown")),
-        ("timebase", metadata.get("timebase_status", metadata.get("native_timebase_status", "unknown"))),
-        ("HallBz sign convention", "effective field = -HallBz raw"),
-        ("field normalization", metadata.get("field_normalization_mode", "peak_to_50mT")),
-        ("voltage normalization", metadata.get("voltage_normalization_mode", "peak_to_5V_or_limit")),
-    ]
-    st.markdown("##### 사용 중인 1차 실구동 데이터")
-    st.caption("현재 이 파일을 2차 모델링 입력으로 사용합니다.")
-    st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
 
 
 def _render_actual_drive_selection_status(

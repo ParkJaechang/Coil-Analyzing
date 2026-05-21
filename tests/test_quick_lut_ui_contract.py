@@ -203,6 +203,21 @@ def test_quick_lut_finite_defaults_are_production_focused() -> None:
     assert "index=cycle_options.index(UI_DEFAULT_FINITE_CYCLE_COUNT)" in source
 
 
+def test_quick_lut_target_config_source_of_truth_markers_exist() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+    target_module = (SRC_ROOT / "field_analysis" / "quick_lut_target_config.py").read_text(encoding="utf-8")
+    debug_module = (SRC_ROOT / "field_analysis" / "ui_quick_lut_target_debug.py").read_text(encoding="utf-8")
+
+    assert "quick_lut_target_config" in source
+    assert "quick_lut_applied_target_config" in source
+    assert "quick_lut_target_config_dirty" in source
+    assert "Quick LUT target/debug" in debug_module
+    assert "target_freq_hz_source" in target_module
+    assert "target_cycle_count_source" in target_module
+    assert "target_config_auto_overwrite_blocked" in target_module
+    assert "Quick LUT target config가 적용되지 않았습니다" in source
+
+
 def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits_finite_cycles() -> None:
     with _isolated_app_state() as state_dir:
         records = [
