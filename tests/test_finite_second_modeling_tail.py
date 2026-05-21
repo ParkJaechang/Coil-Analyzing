@@ -71,6 +71,16 @@ def test_second_modeling_one_point_five_tail_off_has_no_tail_samples(tmp_path: P
     assert not frame["tail_window_mask"].astype(bool).any()
 
 
+def test_finite_tail_threshold_message_is_dynamic() -> None:
+    policy = resolve_finite_tail_policy(3.0, "auto", 3.0)
+
+    assert policy["finite_tail_effective_enabled"] is False
+    assert policy["finite_tail_warning_message_dynamic"] is True
+    assert "3" in policy["finite_tail_status_message"]
+    assert "3" in policy["finite_tail_warning_message"]
+    assert "2Hz 이상" not in (SRC_ROOT / "field_analysis" / "ui_finite_tail_policy.py").read_text(encoding="utf-8")
+
+
 def test_second_modeling_tail_timebase_is_monotonic_and_continuous(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
     _write_actual_drive_csv(actual)

@@ -26,12 +26,13 @@ def render_finite_tail_policy_controls(*, freq_hz: float) -> dict[str, object]:
         )
     )
     policy = resolve_finite_tail_policy(freq_hz=freq_hz, mode=mode, threshold_hz=threshold)
-    st.caption("2Hz 이상에서는 phase delay 영향으로 마지막 피크 형성 전에 역전압이 걸릴 수 있어 tail을 기본 OFF로 둡니다.")
+    st.caption("고주파에서는 phase delay 영향으로 tail이 마지막 피크 형성을 방해할 수 있어 자동 OFF 정책을 사용할 수 있습니다.")
     st.caption("저주파에서는 자기장 0복귀가 필요한 경우 tail을 사용할 수 있습니다.")
     st.caption("자동 정책은 기본값이며, 필요하면 수동으로 tail 사용/미사용을 선택할 수 있습니다.")
+    st.caption(f"현재 자동 OFF 기준: {threshold:g} Hz")
     if policy.get("high_frequency_tail_auto_disabled"):
-        st.warning("현재 주파수는 2Hz 이상입니다. 자동 정책에 따라 finite tail을 사용하지 않습니다.")
-        st.caption("tail을 강제로 사용하려면 tail mode를 ‘사용’으로 변경하십시오.")
+        st.warning(str(policy.get("finite_tail_warning_message")))
+        st.caption("tail을 강제로 사용하려면 tail mode를 '사용'으로 변경하십시오.")
     status = "사용" if policy.get("finite_tail_effective_enabled") else "사용 안 함"
     st.info(f"현재 finite tail 상태: {status}")
     signature = {

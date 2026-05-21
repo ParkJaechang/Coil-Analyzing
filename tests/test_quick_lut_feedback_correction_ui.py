@@ -227,7 +227,8 @@ def test_finite_tail_policy_ui_markers_exist() -> None:
     assert "Finite tail / 자기장 0복귀 전압" in source
     assert "자동: 주파수별 tail 정책" in source
     assert "tail 자동 OFF 기준 주파수" in source
-    assert "현재 주파수는 2Hz 이상입니다" in source
+    assert "현재 자동 OFF 기준: {threshold:g} Hz" in source
+    assert "2Hz 이상" not in source
     assert "quick_lut_second_model_result_stale_reason" in source
     assert "Finite tail OFF: active cycle 구간만 표시합니다." in second_source
 

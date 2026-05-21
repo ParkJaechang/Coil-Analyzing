@@ -10,6 +10,19 @@ from .finite_actual_drive import ActualDriveRecord
 from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_actual_drive_normalization import peak_abs
+from .finite_second_modeling_active_support import diagnose_active_end_kink
+from .finite_second_modeling_active_support import phase_align_from_native_support
+from .finite_second_modeling_active_support import protect_active_unit_delta
+from .finite_second_modeling_core import active_mask as _active_mask
+from .finite_second_modeling_core import first_limited_voltage as _first_limited_voltage
+from .finite_second_modeling_core import first_voltage as _first_voltage
+from .finite_second_modeling_core import interp as _interp
+from .finite_second_modeling_core import is_supported_cycle as _is_supported_cycle
+from .finite_second_modeling_core import normalize_residual_alignment_mode as _normalize_residual_alignment_mode
+from .finite_second_modeling_core import optional_voltage as _optional_voltage
+from .finite_second_modeling_core import review_diagnostic_metadata as _review_diagnostic_metadata
+from .finite_second_modeling_core import source_covers_target_active_window as _source_covers_target_active_window
+from .finite_second_modeling_core import target_field as _target
 from .finite_second_modeling_stabilization import align_measured_field_for_residual
 from .finite_second_modeling_stabilization import apply_polarity_guard
 from .finite_second_modeling_stabilization import diagnose_correction_discontinuity
@@ -185,15 +198,19 @@ def generate_second_modeled_voltage_lut(
         enabled=tail_effective_enabled,
     )
     target = _target(profile, review, time_s)
-    measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
-    measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
-        review["time_s"],
-        review["normalized_measured_field_mT"],
-        time_s,
-        active_mask,
+    native_time_s = pd.to_numeric(review["time_s"], errors="coerce").to_numpy(dtype=float)
+    native_measured = pd.to_numeric(review["normalized_measured_field_mT"], errors="coerce").to_numpy(dtype=float)
+    native_active_mask = np.isfinite(native_time_s) & (native_time_s >= -1e-12) & (native_time_s <= float(cycle_count) / max(float(freq_hz), 1e-12) + 0.5 / max(float(freq_hz), 1e-12))
+    native_measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
+        native_time_s,
+        native_measured,
+        native_time_s,
+        native_active_mask,
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
     )
+    measured = _interp(native_time_s, native_measured, time_s)
+    measured_smoothed = _interp(native_time_s, native_measured_smoothed, time_s)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
     effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
@@ -209,6 +226,20 @@ def generate_second_modeled_voltage_lut(
         freq_hz=float(freq_hz),
         residual_alignment_mode=alignment_mode,
     )
+    active_support_meta: dict[str, Any] = {
+        "measurement_support_grid_separate_from_output_grid": True,
+        "measured_alignment_source": "native_smoothed_actual_drive",
+        "output_command_grid_tail_off_active_only": bool(not tail_effective_enabled),
+    }
+    if residual_alignment_meta.get("phase_alignment_status") == "ok":
+        measured_aligned, active_support_meta = phase_align_from_native_support(
+            native_time_s,
+            native_measured_smoothed,
+            time_s,
+            active_mask,
+            phase_alignment_shift_s=float(residual_alignment_meta.get("phase_alignment_shift_s") or 0.0),
+            tail_off_active_only=not tail_effective_enabled,
+        )
     residual_aligned = target - measured_aligned
     support_meta = measured_support_metadata(
         review["time_s"],
@@ -265,7 +296,13 @@ def generate_second_modeled_voltage_lut(
     residual_aligned_diag[tail_mask] = residual_for_second[tail_mask]
     unit_delta = (residual_for_second / 50.0) * float(voltage_limit_v)
     correction_mask = active_mask | tail_mask
-    unit_delta[~correction_mask | ~np.isfinite(unit_delta)] = 0.0
+    unit_delta, active_invalid_mask, active_invalid_meta = protect_active_unit_delta(
+        unit_delta,
+        residual_for_second,
+        active_mask,
+        correction_mask,
+        time_s,
+    )
     gain_used, gain_meta = _compute_second_modeling_gain(
         unit_delta,
         first_voltage,
@@ -340,6 +377,16 @@ def generate_second_modeled_voltage_lut(
         second_limited,
         stabilization_arrays,
         polarity_mask,
+    )
+    active_end_kink_meta = diagnose_active_end_kink(
+        time_s,
+        active_mask,
+        residual_for_second,
+        unit_delta,
+        stabilized_delta,
+        second_limited,
+        active_invalid_mask=active_invalid_mask,
+        phase_support_status=str(active_support_meta.get("phase_aligned_active_support_status", "unknown")),
     )
     final_voltage = second_limited.copy()
 
@@ -480,12 +527,15 @@ def generate_second_modeled_voltage_lut(
         "voltage_normalization_scale_factor": review_meta.get("voltage_normalization_scale_factor"),
         **smoothing_meta,
         **residual_alignment_meta,
+        **active_support_meta,
         **zero_return_meta,
         **support_meta,
+        **active_invalid_meta,
         **gain_meta,
         **stabilization_meta,
         **polarity_meta,
         **discontinuity_meta,
+        **active_end_kink_meta,
         **tail_setup_meta,
         **tail_meta,
         **tail_controller_meta,
@@ -500,97 +550,10 @@ def generate_second_modeled_voltage_lut(
         "tail_voltage_generated": tail_effective_enabled and tail_return_mode != "disabled",
         "tail_window_sample_count": int(tail_mask.sum()),
         "tail_return_mode": tail_return_mode,
+        "tail_disabled_active_correction_preserved": not tail_effective_enabled,
+        "active_correction_finite_through_end": bool(active_invalid_meta.get("active_end_residual_support_status") == "ok"),
     }
     return result, metadata
-
-
-def _review_diagnostic_metadata(review_meta: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "baseline_source": review_meta.get("baseline_source"),
-        "baseline_mT": review_meta.get("baseline_mT"),
-        "actual_drive_time_unit": review_meta.get("actual_drive_time_unit"),
-        "actual_drive_time_unit_detected": review_meta.get("actual_drive_time_unit_detected"),
-        "selected_time_unit_reason": review_meta.get("selected_time_unit_reason"),
-        "dt_median_s": review_meta.get("dt_median_s"),
-        "voltage_nonzero_duration_s": review_meta.get("voltage_nonzero_duration_s"),
-        "actual_voltage_active_duration_s": review_meta.get("actual_voltage_active_duration_s"),
-        "expected_active_duration_s": review_meta.get("expected_active_duration_s"),
-        "active_duration_ratio": review_meta.get("active_duration_ratio"),
-        "timebase_status": review_meta.get("timebase_status"),
-        "source_time_monotonic": review_meta.get("source_time_monotonic"),
-        "duplicate_time_count": review_meta.get("duplicate_time_count"),
-        "field_convention": review_meta.get("field_convention"),
-    }
-
-
-def _is_supported_cycle(cycle_count: float) -> bool:
-    return any(abs(float(cycle_count) - cycle) <= 1e-9 for cycle in SUPPORTED_SECOND_MODELING_CYCLES)
-
-
-def _normalize_residual_alignment_mode(value: str) -> str:
-    if value == "pointwise":
-        return "pointwise"
-    if value == "first_peak_aligned":
-        return "first_peak_aligned"
-    return "first_peak_aligned_stabilized"
-
-
-def _first_voltage(profile: pd.DataFrame) -> np.ndarray:
-    for column in (
-        "first_modeled_voltage_v",
-        "baseline_limited_voltage_v",
-        "feedback_corrected_limited_voltage_v",
-        "limited_voltage_v",
-        "recommended_voltage_v",
-    ):
-        if column in profile.columns:
-            return pd.to_numeric(profile[column], errors="coerce").to_numpy(dtype=float)
-    return np.zeros(len(profile), dtype=float)
-
-
-def _first_limited_voltage(profile: pd.DataFrame, fallback: np.ndarray) -> np.ndarray:
-    if "limited_voltage_v" in profile.columns:
-        return pd.to_numeric(profile["limited_voltage_v"], errors="coerce").to_numpy(dtype=float)
-    return np.asarray(fallback, dtype=float).copy()
-
-
-def _optional_voltage(profile: pd.DataFrame, column: str) -> np.ndarray | None:
-    if column not in profile.columns:
-        return None
-    return pd.to_numeric(profile[column], errors="coerce").to_numpy(dtype=float)
-
-
-def _target(profile: pd.DataFrame, review: pd.DataFrame, time_s: np.ndarray) -> np.ndarray:
-    if "physical_target_output_mT" in profile.columns:
-        return pd.to_numeric(profile["physical_target_output_mT"], errors="coerce").to_numpy(dtype=float)
-    return _interp(review["time_s"], review["normalized_physical_target_output_mT"], time_s)
-
-
-def _active_mask(time_s: np.ndarray, *, freq_hz: float, cycle_count: float) -> np.ndarray:
-    duration = float(cycle_count) / max(float(freq_hz), 1e-12)
-    values = np.asarray(time_s, dtype=float)
-    return np.isfinite(values) & (values >= -1e-12) & (values <= duration + 1e-12)
-
-
-def _interp(source_time: Any, source_values: Any, target_time: Any) -> np.ndarray:
-    x = pd.to_numeric(pd.Series(source_time), errors="coerce").to_numpy(dtype=float)
-    y = pd.to_numeric(pd.Series(source_values), errors="coerce").to_numpy(dtype=float)
-    t = pd.to_numeric(pd.Series(target_time), errors="coerce").to_numpy(dtype=float)
-    finite = np.isfinite(x) & np.isfinite(y)
-    if finite.sum() == 0:
-        return np.full(len(t), np.nan)
-    order = np.argsort(x[finite])
-    return np.interp(t, x[finite][order], y[finite][order], left=np.nan, right=np.nan)
-
-
-def _source_covers_target_active_window(source_time: Any, target_active_time: np.ndarray) -> bool:
-    source = pd.to_numeric(pd.Series(source_time), errors="coerce").to_numpy(dtype=float)
-    target = np.asarray(target_active_time, dtype=float)
-    source = source[np.isfinite(source)]
-    target = target[np.isfinite(target)]
-    if source.size < 2 or target.size < 1:
-        return False
-    return bool(np.nanmin(source) <= np.nanmin(target) + 1e-12 and np.nanmax(source) >= np.nanmax(target) - 1e-12)
 
 
 __all__ = ["generate_second_modeled_voltage_lut"]

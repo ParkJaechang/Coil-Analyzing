@@ -31,6 +31,12 @@ def resolve_finite_tail_policy(freq_hz: float, mode: str = "auto", threshold_hz:
         if reason == "auto_disabled_high_frequency"
         else None
     )
+    status_message = (
+        f"현재 주파수 {freq:g} Hz는 자동 정책에 따라 finite tail {'사용' if enabled else '사용 안 함'}입니다. "
+        f"현재 자동 OFF 기준: {threshold:g} Hz"
+    )
+    if reason == "auto_disabled_high_frequency":
+        warning = f"현재 주파수 {freq:g} Hz가 자동 OFF 기준 {threshold:g} Hz 이상입니다. 자동 정책에 따라 finite tail을 사용하지 않습니다."
     return {
         "finite_tail_mode": normalized_mode,
         "finite_tail_auto_threshold_hz": threshold,
@@ -40,7 +46,9 @@ def resolve_finite_tail_policy(freq_hz: float, mode: str = "auto", threshold_hz:
         "finite_tail_user_override": normalized_mode in {"on", "off"},
         "finite_tail_policy_freq_hz": freq,
         "high_frequency_tail_auto_disabled": reason == "auto_disabled_high_frequency",
+        "finite_tail_status_message": status_message,
         "finite_tail_warning_message": warning,
+        "finite_tail_warning_message_dynamic": True,
     }
 
 
@@ -128,6 +136,7 @@ def extend_profile_for_zero_tail(
         "post_cycle_zero_tail_target_field_mT": 0.0,
         "post_cycle_zero_tail_start_s": float(active_duration),
         "post_cycle_zero_tail_end_s": float(active_duration + tail_duration),
+        "active_duration_s": float(active_duration),
         "total_command_duration_s": float(active_duration + tail_duration),
         "tail_voltage_taper_to_zero": bool(enabled and tail_duration > 0.0),
     }
