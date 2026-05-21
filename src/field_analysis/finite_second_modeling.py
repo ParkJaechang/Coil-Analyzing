@@ -20,6 +20,7 @@ from .finite_second_modeling_stabilization import stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain as _compute_second_modeling_gain
 from .finite_second_modeling_tail import extend_profile_for_zero_tail as _tail_extend_profile_for_zero_tail
 from .finite_second_modeling_tail import tail_mask as _tail_mask_values
+from .finite_second_modeling_tail import trim_profile_to_active_duration as _trim_profile_to_active_duration
 from .finite_second_modeling_tail_controller import apply_finite_time_zero_return_tail
 from .finite_second_modeling_tail_controller import fill_tail_measured_field as _fill_tail_measured_field
 from .finite_second_modeling_tail_controller import missing_time_ranges as _missing_time_ranges
@@ -63,6 +64,12 @@ def generate_second_modeled_voltage_lut(
         tail_cycle_count=float(post_cycle_zero_tail_cycle_count),
         tail_duration_s=float(post_cycle_zero_tail_duration_s),
     )
+    tail_effective_enabled = bool(post_cycle_zero_tail_enabled and requested_tail_cycle_count > 0.0 and tail_return_mode != "disabled")
+    if not tail_effective_enabled:
+        tail_return_mode = "disabled"
+        post_cycle_zero_tail_enabled = False
+        profile = _trim_profile_to_active_duration(profile, freq_hz=float(freq_hz), cycle_count=float(cycle_count))
+    effective_tail_cycle_count = requested_tail_cycle_count if tail_effective_enabled else 0.0
     alignment_mode = (
         "pointwise" if residual_alignment_mode == "pointwise" else "first_peak_aligned"
     )
@@ -137,16 +144,15 @@ def generate_second_modeled_voltage_lut(
         review["normalized_measured_field_mT"],
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
-        requested_tail_cycle_count=requested_tail_cycle_count,
-        tail_enabled=bool(post_cycle_zero_tail_enabled),
+        requested_tail_cycle_count=effective_tail_cycle_count,
+        tail_enabled=tail_effective_enabled,
     )
-    effective_tail_cycle_count = requested_tail_cycle_count
     time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
     first_voltage = _first_voltage(profile)
     first_limited_voltage = _first_limited_voltage(profile, first_voltage)
     first_recommended_voltage = _optional_voltage(profile, "recommended_voltage_v")
     active_mask = _active_mask(time_s, freq_hz=freq_hz, cycle_count=cycle_count)
-    tail_mask = _tail_mask_values(time_s, freq_hz=freq_hz, cycle_count=cycle_count, tail_cycle_count=effective_tail_cycle_count, enabled=bool(post_cycle_zero_tail_enabled))
+    tail_mask = _tail_mask_values(time_s, freq_hz=freq_hz, cycle_count=cycle_count, tail_cycle_count=effective_tail_cycle_count, enabled=tail_effective_enabled)
     if not _source_covers_target_active_window(review["time_s"], time_s[active_mask]):
         return profile, {
             **base_metadata,
@@ -163,7 +169,7 @@ def generate_second_modeled_voltage_lut(
         profile,
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
-        enabled=bool(post_cycle_zero_tail_enabled),
+        enabled=tail_effective_enabled,
         tail_cycle_count=effective_tail_cycle_count,
     )
     time_s = pd.to_numeric(profile["time_s"], errors="coerce").to_numpy(dtype=float)
@@ -176,7 +182,7 @@ def generate_second_modeled_voltage_lut(
         freq_hz=freq_hz,
         cycle_count=cycle_count,
         tail_cycle_count=effective_tail_cycle_count,
-        enabled=bool(post_cycle_zero_tail_enabled),
+        enabled=tail_effective_enabled,
     )
     target = _target(profile, review, time_s)
     measured = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
@@ -210,7 +216,7 @@ def generate_second_modeled_voltage_lut(
         cycle_count=float(cycle_count),
         tail_cycle_count=effective_tail_cycle_count,
         phase_alignment_shift_s=float(residual_alignment_meta.get("phase_alignment_shift_s") or 0.0),
-        tail_enabled=bool(post_cycle_zero_tail_enabled),
+        tail_enabled=tail_effective_enabled,
         measured_support_end_s=float(zero_return_meta["measured_support_end_s"]),
         measured_support_end_mode=str(zero_return_meta["measured_support_end_mode"]),
     )
@@ -225,7 +231,7 @@ def generate_second_modeled_voltage_lut(
     )
     measured_support_valid_mask = np.isfinite(measured_for_second)
     missing_tail_measured = bool(np.any(tail_mask & ~measured_support_valid_mask))
-    if tail_return_mode == "residual" and bool(post_cycle_zero_tail_enabled) and missing_tail_measured:
+    if tail_return_mode == "residual" and tail_effective_enabled and missing_tail_measured:
         return profile, {
             **base_metadata,
             **_review_diagnostic_metadata(review_meta),
@@ -292,7 +298,7 @@ def generate_second_modeled_voltage_lut(
     second_limited = np.clip(second_voltage, -abs(float(voltage_limit_v)), abs(float(voltage_limit_v)))
     tail_controller_arrays: dict[str, np.ndarray] = {}
     tail_controller_meta: dict[str, Any] = {"tail_return_mode": tail_return_mode}
-    if tail_return_mode == "finite_time_zero_return" and bool(post_cycle_zero_tail_enabled):
+    if tail_return_mode == "finite_time_zero_return" and tail_effective_enabled:
         tail_controller_arrays, tail_controller_meta = apply_finite_time_zero_return_tail(
             time_s=time_s,
             active_mask=active_mask,
@@ -412,7 +418,7 @@ def generate_second_modeled_voltage_lut(
             "tail_start_voltage_v": tail_arrays["tail_start_voltage_v"],
             "tail_window_mask": tail_mask,
             "post_command_zero_mask": np.zeros(len(time_s), dtype=bool),
-            "post_cycle_zero_tail_enabled": bool(post_cycle_zero_tail_enabled),
+            "post_cycle_zero_tail_enabled": tail_effective_enabled,
             "post_cycle_zero_tail_cycle_count": float(np.clip(effective_tail_cycle_count, 0.0, 1.0)),
             "post_cycle_zero_tail_duration_s": tail_setup_meta["post_cycle_zero_tail_duration_s"],
             "correction_nan_mask": stabilization_arrays["correction_nan_mask"],
@@ -445,7 +451,7 @@ def generate_second_modeled_voltage_lut(
         "interpolation_status": "ok" if np.isfinite(measured).any() else "unavailable",
         "second_command_synthesis_mode": "active_residual_with_finite_time_zero_return_tail"
         if tail_return_mode == "finite_time_zero_return"
-        else "unified_active_tail_residual",
+        else ("active_residual_only_tail_disabled" if not tail_effective_enabled else "unified_active_tail_residual"),
         "tail_voltage_overlay_used": False,
         "raw_delta_zeroed_outside_active": False,
         "correction_valid_mask_source": "active_plus_tail_measured_support",
@@ -489,6 +495,11 @@ def generate_second_modeled_voltage_lut(
         "tail_cycle_count": float(effective_tail_cycle_count),
         "tail_cycle_count_equivalent": float(effective_tail_cycle_count),
         "residual_alignment_mode": residual_alignment_mode,
+        "finite_tail_effective_enabled": tail_effective_enabled,
+        "post_cycle_zero_tail_enabled": tail_effective_enabled,
+        "tail_voltage_generated": tail_effective_enabled and tail_return_mode != "disabled",
+        "tail_window_sample_count": int(tail_mask.sum()),
+        "tail_return_mode": tail_return_mode,
     }
     return result, metadata
 

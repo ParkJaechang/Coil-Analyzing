@@ -220,6 +220,18 @@ def test_actual_drive_feedback_candidate_ignores_zero_preamble_metadata() -> Non
     assert info["metadata_source"] == "unavailable"
 
 
+def test_finite_tail_policy_ui_markers_exist() -> None:
+    source = (SRC_ROOT / "field_analysis" / "ui_finite_tail_policy.py").read_text(encoding="utf-8")
+    second_source = (SRC_ROOT / "field_analysis" / "ui_second_modeling.py").read_text(encoding="utf-8")
+
+    assert "Finite tail / 자기장 0복귀 전압" in source
+    assert "자동: 주파수별 tail 정책" in source
+    assert "tail 자동 OFF 기준 주파수" in source
+    assert "현재 주파수는 2Hz 이상입니다" in source
+    assert "quick_lut_second_model_result_stale_reason" in source
+    assert "Finite tail OFF: active cycle 구간만 표시합니다." in second_source
+
+
 def test_actual_drive_feedback_candidate_uses_preamble_metadata_without_result_filename() -> None:
     from field_analysis.ui_quick_lut_feedback import choose_actual_drive_feedback_candidate
 

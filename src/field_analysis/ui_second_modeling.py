@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
+from .ui_finite_tail_policy import render_finite_tail_policy_controls
 from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_second_modeling_plots import plot_labeled_frame
 from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
@@ -147,9 +148,12 @@ def render_second_modeling_controls(
         "시간축 그대로 residual": "pointwise",
         "첫 피크 정렬 residual": "first_peak_aligned",
     }.get(residual_mode_label, "first_peak_aligned_stabilized")
+    finite_tail_policy = render_finite_tail_policy_controls(freq_hz=float(freq_hz))
     tail_help = "residual 기반 tail은 목표 0mT와 실측 자기장의 차이를 보정 전압으로 변환합니다. 지정 시간 0 복귀 제어는 active 종료 시점의 자기장 상태를 기준으로 지정 시간 안에 자기장이 0으로 수렴하도록 tail 전압을 계산합니다. tail 끝에서는 전압도 0V로 수렴합니다."
     tail_mode_label = st.selectbox("자기장 0 복귀 tail 방식", options=["지정 시간 0 복귀 제어", "residual 기반 tail", "사용 안 함"], index=0, key="second_modeling_tail_return_mode", help=tail_help)
     tail_return_mode = {"사용 안 함": "disabled", "residual 기반 tail": "residual"}.get(tail_mode_label, "finite_time_zero_return")
+    if not bool(finite_tail_policy.get("finite_tail_effective_enabled")):
+        tail_return_mode = "disabled"
     tail_seconds = float(st.number_input("자기장 0 복귀 시간 (s)", min_value=0.05, max_value=2.0, value=0.25, step=0.05, key="second_modeling_tail_duration_s"))
     tail_cycle_count = float(tail_seconds * freq_hz) if np.isfinite(freq_hz) else 0.0
     st.caption(f"cycle 종료 후 이 시간 동안 자기장을 0으로 복귀시키는 tail 전압을 생성합니다. 이 값은 tail command 길이와 동일합니다. 현재 주파수 기준 약 {tail_cycle_count:.2f} cycle입니다.")
@@ -212,7 +216,7 @@ def render_second_modeling_controls(
             correction_gain_mode=correction_gain_mode,
             residual_alignment_mode=residual_alignment_mode,
             tail_return_mode=tail_return_mode,
-            post_cycle_zero_tail_enabled=tail_return_mode != "disabled",
+            post_cycle_zero_tail_enabled=bool(finite_tail_policy.get("finite_tail_effective_enabled")) and tail_return_mode != "disabled",
             post_cycle_zero_tail_cycle_count=tail_cycle_count,
             post_cycle_zero_tail_duration_s=tail_seconds,
             tail_duration_mode="seconds",
@@ -220,6 +224,7 @@ def render_second_modeling_controls(
         _set_second_debug_step("second modeled voltage 계산 완료")
         metadata = {
             **metadata,
+            **finite_tail_policy,
             **{
                 f"native_{key}": value
                 for key, value in native_review_metadata.items()
@@ -384,9 +389,7 @@ def _render_second_modeling_result(
     )
     st.caption("Raw 실측 자기장은 그대로 표시합니다. 2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
     st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다. 첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
-    st.caption("전압 보정량에는 zero-start/ramp/taper/polarity guard를 적용해 시작 전압이 비정상적으로 음수가 되지 않도록 합니다. Raw 실측 데이터는 그대로 보존되고, 계산에는 smoothing 및 안정화된 residual을 사용합니다.")
     st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다. active 구간에서는 목표 자기장 추종 보정을 적용합니다. tail 구간에서는 자기장을 0으로 복귀시키기 위한 추가 전압을 적용합니다. active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다. tail 끝에서는 전압이 0으로 수렴합니다.")
-    st.caption("tail 전압은 active 종료 시점의 실제 자기장 상태를 지정 시간 안에 0으로 보내기 위한 단일 방향 복귀 pulse입니다. 남은 자기장이 양수이면 tail 전압은 음전압 방향으로 제한되고, release 구간에서 단조롭게 0V로 수렴합니다.")
     st.markdown("##### 피크 정렬 확인")
     st.plotly_chart(
         _plot_peak_alignment_frame(
@@ -413,9 +416,11 @@ def _render_second_modeling_result(
         use_container_width=True,
     )
     st.caption("active와 tail을 따로 계산해 붙이지 않고, active+tail 전체에서 하나의 residual과 하나의 보정 전압을 계산합니다.")
-    st.caption("tail 구간의 목표 자기장은 0mT입니다. tail 끝에서는 전압이 0V로 수렴합니다.")
+    if not bool(metadata.get("finite_tail_effective_enabled", metadata.get("post_cycle_zero_tail_enabled", True))):
+        st.caption("Finite tail OFF: active cycle 구간만 표시합니다.")
+    else:
+        st.caption("tail 구간의 목표 자기장은 0mT입니다. tail 끝에서는 전압이 0V로 수렴합니다.")
     st.caption("이 전압은 1차 실구동 결과를 이용해 다시 만든 2차 후보입니다.")
-    st.caption("1차 command plot과 별도입니다.")
     st.caption("최종 LUT 추출에서 2차 보정 command를 선택할 경우 이 전압 샘플이 저장됩니다.")
     st.caption("2차 결과가 생겨도 최종 LUT 추출 대상은 자동으로 바뀌지 않습니다.")
     render_correction_discontinuity_diagnostics(st, metadata, title="보정 전압 불연속 진단")
@@ -526,7 +531,11 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
     _copy_numeric(command_profile, voltage, "smoothed_correction_delta_v", SMOOTHED_CORRECTION_DELTA_LABEL)
     _copy_numeric(command_profile, voltage, "second_correction_delta_v", STABILIZED_CORRECTION_DELTA_LABEL)
     _copy_numeric(command_profile, voltage, "active_correction_delta_v", ACTIVE_CORRECTION_DELTA_LABEL)
-    _copy_numeric(command_profile, voltage, "tail_voltage_v", TAIL_ZERO_RETURN_VOLTAGE_LABEL)
+    tail_enabled = True
+    if "post_cycle_zero_tail_enabled" in command_profile.columns and len(command_profile):
+        tail_enabled = bool(command_profile["post_cycle_zero_tail_enabled"].iloc[0])
+    if tail_enabled:
+        _copy_numeric(command_profile, voltage, "tail_voltage_v", TAIL_ZERO_RETURN_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "correction_delta_v", CORRECTION_DELTA_LABEL)
 
     if "raw_hallbz_mT" in command_profile.columns:

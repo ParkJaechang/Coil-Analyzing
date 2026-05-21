@@ -8,6 +8,51 @@ import pandas as pd
 from .finite_actual_drive_normalization import peak_abs
 
 
+def resolve_finite_tail_policy(freq_hz: float, mode: str = "auto", threshold_hz: float = 2.0) -> dict[str, Any]:
+    normalized_mode = str(mode or "auto").strip().lower()
+    if normalized_mode not in {"auto", "on", "off"}:
+        normalized_mode = "auto"
+    freq = float(freq_hz)
+    threshold = float(threshold_hz)
+    if normalized_mode == "on":
+        enabled = True
+        reason = "user_forced_on"
+    elif normalized_mode == "off":
+        enabled = False
+        reason = "user_forced_off"
+    elif np.isfinite(freq) and np.isfinite(threshold) and freq >= threshold:
+        enabled = False
+        reason = "auto_disabled_high_frequency"
+    else:
+        enabled = True
+        reason = "auto_enabled_low_frequency"
+    warning = (
+        f"현재 주파수는 {threshold:g}Hz 이상입니다. 자동 정책에 따라 finite tail을 사용하지 않습니다."
+        if reason == "auto_disabled_high_frequency"
+        else None
+    )
+    return {
+        "finite_tail_mode": normalized_mode,
+        "finite_tail_auto_threshold_hz": threshold,
+        "finite_tail_auto_policy": "off_at_or_above_threshold",
+        "finite_tail_effective_enabled": bool(enabled),
+        "finite_tail_disabled_reason": None if enabled else reason,
+        "finite_tail_user_override": normalized_mode in {"on", "off"},
+        "finite_tail_policy_freq_hz": freq,
+        "high_frequency_tail_auto_disabled": reason == "auto_disabled_high_frequency",
+        "finite_tail_warning_message": warning,
+    }
+
+
+def trim_profile_to_active_duration(profile: pd.DataFrame, *, freq_hz: float, cycle_count: float) -> pd.DataFrame:
+    if "time_s" not in profile.columns:
+        return profile
+    duration = float(cycle_count) / max(float(freq_hz), 1e-12)
+    time_s = pd.to_numeric(profile["time_s"], errors="coerce")
+    trimmed = profile.loc[time_s <= duration + 1e-12].copy()
+    return trimmed.reset_index(drop=True) if not trimmed.empty else profile
+
+
 def compute_second_modeling_gain(
     unit_delta_v: np.ndarray,
     first_voltage_v: np.ndarray,

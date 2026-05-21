@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -12,8 +13,62 @@ if str(SRC_ROOT) not in sys.path:
 
 from field_analysis.finite_second_modeling import generate_second_modeled_voltage_lut
 from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
+from field_analysis.finite_second_modeling_tail import resolve_finite_tail_policy
 from tests.test_finite_actual_drive_response import _write_actual_drive_csv
 from tests.test_finite_second_modeling import _first_profile, _write_delayed_actual_drive_csv
+
+
+def test_resolve_finite_tail_policy_auto_and_manual_modes() -> None:
+    assert resolve_finite_tail_policy(1.0, "auto", 2.0)["finite_tail_effective_enabled"] is True
+    assert resolve_finite_tail_policy(1.5, "auto", 2.0)["finite_tail_effective_enabled"] is True
+    assert resolve_finite_tail_policy(2.0, "auto", 2.0)["finite_tail_effective_enabled"] is False
+    assert resolve_finite_tail_policy(3.0, "auto", 2.0)["finite_tail_effective_enabled"] is False
+    assert resolve_finite_tail_policy(3.0, "on", 2.0)["finite_tail_effective_enabled"] is True
+    assert resolve_finite_tail_policy(1.0, "off", 2.0)["finite_tail_effective_enabled"] is False
+    assert resolve_finite_tail_policy(2.0, "auto", 2.0)["finite_tail_disabled_reason"] == "auto_disabled_high_frequency"
+
+
+def test_second_modeling_tail_off_has_active_only_samples(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_actual_drive_csv(actual)
+    profile = _first_profile()
+    tail_rows = profile.tail(10).copy()
+    tail_rows["time_s"] = np.linspace(1.01, 1.20, len(tail_rows))
+    profile = pd.concat([profile, tail_rows], ignore_index=True)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        profile,
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        post_cycle_zero_tail_enabled=False,
+    )
+
+    assert metadata["post_cycle_zero_tail_enabled"] is False
+    assert metadata["finite_tail_effective_enabled"] is False
+    assert metadata["tail_return_mode"] == "disabled"
+    assert metadata["tail_voltage_generated"] is False
+    assert metadata["tail_window_sample_count"] == 0
+    assert metadata["total_command_duration_s"] == 1.0
+    assert frame["time_s"].max() <= 1.0 + 1e-12
+    assert not frame["tail_window_mask"].astype(bool).any()
+
+
+def test_second_modeling_one_point_five_tail_off_has_no_tail_samples(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1.5Hz_1.5cycle_result.csv"
+    _write_actual_drive_csv(actual)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.5,
+        cycle_count=1.5,
+        post_cycle_zero_tail_enabled=False,
+    )
+
+    assert metadata["post_cycle_zero_tail_enabled"] is False
+    assert metadata["tail_window_sample_count"] == 0
+    assert not frame["tail_window_mask"].astype(bool).any()
 
 
 def test_second_modeling_tail_timebase_is_monotonic_and_continuous(tmp_path: Path) -> None:

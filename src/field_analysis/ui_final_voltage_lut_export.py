@@ -97,6 +97,7 @@ def render_final_voltage_lut_export_panel(
         voltage_source_column = "second_limited_voltage_v"
         file_prefix = "second_modeled_voltage_lut"
         tail_suffix = _tail_suffix(command_profile)
+        tail_state = "사용" if _profile_bool(command_profile, "post_cycle_zero_tail_enabled") else "사용 안 함"
         st.info(
             "현재 추출 대상: 2차 보정 command\n\n"
             "voltage_v = second_limited_voltage_v\n\n"
@@ -104,6 +105,9 @@ def render_final_voltage_lut_export_panel(
             "2차 보정 command에는 사용자가 지정한 자기장 0 복귀 시간만큼 tail이 포함될 수 있습니다.\n\n"
             "다운로드되는 2차 LUT는 active cycle + tail 구간을 포함합니다."
         )
+        st.caption(f"현재 finite tail 상태: {tail_state}")
+        st.caption("tail OFF 상태에서는 active cycle 구간만 LUT로 저장됩니다.")
+        st.caption("tail ON 상태에서는 active cycle + tail 구간이 LUT에 포함될 수 있습니다.")
     else:
         voltage_source_column = first_source_column
         file_prefix = "first_modeled_voltage_lut"
@@ -177,7 +181,7 @@ def _tail_suffix(command_profile: pd.DataFrame) -> str:
     if "post_cycle_zero_tail_enabled" not in command_profile.columns or not len(command_profile):
         return ""
     if not bool(command_profile["post_cycle_zero_tail_enabled"].iloc[0]):
-        return ""
+        return "_tailoff"
     if "post_cycle_zero_tail_cycle_count" not in command_profile.columns:
         return "_plustail"
     tail_cycle = _format_number_for_filename(command_profile["post_cycle_zero_tail_cycle_count"].iloc[0])

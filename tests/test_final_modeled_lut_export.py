@@ -16,7 +16,7 @@ from field_analysis.final_modeled_lut import (
     final_modeled_voltage_lut_to_csv_bytes,
     load_final_modeled_voltage_lut,
 )
-from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_filename
+from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_frame, build_final_voltage_lut_filename, _tail_suffix
 
 
 def _command_profile() -> pd.DataFrame:
@@ -144,3 +144,20 @@ def test_one_point_five_final_lut_filename_uses_actual_cycle() -> None:
     filename = build_final_voltage_lut_filename(waveform_type="sine", freq_hz=2.0, cycle_count=1.5)
 
     assert filename == "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv"
+
+
+def test_second_export_tail_off_suffix_and_three_column_frame() -> None:
+    profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.5, 1.0],
+            "limited_voltage_v": [0.0, 1.0, 0.0],
+            "second_limited_voltage_v": [0.0, 0.8, 0.0],
+            "post_cycle_zero_tail_enabled": [False, False, False],
+        }
+    )
+
+    exported = build_final_voltage_lut_frame(profile, voltage_source_column="second_limited_voltage_v")
+
+    assert _tail_suffix(profile) == "_tailoff"
+    assert list(exported.columns) == ["sample_index", "time_s", "voltage_v"]
+    assert len(exported) == 3
