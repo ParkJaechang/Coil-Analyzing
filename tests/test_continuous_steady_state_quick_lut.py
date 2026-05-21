@@ -24,6 +24,7 @@ from field_analysis.continuous_candidate_frequency import attach_continuous_freq
 
 APP_UI = SRC_ROOT / "field_analysis" / "app_ui_snapshot.py"
 CONT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_steady_state.py"
+CONT_FIRST_UI = SRC_ROOT / "field_analysis" / "ui_continuous_first_modeling.py"
 RAW_ACTUAL_UI = SRC_ROOT / "field_analysis" / "ui_raw_waveforms_actual_drive.py"
 EXPORT_UI = SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py"
 
@@ -260,6 +261,44 @@ def test_continuous_candidates_are_ranked_by_target_frequency_match() -> None:
     assert ranked[1]["frequency_match_status"] == "mismatch"
 
 
+def test_continuous_candidate_waveform_filter_defaults_to_sine() -> None:
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[
+            ("continuous_triangle_3Hz.csv", csv_bytes),
+            ("continuous_sine_3Hz.csv", csv_bytes),
+        ],
+        dataset_library_payloads=[],
+        target_freq_hz=3.0,
+        source_waveform_filter="sine",
+    )
+
+    assert names == ["upload_memory:continuous_sine_3Hz.csv"]
+    detail = scan["continuous_candidate_details"][0]
+    assert detail["continuous_source_waveform_family"] == "sine"
+    assert "sine" in detail["continuous_candidate_label"]
+    assert candidates[names[0]].attrs["continuous_source_waveform_family"] == "sine"
+
+
+def test_continuous_candidate_waveform_filter_can_select_triangle() -> None:
+    csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
+    names, _candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[
+            ("continuous_triangle_3Hz.csv", csv_bytes),
+            ("continuous_sine_3Hz.csv", csv_bytes),
+        ],
+        dataset_library_payloads=[],
+        target_freq_hz=3.0,
+        source_waveform_filter="triangle",
+    )
+
+    assert names == ["upload_memory:continuous_triangle_3Hz.csv"]
+    assert scan["continuous_source_waveform_filter"] == "triangle"
+    assert scan["continuous_candidate_details"][0]["continuous_source_waveform_match_status"] == "match"
+
+
 def test_mismatch_extraction_reports_source_target_error_details() -> None:
     csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
     names, candidates, _scan = discover_continuous_candidate_frames(
@@ -411,6 +450,21 @@ def test_continuous_first_modeling_orchestrator_uses_phase_aligned_kernel() -> N
     assert "measured_field_aligned_mT" in command.columns
     assert "residual_for_modeling_mT" in command.columns
     assert command["time_s"].max() < period
+
+
+def test_continuous_runtime_markers_include_waveform_filter_and_modeling_plots() -> None:
+    source = CONT_UI.read_text(encoding="utf-8") + CONT_FIRST_UI.read_text(encoding="utf-8")
+
+    for marker in [
+        "Continuous source waveform family",
+        "continuous_source_waveform_filter",
+        "목표 자기장 개형: finite와 동일한 fixed rounded-triangle",
+        "Continuous 1차 모델링 실행",
+        "Phase alignment 확인",
+        "목표 자기장 vs phase-aligned 실측 자기장",
+        "Continuous 1차 modeling command",
+    ]:
+        assert marker in source
 
 
 def test_continuous_first_modeling_orchestrator_rejects_empty_command_profile() -> None:

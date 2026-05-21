@@ -298,6 +298,57 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
     assert command["time_s"].max() < 0.5
 
 
+def test_continuous_support_window_extends_to_field_cycle_end_for_phase_delay() -> None:
+    freq_hz = 2.0
+    period = 1.0 / freq_hz
+    delay_s = 0.08
+    time_s = np.linspace(0.0, period * 8 + delay_s + 0.1, 900, endpoint=False)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "Voltage1_V": 3.0 * np.sin(2.0 * np.pi * freq_hz * time_s),
+            "HallBz": -(45.0 * np.sin(2.0 * np.pi * freq_hz * (time_s - delay_s))),
+        }
+    )
+
+    case = build_continuous_steady_state_modeling_case(frame, waveform_type="sine", freq_hz=freq_hz)
+    metadata = case["metadata"]
+
+    assert metadata["phase_support_status"] == "ok"
+    assert metadata["field_support_end_s"] > metadata["voltage_model_end_s"]
+    assert metadata["estimated_phase_delay_s"] > 0.04
+    assert isinstance(case["steady_state_support_frame"], pd.DataFrame)
+    assert not case["steady_state_support_frame"].empty
+
+
+def test_continuous_phase_alignment_uses_voltage_peak_reference() -> None:
+    freq_hz = 2.0
+    period = 1.0 / freq_hz
+    delay_s = 0.06
+    time_s = np.linspace(0.0, period * 8 + delay_s + 0.1, 1000, endpoint=False)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "Voltage1_V": 4.0 * np.sin(2.0 * np.pi * freq_hz * time_s),
+            "HallBz": -(42.0 * np.sin(2.0 * np.pi * freq_hz * (time_s - delay_s))),
+        }
+    )
+
+    case = build_continuous_steady_state_modeling_case(frame, waveform_type="sine", freq_hz=freq_hz)
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        case["steady_state_one_cycle_frame"],
+        support_frame=case["steady_state_support_frame"],
+        freq_hz=freq_hz,
+        waveform_type="sine",
+    )
+
+    assert metadata["continuous_phase_alignment_method"] == "field_peak_to_voltage_peak"
+    assert metadata["continuous_first_modeling_phase_reference"] == "voltage_peak"
+    assert abs(float(metadata["continuous_phase_delay_s"]) - delay_s) < 0.03
+    assert abs(float(metadata["measured_aligned_first_peak_time_s"]) - float(metadata["voltage_first_peak_time_s"])) < 0.03
+    assert command["measured_field_aligned_mT"].notna().all()
+
+
 def test_continuous_modeling_case_is_finite_like_one_cycle_and_loop_safe() -> None:
     case = build_continuous_steady_state_modeling_case(
         _continuous_frame(freq_hz=2.0),
@@ -316,3 +367,5 @@ def test_continuous_modeling_case_is_finite_like_one_cycle_and_loop_safe() -> No
     assert frame["time_s"].iloc[0] == 0.0
     assert frame["time_s"].iloc[-1] < 0.5
     assert metadata["continuous_steady_state_window_support_status"] == "ok"
+    assert metadata["continuous_target_shape"] == "fixed_rounded_triangle"
+    assert metadata["continuous_target_cycle_count"] == 1.0

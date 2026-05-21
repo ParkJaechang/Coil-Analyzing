@@ -31,6 +31,7 @@ from .continuous_steady_state_runtime import (
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
+from .ui_continuous_first_modeling import render_continuous_first_modeling_controls
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 
 
@@ -51,7 +52,19 @@ def render_continuous_steady_state_runtime_panel(
     st.caption("Continuous mode에서는 zero-return tail을 기본 사용하지 않습니다.")
 
     target_freq = float(freq_hz or 1.0)
-    candidate_names, candidates, scan = discover_continuous_candidate_frames(analysis_lookup, target_freq_hz=target_freq)
+    st.caption("목표 자기장 개형: finite와 동일한 fixed rounded-triangle")
+    st.caption("source waveform family는 모델링 입력 데이터 선택용입니다.")
+    source_waveform_filter = st.selectbox(
+        "Continuous source waveform family",
+        ["sine", "triangle", "rounded_triangle", "all"],
+        index=0,
+        key="continuous_source_waveform_filter",
+    )
+    candidate_names, candidates, scan = discover_continuous_candidate_frames(
+        analysis_lookup,
+        target_freq_hz=target_freq,
+        source_waveform_filter=source_waveform_filter,
+    )
     st.markdown("##### Continuous 후보 scan 결과")
     st.dataframe(
         pd.DataFrame(
@@ -96,6 +109,7 @@ def render_continuous_steady_state_runtime_panel(
             "selected_name": selected_name,
             "waveform_type": str(waveform_type or "sine"),
             "freq_hz": target_freq,
+            "source_waveform_filter": source_waveform_filter,
         }
         if st.session_state.get("continuous_steady_state_run_signature") not in (None, signature):
             st.session_state["continuous_steady_state_dirty"] = True
@@ -161,6 +175,7 @@ def render_continuous_steady_state_runtime_panel(
             else:
                 st.session_state["continuous_steady_state_extraction_result"] = case
                 st.session_state["continuous_steady_state_window_frame"] = case["steady_state_one_cycle_frame"]
+                st.session_state["continuous_steady_state_support_frame"] = case.get("steady_state_support_frame")
                 st.session_state["continuous_steady_state_metadata"] = case["metadata"]
                 st.session_state["continuous_steady_state_extraction_status"] = "ok"
                 st.session_state["continuous_steady_state_dirty"] = False
@@ -178,6 +193,7 @@ def render_continuous_steady_state_runtime_panel(
             st.warning(f"Steady-state 1cycle 추출 결과가 유효하지 않습니다: {metadata.get('steady_state_extraction_status')}")
         elif isinstance(window, pd.DataFrame) and not window.empty:
             _render_continuous_extraction_result(case, st.session_state.get("continuous_steady_state_standardized_frame"))
+            render_continuous_first_modeling_controls(waveform_type=waveform_type, freq_hz=freq_hz)
         else:
             st.warning("Steady-state 1cycle 추출 결과가 비어 있습니다.")
         _render_continuous_runtime_debug(case)

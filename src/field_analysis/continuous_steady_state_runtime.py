@@ -63,11 +63,13 @@ def run_continuous_first_modeling(
     if metadata.get("selected_cycle_duration_status") not in (None, "ok"):
         return {"status": "error", "error_reason": str(metadata.get("selected_cycle_duration_status"))}
     window = extraction_result.get("steady_state_one_cycle_frame")
+    support = extraction_result.get("steady_state_support_frame")
     if not isinstance(window, pd.DataFrame) or window.empty:
         return {"status": "error", "error_reason": "extraction_result_empty"}
     try:
         command_profile, model_metadata = build_continuous_phase_aligned_command_profile(
             window,
+            support_frame=support if isinstance(support, pd.DataFrame) else None,
             freq_hz=float(freq_hz or 1.0),
             waveform_type=str(waveform_type) if waveform_type is not None else None,
         )

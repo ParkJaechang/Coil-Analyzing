@@ -22,6 +22,7 @@ def discover_continuous_candidate_frames(
     upload_payloads: list[tuple[str, bytes]] | None = None,
     dataset_library_payloads: list[tuple[str, bytes]] | None = None,
     target_freq_hz: float | None = None,
+    source_waveform_filter: str | None = None,
 ) -> tuple[list[str], dict[str, pd.DataFrame], dict[str, Any]]:
     candidates: dict[str, pd.DataFrame] = {}
     rejected: list[str] = []
@@ -50,7 +51,18 @@ def discover_continuous_candidate_frames(
             rejected.append(f"dataset_library:{name}: {parse_error}")
             continue
         _try_add_candidate(candidates, rejected, f"dataset_library:{name}", frame, source_key="dataset_library", counts=counts)
-    details = build_continuous_candidate_details(candidates, target_freq_hz=target_freq_hz)
+    requested_waveform = str(source_waveform_filter or "all")
+    if requested_waveform != "all":
+        candidates = {
+            name: frame
+            for name, frame in candidates.items()
+            if str(frame.attrs.get("continuous_source_waveform_family") or "unknown") == requested_waveform
+        }
+    details = build_continuous_candidate_details(
+        candidates,
+        target_freq_hz=target_freq_hz,
+        source_waveform_filter=requested_waveform,
+    )
     matching_names = matching_candidate_names(details)
     return [str(detail["name"]) for detail in details], candidates, {
         "continuous_candidate_source_counts": counts,
@@ -61,6 +73,7 @@ def discover_continuous_candidate_frames(
         "continuous_candidate_matching_count": len(matching_names),
         "matching_candidate_count": len(matching_names),
         "matching_candidate_names": matching_names,
+        "continuous_source_waveform_filter": requested_waveform,
     }
 
 
