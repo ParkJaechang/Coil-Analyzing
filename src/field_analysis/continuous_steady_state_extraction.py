@@ -26,7 +26,9 @@ def extract_steady_state_one_cycle_window(
     waveform_type: str,
     freq_hz: float,
     min_discard_cycles: int = DEFAULT_MIN_DISCARD_CYCLES,
-    representative_cycle_mode: str = "last_stable_cycle",
+    representative_cycle_mode: str = "last_stable_non_terminal_cycle",
+    exclude_terminal_cycles: bool = True,
+    terminal_guard_cycle_count: int = 1,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     source = _coerce_continuous_source_frame(frame)
     source_attrs = dict(getattr(source, "attrs", {}) or {})
@@ -79,6 +81,8 @@ def extract_steady_state_one_cycle_window(
         selected_cycle_index=int(selected_cycle_index),
         min_cycle_index=int(min_discard_cycles),
         period_s=period_s,
+        exclude_terminal_cycles=exclude_terminal_cycles,
+        terminal_guard_cycle_count=terminal_guard_cycle_count,
     )
     if 0 <= int(selected_cycle_index) < max(len(cycle_starts) - 1, 0):
         start_s = float(cycle_starts[int(selected_cycle_index)])
@@ -224,7 +228,7 @@ def extract_steady_state_one_cycle_window(
         "selected_cycle_index": int(selected_cycle_index),
         "selected_cycle_count": 1.0,
         "discarded_startup_cycles": int(min_discard_cycles),
-        "representative_cycle_mode": representative_cycle_mode,
+        "representative_cycle_mode": "last_stable_non_terminal_cycle" if representative_cycle_mode == "last_stable_cycle" else representative_cycle_mode,
         "representative_cycle_indices": [int(selected_cycle_index)],
         "representative_cycle_average_used": False,
         "representative_cycle_source": "actual_measured_cycle",
@@ -362,7 +366,7 @@ def select_representative_steady_cycle(
     cycle_metrics: pd.DataFrame,
     *,
     min_discard_cycles: int = DEFAULT_MIN_DISCARD_CYCLES,
-    mode: str = "last_stable_cycle",
+    mode: str = "last_stable_non_terminal_cycle",
 ) -> int:
     if cycle_metrics.empty or "cycle_index" not in cycle_metrics.columns:
         return int(min_discard_cycles)

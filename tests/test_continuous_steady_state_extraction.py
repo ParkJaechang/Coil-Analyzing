@@ -38,6 +38,14 @@ def _continuous_frame(*, freq_hz: float = 2.0, cycles: int = 8, samples_per_cycl
     )
 
 
+def _continuous_frame_with_stop(*, freq_hz: float = 2.0, cycles: int = 8, samples_per_cycle: int = 80, stop_cycles: float = 7.0) -> pd.DataFrame:
+    frame = _continuous_frame(freq_hz=freq_hz, cycles=cycles, samples_per_cycle=samples_per_cycle)
+    stop_s = stop_cycles / freq_hz
+    stopped = frame["time_s"] >= stop_s
+    frame.loc[stopped, "Voltage1_V"] = 0.0
+    return frame
+
+
 def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_contract() -> None:
     source = _continuous_frame(freq_hz=2.0)
 
@@ -55,6 +63,10 @@ def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_c
     assert metadata["steady_state_cycle_extraction_used"] is True
     assert metadata["zero_return_tail_enabled"] is False
     assert metadata["selected_cycle_index"] >= 2
+    assert metadata["representative_cycle_mode"] == "last_stable_non_terminal_cycle"
+    assert metadata["exclude_terminal_cycles"] is True
+    assert metadata["terminal_guard_cycle_count"] == 1
+    assert metadata["selected_cycle_is_terminal"] is False
     assert metadata["selected_cycle_count"] == 1.0
     assert metadata["selected_cycle_duration_status"] == "ok"
     assert abs(float(metadata["selected_cycle_duration_ratio"]) - 1.0) <= 0.05
@@ -81,6 +93,28 @@ def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_c
         "steady_state_selected_mask",
         "steady_state_cycle_index",
     }.issubset(window.columns)
+
+
+def test_continuous_extraction_excludes_terminal_stop_influenced_cycle() -> None:
+    source = _continuous_frame_with_stop(freq_hz=2.0, cycles=8, stop_cycles=7.0)
+
+    window, metadata = extract_steady_state_one_cycle_window(
+        source,
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+
+    assert not window.empty
+    assert metadata["representative_cycle_mode"] == "last_stable_non_terminal_cycle"
+    assert metadata["command_stop_detection_method"] == "voltage_nonzero_window"
+    assert metadata["selected_cycle_is_terminal"] is False
+    assert metadata["selected_cycle_stop_influence_status"] == "ok"
+    assert metadata["selected_cycle_phase_support_clear_of_stop"] is True
+    assert metadata["field_support_uses_post_stop_data"] is False
+    assert metadata["field_support_end_s"] <= metadata["command_stop_s"]
+    assert metadata["selected_cycle_index"] < 6
+    assert metadata["stop_influenced_cycle_rejected_count"] >= 1
 
 
 def test_two_hz_continuous_selected_duration_is_full_one_cycle() -> None:
@@ -285,6 +319,11 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
     assert metadata["continuous_first_modeling_cycle_count"] == 1.0
     assert metadata["continuous_loop_output"] is True
     assert metadata["loop_endpoint_policy"] == "period_exclusive"
+    assert metadata["continuous_base_voltage_peak_v"] == 2.5
+    assert metadata["continuous_final_voltage_limit_v"] == 5.0
+    assert metadata["source_voltage_base_normalized_peak_v"] <= 2.5 + 1e-9
+    assert metadata["continuous_base_voltage_headroom_v"] >= 2.5 - 1e-9
+    assert "continuous_clipping_fraction" in metadata
     assert {
         "first_modeled_voltage_v",
         "limited_voltage_v",
@@ -296,6 +335,58 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
     assert "tail_voltage_v" not in command.columns
     assert command["time_s"].min() == 0.0
     assert command["time_s"].max() < 0.5
+
+
+def test_continuous_first_modeling_renormalizes_five_volt_source_to_base_peak() -> None:
+    case = build_continuous_steady_state_modeling_case(
+        _continuous_frame(freq_hz=2.0),
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+    window = case["steady_state_one_cycle_frame"].copy()
+    window["voltage_normalized_v"] = 5.0 * np.sin(2.0 * np.pi * window["time_s"] / 0.5)
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        window,
+        support_frame=case["steady_state_support_frame"],
+        freq_hz=2.0,
+        waveform_type="sine",
+        base_voltage_peak_v=2.5,
+    )
+
+    assert np.nanmax(np.abs(command["source_voltage_v"])) > 4.9
+    assert np.nanmax(np.abs(command["base_voltage_v"])) <= 2.5 + 1e-9
+    assert np.nanmax(np.abs(command["limited_voltage_v"])) <= 5.0 + 1e-9
+    assert metadata["source_voltage_raw_peak_v"] > 4.9
+    assert metadata["source_voltage_base_normalized_peak_v"] <= 2.5 + 1e-9
+
+
+def test_continuous_first_modeling_reports_clipping_warning_for_manual_high_gain() -> None:
+    case = build_continuous_steady_state_modeling_case(
+        _continuous_frame(freq_hz=2.0),
+        waveform_type="sine",
+        freq_hz=2.0,
+        min_discard_cycles=2,
+    )
+    window = case["steady_state_one_cycle_frame"].copy()
+    window["normalized_physical_target_output_mT"] = 50.0
+    window["measured_field_normalized_mT"] = -50.0
+
+    _command, metadata = build_continuous_phase_aligned_command_profile(
+        window,
+        support_frame=case["steady_state_support_frame"],
+        freq_hz=2.0,
+        waveform_type="sine",
+        base_voltage_peak_v=5.0,
+        correction_gain_mode="manual",
+        correction_gain=1.0,
+    )
+
+    assert metadata["continuous_voltage_clip_sample_count"] > 0
+    assert metadata["continuous_voltage_clip_fraction"] > 0.0
+    assert metadata["continuous_voltage_clip_status"] in {"warning", "severe"}
+    assert metadata["continuous_clipping_warning"]
 
 
 def test_continuous_support_window_extends_to_field_cycle_end_for_phase_delay() -> None:

@@ -11,6 +11,17 @@ from .continuous_steady_state_runtime import run_continuous_first_modeling
 
 
 def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq_hz: float | None) -> None:
+    base_voltage_peak = float(
+        st.number_input(
+            "Continuous base voltage 정규화 피크",
+            min_value=0.5,
+            max_value=5.0,
+            value=2.5,
+            step=0.1,
+            key="continuous_base_voltage_peak_v",
+        )
+    )
+    st.caption("Continuous base voltage는 correction headroom을 확보하기 위해 설정된 피크값으로 정규화합니다. 최종 command만 ±5V로 제한됩니다.")
     if st.button("Continuous 1차 모델링 실행", key="continuous_first_modeling_button"):
         case = st.session_state.get("continuous_steady_state_extraction_result")
         if not isinstance(case, dict) or st.session_state.get("continuous_steady_state_dirty"):
@@ -20,6 +31,7 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
             extraction_result=case,
             waveform_type=waveform_type,
             freq_hz=freq_hz,
+            base_voltage_peak_v=base_voltage_peak,
         )
         if result.get("status") != "ok":
             st.warning(f"Continuous 1차 모델링 command 생성에 실패했습니다: {result.get('error_reason')}")
@@ -44,7 +56,9 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
     st.markdown("#### 목표 자기장 vs phase-aligned 실측 자기장")
     st.plotly_chart(_target_residual_plot(command), use_container_width=True)
     st.markdown("#### Continuous 1차 modeling command")
-    st.plotly_chart(_command_plot(command), use_container_width=True)
+    st.plotly_chart(_command_plot(command, metadata), use_container_width=True)
+    if metadata.get("continuous_voltage_clip_status") in {"warning", "severe"}:
+        st.warning(str(metadata.get("continuous_clipping_warning")))
     st.caption("이 결과는 continuous steady-state 1cycle 반복 출력용 LUT입니다.")
     st.caption("초반 startup transient는 모델링에 사용하지 않았습니다.")
     st.caption("자기장 첫 피크를 전압 피크에 맞춘 뒤 residual을 계산했습니다.")
@@ -70,11 +84,17 @@ def _target_residual_plot(command: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _command_plot(command: pd.DataFrame) -> go.Figure:
+def _command_plot(command: pd.DataFrame, metadata: dict[str, Any]) -> go.Figure:
     fig = go.Figure()
     _add_trace(fig, command, "base_voltage_v", "source/base voltage")
     _add_trace(fig, command, "correction_delta_v", "correction_delta_v")
     _add_trace(fig, command, "limited_voltage_v", "limited_voltage_v")
+    limit_v = float(metadata.get("continuous_final_voltage_limit_v") or 5.0)
+    base_peak_v = float(metadata.get("continuous_base_voltage_peak_v") or 2.5)
+    fig.add_hline(y=limit_v, line_dash="dash", line_color="red", annotation_text=f"+{limit_v:g}V limit")
+    fig.add_hline(y=-limit_v, line_dash="dash", line_color="red", annotation_text=f"-{limit_v:g}V limit")
+    fig.add_hline(y=base_peak_v, line_dash="dot", line_color="gray", annotation_text=f"base peak target {base_peak_v:g}V")
+    fig.add_hline(y=-base_peak_v, line_dash="dot", line_color="gray")
     fig.update_layout(template="plotly_white", height=320, title="Continuous 1차 modeling command")
     return fig
 
@@ -91,4 +111,8 @@ def _summary(metadata: dict[str, Any], command: pd.DataFrame) -> dict[str, Any]:
         "continuous_loop_output": metadata.get("continuous_loop_output"),
         "loop_endpoint_policy": metadata.get("loop_endpoint_policy"),
         "command_profile_rows": len(command),
+        "continuous_base_voltage_peak_v": metadata.get("continuous_base_voltage_peak_v"),
+        "source_voltage_base_normalized_peak_v": metadata.get("source_voltage_base_normalized_peak_v"),
+        "continuous_clipping_fraction": metadata.get("continuous_clipping_fraction"),
+        "continuous_voltage_clip_status": metadata.get("continuous_voltage_clip_status"),
     }

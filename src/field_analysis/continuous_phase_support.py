@@ -13,21 +13,32 @@ def choose_supported_cycle(
     selected_cycle_index: int,
     min_cycle_index: int,
     period_s: float,
+    exclude_terminal_cycles: bool = True,
+    terminal_guard_cycle_count: int = 1,
 ) -> tuple[int, dict[str, Any]]:
+    stop_meta = detect_command_stop(source)
+    last_complete_cycle = len(cycle_starts) - 2
+    rejected_count = 0
     for cycle_index in range(int(selected_cycle_index), int(min_cycle_index) - 1, -1):
         if cycle_index < 0 or cycle_index >= len(cycle_starts) - 1:
             continue
         start_s = float(cycle_starts[cycle_index])
         end_s = float(cycle_starts[cycle_index + 1])
-        meta = compute_phase_support_metadata(source, start_s=start_s, end_s=end_s, period_s=period_s)
+        meta = compute_phase_support_metadata(source, start_s=start_s, end_s=end_s, period_s=period_s, command_stop_s=stop_meta["command_stop_s"])
+        meta = {**stop_meta, **meta, **_terminal_meta(cycle_index, last_complete_cycle, exclude_terminal_cycles, terminal_guard_cycle_count)}
+        if meta["selected_cycle_is_terminal"] or meta["field_support_uses_post_stop_data"]:
+            rejected_count += 1
+            continue
         if meta["phase_support_status"] == "ok":
-            return cycle_index, meta
+            return cycle_index, {**meta, "stop_influenced_cycle_rejected_count": rejected_count}
     fallback_index = int(max(min_cycle_index, min(selected_cycle_index, len(cycle_starts) - 2)))
     if fallback_index >= 0 and fallback_index < len(cycle_starts) - 1:
         start_s = float(cycle_starts[fallback_index])
         end_s = float(cycle_starts[fallback_index + 1])
-        return fallback_index, compute_phase_support_metadata(source, start_s=start_s, end_s=end_s, period_s=period_s)
-    return int(selected_cycle_index), {"phase_support_status": "unavailable_no_cycle_boundary"}
+        meta = compute_phase_support_metadata(source, start_s=start_s, end_s=end_s, period_s=period_s, command_stop_s=stop_meta["command_stop_s"])
+        terminal = _terminal_meta(fallback_index, last_complete_cycle, exclude_terminal_cycles, terminal_guard_cycle_count)
+        return fallback_index, {**stop_meta, **meta, **terminal, "stop_influenced_cycle_rejected_count": rejected_count}
+    return int(selected_cycle_index), {**stop_meta, "phase_support_status": "unavailable_no_cycle_boundary"}
 
 
 def compute_phase_support_metadata(
@@ -36,6 +47,7 @@ def compute_phase_support_metadata(
     start_s: float,
     end_s: float,
     period_s: float,
+    command_stop_s: float | None = None,
 ) -> dict[str, Any]:
     time_s = pd.to_numeric(source["time_s_abs"], errors="coerce").to_numpy(dtype=float)
     finite_time = time_s[np.isfinite(time_s)]
@@ -48,7 +60,11 @@ def compute_phase_support_metadata(
     support_margin_s = max(0.05 * float(period_s), 2.0 * max(dt_s, 1e-12))
     field_support_end_s = float(end_s + delay_s + support_margin_s)
     source_end_s = float(np.nanmax(finite_time)) if finite_time.size else float("nan")
-    support_ok = bool(np.isfinite(source_end_s) and source_end_s >= field_support_end_s - max(2.0 * dt_s, 1e-12))
+    stop_s = float(command_stop_s) if command_stop_s is not None and np.isfinite(command_stop_s) else source_end_s
+    uses_post_stop = bool(np.isfinite(stop_s) and field_support_end_s > stop_s + max(2.0 * dt_s, 1e-12))
+    source_support_ok = bool(np.isfinite(source_end_s) and source_end_s >= field_support_end_s - max(2.0 * dt_s, 1e-12))
+    support_ok = bool(source_support_ok and not uses_post_stop)
+    status = "rejected_stop_influenced_phase_support" if uses_post_stop else ("ok" if support_ok else "insufficient_field_support")
     return {
         "voltage_model_start_s": float(start_s),
         "voltage_model_end_s": float(end_s),
@@ -56,10 +72,64 @@ def compute_phase_support_metadata(
         "field_support_end_s": field_support_end_s,
         "estimated_phase_delay_s": float(delay_s),
         "support_margin_s": float(support_margin_s),
-        "phase_support_status": "ok" if support_ok else "insufficient_field_support",
+        "phase_support_status": status,
         "continuous_modeling_support_status": "ok" if support_ok else "unavailable",
         "voltage_first_peak_time_s": float(voltage_peak) if np.isfinite(voltage_peak) else None,
         "measured_first_peak_time_s": float(field_peak) if np.isfinite(field_peak) else None,
+        "continuous_phase_delay_s": float(delay_s),
+        "continuous_phase_delay_cycles": float(delay_s / max(float(period_s), 1e-12)),
+        "field_support_uses_post_stop_data": uses_post_stop,
+        "selected_cycle_phase_support_clear_of_stop": not uses_post_stop,
+    }
+
+
+def detect_command_stop(source: pd.DataFrame) -> dict[str, Any]:
+    time_s = pd.to_numeric(source["time_s_abs"], errors="coerce").to_numpy(dtype=float)
+    voltage = pd.to_numeric(source["raw_voltage_v"], errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(time_s) & np.isfinite(voltage)
+    if finite.sum() < 3:
+        return {
+            "command_start_s": None,
+            "command_stop_s": None,
+            "command_stop_detection_method": "unavailable",
+            "command_stop_detection_confidence": "low",
+            "post_command_decay_region_detected": False,
+        }
+    t = time_s[finite]
+    v = voltage[finite]
+    dt = float(np.nanmedian(np.diff(np.sort(t)))) if t.size > 1 else 0.0
+    peak = float(np.nanmax(np.abs(v))) if v.size else 0.0
+    threshold = max(0.05, 0.03 * peak)
+    nonzero = np.abs(v) >= threshold
+    if not nonzero.any():
+        return {
+            "command_start_s": float(np.nanmin(t)),
+            "command_stop_s": float(np.nanmax(t)),
+            "command_stop_detection_method": "source_end_no_voltage_threshold",
+            "command_stop_detection_confidence": "low",
+            "post_command_decay_region_detected": False,
+        }
+    last = int(np.flatnonzero(nonzero)[-1])
+    stop_s = float(min(t[last] + max(dt, 0.0), np.nanmax(t)))
+    post_decay = bool(last < len(t) - 3 and np.nanmax(np.abs(v[last + 1 :])) < threshold)
+    return {
+        "command_start_s": float(t[int(np.flatnonzero(nonzero)[0])]),
+        "command_stop_s": stop_s,
+        "command_stop_detection_method": "voltage_nonzero_window",
+        "command_stop_detection_confidence": "high" if post_decay else "medium",
+        "post_command_decay_region_detected": post_decay,
+    }
+
+
+def _terminal_meta(cycle_index: int, last_complete_cycle: int, exclude: bool, guard: int) -> dict[str, Any]:
+    terminal = bool(exclude and cycle_index >= last_complete_cycle - max(int(guard), 0) + 1)
+    return {
+        "exclude_terminal_cycles": bool(exclude),
+        "terminal_guard_cycle_count": int(guard),
+        "selected_cycle_is_terminal": terminal,
+        "selected_cycle_stop_influence_risk": "high" if terminal else "low",
+        "selected_cycle_stop_influence_status": "rejected_terminal_cycle" if terminal else "ok",
+        "selected_cycle_rejected_reason": "rejected_terminal_cycle" if terminal else None,
     }
 
 
@@ -111,5 +181,10 @@ def _first_positive_peak_time(time_s: np.ndarray, values: np.ndarray, start_s: f
         return float("nan")
     local_time = time_s[mask]
     local_values = values[mask]
+    if local_values.size >= 3:
+        peak_level = 0.25 * max(float(np.nanmax(local_values)), 1e-12)
+        for idx in range(1, local_values.size - 1):
+            if local_values[idx] > peak_level and local_values[idx] >= local_values[idx - 1] and local_values[idx] >= local_values[idx + 1]:
+                return float(local_time[idx])
     idx = int(np.nanargmax(local_values))
     return float(local_time[idx])

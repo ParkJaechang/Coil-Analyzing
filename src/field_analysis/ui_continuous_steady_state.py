@@ -370,6 +370,14 @@ def _render_continuous_extraction_result(case: dict[str, Any], source_frame: Any
         "selected_cycle_duration_s",
         "selected_cycle_duration_ratio",
         "discarded_startup_cycles",
+        "command_stop_s",
+        "field_support_end_s",
+        "continuous_phase_delay_s",
+        "exclude_terminal_cycles",
+        "terminal_guard_cycle_count",
+        "selected_cycle_is_terminal",
+        "selected_cycle_stop_influence_status",
+        "selected_cycle_phase_support_clear_of_stop",
         "cycle_boundary_method",
         "steady_state_extraction_status",
     ]
@@ -377,6 +385,7 @@ def _render_continuous_extraction_result(case: dict[str, Any], source_frame: Any
     st.dataframe(pd.DataFrame([{key: metadata.get(key) for key in summary_keys}]), use_container_width=True, hide_index=True)
     st.markdown("#### 선택된 steady-state 1cycle")
     st.caption(f"startup transient 제외 cycle: {metadata.get('discarded_startup_cycles')}")
+    st.caption("마지막 cycle은 출력 종료 영향 가능성이 있어 기본적으로 제외합니다.")
     st.caption(
         "expected period_s: "
         f"{metadata.get('expected_period_s')} / selected duration_s: "

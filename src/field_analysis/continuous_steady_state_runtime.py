@@ -54,6 +54,7 @@ def run_continuous_first_modeling(
     extraction_result: dict[str, Any] | None,
     waveform_type: str | None,
     freq_hz: float | None,
+    base_voltage_peak_v: float = 2.5,
 ) -> dict[str, Any]:
     if not isinstance(extraction_result, dict):
         return {"status": "error", "error_reason": "missing_extraction_result"}
@@ -72,6 +73,7 @@ def run_continuous_first_modeling(
             support_frame=support if isinstance(support, pd.DataFrame) else None,
             freq_hz=float(freq_hz or 1.0),
             waveform_type=str(waveform_type) if waveform_type is not None else None,
+            base_voltage_peak_v=float(base_voltage_peak_v),
         )
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "error_reason": f"modeling_kernel_failed:{exc}"}
