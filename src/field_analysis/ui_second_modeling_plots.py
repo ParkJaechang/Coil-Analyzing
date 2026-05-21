@@ -42,6 +42,11 @@ def render_correction_discontinuity_diagnostics(st: Any, metadata: dict[str, obj
         "max_abs_delta_step_v",
         "max_abs_second_voltage_step_v",
         "discontinuity_threshold_v",
+        "active_end_kink_detected",
+        "active_end_kink_time_s",
+        "active_end_kink_source",
+        "active_end_delta_step_v",
+        "active_end_second_voltage_step_v",
         "polarity_guard_mode",
     ]
     with st.expander(title, expanded=False):
@@ -52,6 +57,8 @@ def render_correction_discontinuity_diagnostics(st: Any, metadata: dict[str, obj
         )
         if metadata.get("correction_discontinuity_detected"):
             st.warning("2차 보정 전압에 큰 불연속이 감지되었습니다. 상세 진단에서 원인을 확인하십시오.")
+        if metadata.get("active_end_kink_detected"):
+            st.warning(f"2차 command active 끝부분에 큰 꺾임이 감지되었습니다. 원인: {metadata.get('active_end_kink_source', 'unknown')}")
 
 
 def add_peak_alignment_markers(
