@@ -12,6 +12,11 @@ from .ui_final_voltage_lut_export import build_final_voltage_lut_csv_bytes
 from .ui_final_voltage_lut_export import build_final_voltage_lut_filename
 from .ui_final_voltage_lut_export import build_final_voltage_lut_frame
 from .ui_final_voltage_lut_export import render_final_voltage_lut_export_panel
+from .ui_continuous_final_lut_export import (
+    build_continuous_final_lut_filename,
+    build_continuous_final_lut_frame,
+    continuous_result_export_record,
+)
 
 REQUIRED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
 DEBUG_VOLTAGE_COLUMNS = (
@@ -162,6 +167,7 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
     if not isinstance(cache_state, dict):
         cache_state = {}
         st.session_state[LUT_CACHE_STATE_KEY] = cache_state
+    _sync_session_result_lut_sources_to_cache(cache_state)
 
     uploaded_files = st.file_uploader(
         "Exported voltage LUT CSV 업로드",
@@ -253,6 +259,99 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
         mime="text/csv",
         key="download_voltage_lut_diagnostics_csv",
     )
+
+
+def _sync_session_result_lut_sources_to_cache(cache_state: dict[str, dict[str, object]]) -> None:
+    # Final Voltage LUT Export tab session sources:
+    # finite_first_voltage_lut / finite_second_voltage_lut
+    # continuous_first_voltage_lut / continuous_second_voltage_lut
+    finite_sources = [
+        ("Finite 1차", "first", "quick_lut_first_model_result"),
+        ("Finite 2차", "second", "quick_lut_second_model_result"),
+    ]
+    for display_prefix, stage, state_key in finite_sources:
+        result = st.session_state.get(state_key)
+        if not isinstance(result, dict):
+            continue
+        metadata = dict(result.get("metadata") or {})
+        if metadata.get("modeling_input_mode") == "continuous_steady_state":
+            continue
+        command = result.get("command_profile")
+        if not isinstance(command, pd.DataFrame) or command.empty:
+            continue
+        try:
+            source_column = "second_limited_voltage_v" if stage == "second" and "second_limited_voltage_v" in command.columns else None
+            frame = build_final_voltage_lut_frame(command, voltage_source_column=source_column)
+        except Exception:  # noqa: BLE001 - invalid session result should not break LUT review.
+            continue
+        filename = build_final_voltage_lut_filename(
+            waveform_type=metadata.get("waveform_type") or metadata.get("modeled_target_waveform_family") or "finite",
+            freq_hz=metadata.get("freq_hz") or metadata.get("modeled_target_freq_hz"),
+            cycle_count=metadata.get("cycle_count") or metadata.get("modeled_target_cycle_count"),
+        )
+        if stage == "second":
+            filename = filename.replace("finite_recommended_voltage_lut", "finite_second_voltage_lut")
+        else:
+            filename = filename.replace("finite_recommended_voltage_lut", "finite_first_voltage_lut")
+        add_lut_cache_bytes(
+            cache_state,
+            filename,
+            frame.to_csv(index=False).encode("utf-8-sig"),
+            display_name=f"{display_prefix} - {filename}",
+        )
+    session_sources = [
+        ("Continuous 1차", "first", "quick_lut_first_model_result_continuous"),
+        ("Continuous 2차", "second", "quick_lut_second_model_result_continuous"),
+    ]
+    for display_prefix, stage, state_key in session_sources:
+        result = st.session_state.get(state_key)
+        record = continuous_result_export_record(stage, result if isinstance(result, dict) else None)
+        if not record["available"]:
+            continue
+        metadata = dict(record.get("metadata") or {})
+        command = record["command_profile"]
+        try:
+            freq_hz = _first_result_freq_hz(metadata, command)
+            frame, _export_meta = build_continuous_final_lut_frame(
+                command,
+                voltage_source_column=str(record["voltage_source_column"]),
+                freq_hz=freq_hz,
+                stage=stage,
+            )
+        except Exception:  # noqa: BLE001 - invalid session result should not break LUT review.
+            continue
+        filename = build_continuous_final_lut_filename(
+            stage=stage,
+            waveform_type=metadata.get("waveform_type") or metadata.get("target_waveform_family") or "continuous",
+            freq_hz=freq_hz,
+        )
+        add_lut_cache_bytes(
+            cache_state,
+            filename,
+            frame.to_csv(index=False).encode("utf-8-sig"),
+            display_name=f"{display_prefix} - {filename}",
+        )
+
+
+def _first_result_freq_hz(metadata: dict[str, object], command: pd.DataFrame) -> float | None:
+    for value in (
+        metadata.get("freq_hz"),
+        metadata.get("modeled_target_freq_hz"),
+        metadata.get("target_freq_hz"),
+    ):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(number) and number > 0.0:
+            return number
+    if "freq_hz" in command.columns and not command.empty:
+        try:
+            number = float(command["freq_hz"].iloc[0])
+        except (TypeError, ValueError):
+            return None
+        return number if np.isfinite(number) and number > 0.0 else None
+    return None
 
 
 def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:

@@ -31,6 +31,10 @@ from .continuous_steady_state_runtime import (
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
+from .ui_continuous_final_lut_export import (
+    normalize_continuous_result_contract,
+    render_continuous_final_voltage_lut_export_section,
+)
 from .ui_continuous_first_modeling import render_continuous_first_modeling_controls
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 
@@ -261,14 +265,18 @@ def render_continuous_actual_drive_runtime_panel(
                 waveform_type=str(waveform_type or "sine"),
             )
             metadata.update(second_meta)
-            st.session_state["quick_lut_second_model_result_continuous"] = {
-                "command_profile": second_profile.copy(deep=True),
-                "actual_drive_steady_window_frame": steady.copy(deep=True),
-                "metadata": metadata,
-            }
+            st.session_state["quick_lut_second_model_result_continuous"] = normalize_continuous_result_contract(
+                {
+                    "command_profile": second_profile.copy(deep=True),
+                    "actual_drive_steady_window_frame": steady.copy(deep=True),
+                    "metadata": metadata,
+                },
+                "second",
+            )
             st.success("Continuous 2차 보정 command 생성 결과를 session_state에 저장했습니다.")
 
     _render_continuous_validation_section(waveform_type=waveform_type, freq_hz=freq_hz)
+    render_continuous_final_voltage_lut_export_section(waveform_type=waveform_type, freq_hz=freq_hz)
 
 
 def _render_continuous_validation_section(*, waveform_type: str | None, freq_hz: float | None) -> None:
@@ -343,9 +351,15 @@ def build_continuous_second_command_profile(
     metadata.update(
         {
             "continuous_second_modeling_uses_phase_aligned_kernel": True,
+            "continuous_second_modeling_status": "ok",
             "continuous_second_modeling_input_window": "steady_state_one_cycle_only",
             "continuous_second_modeling_tail_disabled": True,
             "continuous_second_export_cycle_count": 1.0,
+            "continuous_loop_output": True,
+            "loop_endpoint_policy": "period_exclusive",
+            "continuous_export_cycle_count": 1.0,
+            "continuous_result_stage": "second_model",
+            "final_export_voltage_source_column": "second_limited_voltage_v",
             "second_modeling_input_mode": "continuous_steady_state",
             "second_drive_actual_data_used": "steady_state_one_cycle_only",
         }

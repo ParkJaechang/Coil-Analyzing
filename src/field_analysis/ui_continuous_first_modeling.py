@@ -8,6 +8,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .continuous_steady_state_runtime import run_continuous_first_modeling
+from .ui_continuous_final_lut_export import (
+    normalize_continuous_result_contract,
+    render_continuous_final_voltage_lut_export_section,
+)
 
 
 def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq_hz: float | None) -> None:
@@ -40,8 +44,14 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
         if not isinstance(command, pd.DataFrame) or command.empty:
             st.warning("Continuous 1차 모델링 command 생성에 실패했습니다: command_profile_empty")
             return
-        st.session_state["quick_lut_first_model_result_continuous"] = result["first_model_result"]
-        st.session_state["quick_lut_first_model_result_continuous_metadata"] = result["first_model_metadata"]
+        normalized_result = normalize_continuous_result_contract(
+            result["first_model_result"],
+            "first",
+        )
+        st.session_state["quick_lut_first_model_result_continuous"] = normalized_result
+        st.session_state["quick_lut_first_model_result_continuous_metadata"] = (
+            normalized_result.get("metadata") if isinstance(normalized_result, dict) else result["first_model_metadata"]
+        )
         st.session_state["continuous_first_modeling_run_id"] = uuid4().hex
         st.success("Continuous 1차 모델링 command 생성 완료")
 
@@ -64,6 +74,7 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
     st.caption("자기장 첫 피크를 전압 피크에 맞춘 뒤 residual을 계산했습니다.")
     st.markdown("#### 1cycle 반복 출력용 voltage LUT")
     st.dataframe(pd.DataFrame([_summary(metadata, command)]), use_container_width=True, hide_index=True)
+    render_continuous_final_voltage_lut_export_section(waveform_type=waveform_type, freq_hz=freq_hz)
 
 
 def _phase_alignment_plot(command: pd.DataFrame) -> go.Figure:
@@ -106,13 +117,13 @@ def _add_trace(fig: go.Figure, command: pd.DataFrame, column: str, label: str) -
 
 def _summary(metadata: dict[str, Any], command: pd.DataFrame) -> dict[str, Any]:
     return {
-        "continuous_first_modeling_status": metadata.get("continuous_first_modeling_status"),
+        "continuous_first_modeling_status": metadata.get("continuous_first_modeling_status") or "ok",
         "continuous_phase_delay_s": metadata.get("continuous_phase_delay_s"),
-        "continuous_loop_output": metadata.get("continuous_loop_output"),
-        "loop_endpoint_policy": metadata.get("loop_endpoint_policy"),
+        "continuous_loop_output": metadata.get("continuous_loop_output", True),
+        "loop_endpoint_policy": metadata.get("loop_endpoint_policy") or "period_exclusive",
         "command_profile_rows": len(command),
         "continuous_base_voltage_peak_v": metadata.get("continuous_base_voltage_peak_v"),
         "source_voltage_base_normalized_peak_v": metadata.get("source_voltage_base_normalized_peak_v"),
-        "continuous_clipping_fraction": metadata.get("continuous_clipping_fraction"),
-        "continuous_voltage_clip_status": metadata.get("continuous_voltage_clip_status"),
+        "continuous_clipping_fraction": metadata.get("continuous_clipping_fraction", 0.0),
+        "continuous_voltage_clip_status": metadata.get("continuous_voltage_clip_status") or "ok",
     }

@@ -12,6 +12,11 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_frame
+from field_analysis.ui_continuous_final_lut_export import (
+    build_continuous_final_lut_filename,
+    build_continuous_final_lut_frame,
+    continuous_result_export_record,
+)
 from field_analysis.ui_continuous_steady_state import (
     build_continuous_second_command_profile,
     discover_continuous_candidate_frames,
@@ -27,6 +32,7 @@ CONT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_steady_state.py"
 CONT_FIRST_UI = SRC_ROOT / "field_analysis" / "ui_continuous_first_modeling.py"
 RAW_ACTUAL_UI = SRC_ROOT / "field_analysis" / "ui_raw_waveforms_actual_drive.py"
 EXPORT_UI = SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py"
+CONT_EXPORT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_final_lut_export.py"
 
 
 def test_quick_lut_continuous_mode_visible_contract() -> None:
@@ -113,11 +119,15 @@ def test_raw_waveforms_continuous_extraction_preview_markers_exist() -> None:
 
 
 def test_continuous_export_contract_markers_exist() -> None:
-    source = EXPORT_UI.read_text(encoding="utf-8")
+    source = EXPORT_UI.read_text(encoding="utf-8") + CONT_EXPORT_UI.read_text(encoding="utf-8")
 
     assert "continuous_loop_output" in source
     assert "loop_endpoint_policy" in source
     assert "sample_index, time_s, voltage_v" in source
+    assert "Continuous 최종 전압 LUT 추출" in source
+    assert "Continuous 1차 modeling command" in source
+    assert "Continuous 2차 보정 command" in source
+    assert "Continuous 2차 보정 command가 아직 생성되지 않았습니다." in source
 
 
 def test_continuous_export_drops_period_endpoint_for_loop_safe_lut() -> None:
@@ -136,6 +146,67 @@ def test_continuous_export_drops_period_endpoint_for_loop_safe_lut() -> None:
     assert exported.columns.tolist() == ["sample_index", "time_s", "voltage_v"]
     assert exported["time_s"].tolist() == [0.0, 0.25, 0.5, 0.75]
     assert exported["sample_index"].tolist() == [0, 1, 2, 3]
+
+
+def test_continuous_first_final_lut_export_uses_limited_voltage_and_loop_filename() -> None:
+    command = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.25, 0.5, 0.75, 1.0],
+            "limited_voltage_v": [0.0, 1.0, 0.0, -1.0, 0.0],
+            "continuous_loop_output": [True] * 5,
+            "loop_endpoint_policy": ["period_exclusive"] * 5,
+            "freq_hz": [1.0] * 5,
+        }
+    )
+    result = {"command_profile": command, "metadata": {"continuous_result_stage": "first_model"}}
+
+    record = continuous_result_export_record("first", result)
+    exported, metadata = build_continuous_final_lut_frame(
+        command,
+        voltage_source_column=record["voltage_source_column"],
+        freq_hz=1.0,
+        stage="first",
+    )
+    filename = build_continuous_final_lut_filename(stage="first", waveform_type="sine", freq_hz=1.0)
+
+    assert record["available"] is True
+    assert record["voltage_source_column"] == "limited_voltage_v"
+    assert exported.columns.tolist() == ["sample_index", "time_s", "voltage_v"]
+    assert exported["time_s"].max() < 1.0
+    assert np.allclose(exported["voltage_v"], [0.0, 1.0, 0.0, -1.0])
+    assert metadata["continuous_final_lut_export_status"] == "ok"
+    assert metadata["continuous_final_lut_export_selected_stage"] == "first"
+    assert metadata["continuous_final_lut_export_voltage_source_column"] == "limited_voltage_v"
+    assert filename == "continuous_first_voltage_lut_sine_1Hz_1cycle_loop.csv"
+
+
+def test_continuous_second_final_lut_export_prefers_second_limited_voltage() -> None:
+    command = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.25, 0.5, 0.75],
+            "limited_voltage_v": [0.0, 1.0, 0.0, -1.0],
+            "second_limited_voltage_v": [0.1, 0.8, -0.1, -0.8],
+            "continuous_loop_output": [True] * 4,
+            "loop_endpoint_policy": ["period_exclusive"] * 4,
+            "freq_hz": [1.0] * 4,
+        }
+    )
+    result = {"command_profile": command, "metadata": {"continuous_result_stage": "second_model"}}
+
+    record = continuous_result_export_record("second", result)
+    exported, metadata = build_continuous_final_lut_frame(
+        command,
+        voltage_source_column=record["voltage_source_column"],
+        freq_hz=1.0,
+        stage="second",
+    )
+    filename = build_continuous_final_lut_filename(stage="second", waveform_type="sine", freq_hz=1.0)
+
+    assert record["available"] is True
+    assert record["voltage_source_column"] == "second_limited_voltage_v"
+    assert np.allclose(exported["voltage_v"], command["second_limited_voltage_v"])
+    assert metadata["continuous_final_lut_export_selected_stage"] == "second"
+    assert filename == "continuous_second_voltage_lut_sine_1Hz_1cycle_loop.csv"
 
 
 def test_upload_memory_continuous_candidate_discovery_accepts_cached_payload() -> None:

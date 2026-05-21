@@ -23,6 +23,7 @@ from field_analysis.ui_voltage_lut_review import (
 
 
 APP_UI_SNAPSHOT = REPO_ROOT / "src" / "field_analysis" / "app_ui_snapshot.py"
+LUT_REVIEW_UI = REPO_ROOT / "src" / "field_analysis" / "ui_voltage_lut_review.py"
 
 
 def test_final_voltage_lut_export_uses_limited_voltage_without_fourier() -> None:
@@ -191,6 +192,26 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
     missing = [marker for marker in expected_markers if marker not in source]
 
     assert not missing, f"Missing LUT review UI markers: {missing}"
+
+
+def test_lut_review_tab_lists_continuous_session_result_sources() -> None:
+    source = LUT_REVIEW_UI.read_text(encoding="utf-8")
+
+    for marker in [
+        "quick_lut_first_model_result",
+        "quick_lut_second_model_result",
+        "quick_lut_first_model_result_continuous",
+        "quick_lut_second_model_result_continuous",
+        "Finite 1차",
+        "Finite 2차",
+        "Continuous 1차",
+        "Continuous 2차",
+        "finite_first_voltage_lut",
+        "finite_second_voltage_lut",
+        "continuous_first_voltage_lut",
+        "continuous_second_voltage_lut",
+    ]:
+        assert marker in source
 
 
 def test_lut_review_selectbox_options_are_scalar_ids_not_dataframe_objects() -> None:

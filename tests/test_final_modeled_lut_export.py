@@ -17,6 +17,7 @@ from field_analysis.final_modeled_lut import (
     load_final_modeled_voltage_lut,
 )
 from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_frame, build_final_voltage_lut_filename, _tail_suffix
+from field_analysis.ui_continuous_final_lut_export import build_continuous_final_lut_frame
 
 
 def _command_profile() -> pd.DataFrame:
@@ -161,3 +162,22 @@ def test_second_export_tail_off_suffix_and_three_column_frame() -> None:
     assert _tail_suffix(profile) == "_tailoff"
     assert list(exported.columns) == ["sample_index", "time_s", "voltage_v"]
     assert len(exported) == 3
+
+
+def test_continuous_final_lut_export_blocks_nan_voltage() -> None:
+    profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.25, 0.5],
+            "limited_voltage_v": [0.0, np.nan, 1.0],
+            "continuous_loop_output": [True, True, True],
+            "loop_endpoint_policy": ["period_exclusive"] * 3,
+            "freq_hz": [1.0, 1.0, 1.0],
+        }
+    )
+
+    try:
+        build_continuous_final_lut_frame(profile, voltage_source_column="limited_voltage_v", freq_hz=1.0, stage="first")
+    except ValueError as exc:
+        assert "nonfinite_voltage" in str(exc)
+    else:  # pragma: no cover - assertion branch
+        raise AssertionError("expected nonfinite voltage export block")

@@ -72,6 +72,10 @@ from .ui_continuous_steady_state import (
     run_continuous_first_modeling,
     run_continuous_steady_state_extraction,
 )
+from .ui_continuous_final_lut_export import (
+    normalize_continuous_result_contract,
+    render_continuous_final_voltage_lut_export_section,
+)
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
 from .ui_second_modeling import render_second_modeling_controls
@@ -2628,10 +2632,17 @@ def _render_quick_lut_tab_v2(
                 },
             }
             if modeling_input_mode == "continuous_steady_state":
-                st.session_state["quick_lut_first_model_result_continuous"] = {
-                    "command_profile": first_command_profile.copy(deep=True),
-                    "metadata": st.session_state["quick_lut_first_model_result"]["metadata"],
-                }
+                st.session_state["quick_lut_first_model_result_continuous"] = normalize_continuous_result_contract(
+                    {
+                        "command_profile": first_command_profile.copy(deep=True),
+                        "metadata": {
+                            **continuous_first_meta,
+                            **st.session_state["quick_lut_first_model_result"]["metadata"],
+                            "continuous_first_modeling_status": "ok",
+                        },
+                    },
+                    "first",
+                )
             plot_command_profile = _prepare_semantic_compensation_plot_profile(first_command_profile)
             (
                 reference_profile,
@@ -2847,6 +2858,11 @@ def _render_quick_lut_tab_v2(
                 freq_hz=float(target_freq),
                 cycle_count=target_cycle_count,
             )
+            if modeling_input_mode == "continuous_steady_state":
+                render_continuous_final_voltage_lut_export_section(
+                    waveform_type=target_waveform,
+                    freq_hz=float(target_freq),
+                )
 
             if finite_cycle_mode:
                 finite_model = _build_empirical_finite_model(
