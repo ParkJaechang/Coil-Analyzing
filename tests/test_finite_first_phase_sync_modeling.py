@@ -229,7 +229,8 @@ def test_finite_first_phase_sync_maps_target_relative_grid_to_native_source_star
             "recommended_voltage_v": 2.5 * np.sin(active_phase),
             "physical_target_output_mT": 50.0 * np.sin(active_phase),
             "finite_first_actual_measured_field_mT": active_measured,
-            "support_reference_source_window_start_s": source_start,
+            "selected_support_original_nonzero_start_s": source_start,
+            "support_reference_source_window_start_s": 0.0,
         }
     )
     profile.attrs["selected_support_source_time_s"] = support_time.tolist()

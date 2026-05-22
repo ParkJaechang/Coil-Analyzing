@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -160,8 +161,11 @@ def test_ui_support_reference_preview_uses_native_source_beyond_target_end() -> 
     assert reference_profile is not None
     assert reference_column == "support_reference_native_mT"
     assert reference_source == "native measured support source"
+    original_start = float(result["selected_support_original_nonzero_start_s"])
+    original_end = float(result["selected_support_original_nonzero_end_s"])
+    assert float(reference_profile["time_s"].min()) == pytest.approx(0.0)
     assert float(reference_profile["time_s"].max()) > float(result["target_active_end_s"])
-    assert float(reference_profile["time_s"].max()) >= float(result["selected_support_original_nonzero_end_s"]) - 1e-9
+    assert float(reference_profile["time_s"].max()) >= original_end - original_start - 1e-9
 
 
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:

@@ -697,6 +697,9 @@ def synthesize_current_waveform_compensation(
         finite_empirical_model.get("selected_support_original_duration_s") if use_finite_empirical_route else None
     )
     selected_support_original_pp_mT = finite_empirical_model.get("selected_support_original_pp_mT") if use_finite_empirical_route else None
+    selected_support_original_nonzero_start_s = (
+        finite_empirical_model.get("selected_support_original_nonzero_start_s") if use_finite_empirical_route else None
+    )
     selected_support_original_nonzero_end_s = (
         finite_empirical_model.get("selected_support_original_nonzero_end_s") if use_finite_empirical_route else None
     )
@@ -975,6 +978,7 @@ def synthesize_current_waveform_compensation(
         command_profile["selected_support_freq_hz"] = selected_support_freq_hz
         command_profile["selected_support_original_duration_s"] = selected_support_original_duration_s
         command_profile["selected_support_original_pp_mT"] = selected_support_original_pp_mT
+        command_profile["selected_support_original_nonzero_start_s"] = selected_support_original_nonzero_start_s
         command_profile["selected_support_original_nonzero_end_s"] = selected_support_original_nonzero_end_s
         command_profile["selected_support_source_available"] = bool(selected_support_source_available)
         if selected_support_source_time_s is not None and selected_support_source_mT is not None:
@@ -1246,6 +1250,7 @@ def synthesize_current_waveform_compensation(
         "selected_support_cycle_source": finite_empirical_model.get("selected_support_cycle_source") if use_finite_empirical_route else None,
         "selected_support_original_duration_s": selected_support_original_duration_s,
         "selected_support_original_pp_mT": selected_support_original_pp_mT,
+        "selected_support_original_nonzero_start_s": selected_support_original_nonzero_start_s,
         "selected_support_original_nonzero_end_s": selected_support_original_nonzero_end_s,
         "selected_support_source_available": bool(selected_support_source_available),
         "selected_support_source_time_s": selected_support_source_time_s,
@@ -4158,6 +4163,7 @@ def _build_selected_support_source_contract(
             "selected_support_cycle_source": "unknown",
             "selected_support_original_duration_s": float("nan"),
             "selected_support_original_pp_mT": float("nan"),
+            "selected_support_original_nonzero_start_s": float("nan"),
             "selected_support_original_nonzero_end_s": float("nan"),
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
@@ -4174,6 +4180,7 @@ def _build_selected_support_source_contract(
             "selected_support_cycle_source": _selected_support_cycle_source(entry),
             "selected_support_original_duration_s": float("nan"),
             "selected_support_original_pp_mT": float(entry.get("field_pp", np.nan)),
+            "selected_support_original_nonzero_start_s": float("nan"),
             "selected_support_original_nonzero_end_s": float("nan"),
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
@@ -4187,6 +4194,7 @@ def _build_selected_support_source_contract(
     threshold = max(abs(pp) * 0.01, 1e-6) if np.isfinite(pp) else 1e-6
     nonzero_time = time_values[finite_mask & (np.abs(field_values) > threshold)]
     duration_s = float(np.nanmax(finite_time) - np.nanmin(finite_time)) if finite_time.size else float("nan")
+    nonzero_start_s = float(np.nanmin(nonzero_time)) if nonzero_time.size else float("nan")
     nonzero_end_s = float(np.nanmax(nonzero_time)) if nonzero_time.size else float("nan")
     measured_cycle_count = _selected_support_measured_active_cycle_count(
         entry,
@@ -4203,6 +4211,7 @@ def _build_selected_support_source_contract(
         "selected_support_cycle_source": _selected_support_cycle_source(entry),
         "selected_support_original_duration_s": duration_s,
         "selected_support_original_pp_mT": pp,
+        "selected_support_original_nonzero_start_s": nonzero_start_s,
         "selected_support_original_nonzero_end_s": nonzero_end_s,
         "selected_support_source_time_s": time_values.tolist(),
         "selected_support_source_mT": field_values.tolist(),

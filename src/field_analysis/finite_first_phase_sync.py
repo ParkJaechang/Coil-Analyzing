@@ -551,7 +551,11 @@ def first_numeric(values: pd.Series) -> float | bool | None:
 
 
 def _source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output_start_s: float) -> float:
-    for column in ("support_reference_source_window_start_s", "selected_support_source_window_start_s"):
+    for column in (
+        "selected_support_original_nonzero_start_s",
+        "support_reference_source_window_start_s",
+        "selected_support_source_window_start_s",
+    ):
         if column in frame.columns:
             value = first_numeric(frame[column])
             if isinstance(value, (int, float)) and np.isfinite(float(value)):

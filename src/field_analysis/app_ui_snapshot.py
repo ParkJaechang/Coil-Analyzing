@@ -1478,14 +1478,17 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
         if compensation.get("target_end_s") is not None
         else compensation.get("target_active_end_s")
     )
+    nonzero_start = first_number(compensation.get("selected_support_original_nonzero_start_s"))
     nonzero_end = first_number(compensation.get("selected_support_original_nonzero_end_s"))
+    plot_start = nonzero_start if nonzero_start is not None and np.isfinite(nonzero_start) else float(np.nanmin(time_values))
     plot_end = nonzero_end if nonzero_end is not None and np.isfinite(nonzero_end) else float(np.nanmax(time_values))
     if target_end is not None and np.isfinite(target_end):
         plot_end = max(float(plot_end), float(target_end))
     plot_end = min(float(plot_end), float(np.nanmax(time_values)))
-    keep = time_values <= plot_end + 1e-12
+    keep = (time_values >= float(plot_start) - 1e-12) & (time_values <= plot_end + 1e-12)
     if keep.sum() < 3:
         keep = np.ones_like(time_values, dtype=bool)
+        plot_start = float(np.nanmin(time_values))
     time_values = time_values[keep]
     field_values = field_values[keep]
 
@@ -1504,11 +1507,12 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     scale = 50.0 / peak if peak > 1e-12 else 1.0
     frame = pd.DataFrame(
         {
-            "time_s": time_values,
+            "time_s": time_values - float(plot_start),
             "support_reference_native_mT": smoothed * scale,
         }
     )
     frame.attrs["support_reference_plot_timebase"] = "native_measured_source_until_zero_return"
+    frame.attrs["support_reference_native_start_s"] = plot_start
     frame.attrs["support_reference_native_end_s"] = plot_end
     frame.attrs["support_reference_native_scale_to_50mT"] = scale
     return frame
