@@ -94,7 +94,10 @@ def _canonical_fallback_records(
 
 
 def _active_canonical_names(category: str, active_names: set[str], *, manifest: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
+    names: set[str] = {
+        str(canonicalize_upload_filename(active_name).get("upload_canonical_filename") or "")
+        for active_name in active_names
+    } - {""}
     for entry in manifest["files"].get(category, []):
         if not isinstance(entry, dict):
             continue
