@@ -17,6 +17,7 @@ from .ui_upload_state import delete_upload_memory_group
 from .ui_upload_state import delete_upload_memory_items as delete_upload_memory_items_by_id
 from .ui_upload_state import persist_uploaded_files
 from .ui_upload_state import reset_uploader_session_state
+from .ui_upload_memory_status import upload_memory_status
 
 
 GROUP_UPLOAD_LABELS = {
@@ -63,7 +64,10 @@ def build_upload_memory_group_records(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[dict[str, Any]]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     records: list[dict[str, Any]] = []
     for item in build_upload_memory_items(paths=resolved_paths):
         if item.get("category") != category:
@@ -97,7 +101,10 @@ def find_duplicate_upload_names(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[str]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     existing = {
         str(item.get("original_filename") or "")
         for item in build_upload_memory_items(paths=resolved_paths)
@@ -112,7 +119,10 @@ def delete_upload_memory_items(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[str]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     requested = {str(value) for value in item_ids_or_stored_names if str(value)}
     resolved_ids: list[str] = []
     for item in build_upload_memory_items(paths=resolved_paths):
@@ -161,6 +171,13 @@ def _render_summary(paths: UploadStatePaths) -> None:
             st.dataframe(pd.DataFrame(rows)[["label", "count", "item_ids"]], hide_index=True, use_container_width=True)
     else:
         st.caption("No cached uploads.")
+        status = upload_memory_status(paths=paths)
+        missing = status.get("upload_memory_missing_remembered_counts", {})
+        if any(int(value or 0) for value in missing.values()):
+            st.warning(
+                "Upload manifest remembers files, but the physical cached files are missing. "
+                f"missing counts: {missing}"
+            )
 
 
 def _render_group(category: str, paths: UploadStatePaths) -> None:

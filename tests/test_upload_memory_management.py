@@ -20,6 +20,8 @@ from field_analysis.ui_upload_state import delete_upload_memory_item
 from field_analysis.ui_upload_state import delete_upload_memory_items
 from field_analysis.ui_upload_state import category_payloads
 from field_analysis.ui_upload_state import persist_uploaded_files
+from field_analysis.ui_upload_state import load_upload_manifest
+from field_analysis.ui_upload_memory_status import upload_memory_status
 from field_analysis.ui_upload_memory_status import activate_cached_uploads
 
 
@@ -242,3 +244,87 @@ def test_activate_cached_uploads_marks_cached_files_as_active(tmp_path: Path) ->
 
     assert result["activated_count"] == 1
     assert len(remembered_payloads) == 1
+
+
+def test_continuous_category_aliases_restore_as_canonical_continuous(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_tri_2Hz.csv", b"time_s,bz_mT\n0,0\n")
+
+    category_payloads("continuous-cycle", [upload], paths=paths)
+    remembered_payloads = category_payloads("연속 cycle", None, paths=paths)
+    manifest = load_upload_manifest(paths=paths)
+
+    assert len(remembered_payloads) == 1
+    assert "continuous" in manifest["files"]
+    assert len(manifest["files"]["continuous"]) == 1
+    assert manifest["files"]["continuous"][0]["category"] == "continuous"
+    assert manifest["files"]["continuous"][0]["upload_category_alias_applied"] is True
+
+
+def test_legacy_alias_manifest_active_uploads_merge_into_continuous(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    cache_name = "abc12345_continuous_tri_3Hz.csv"
+    (category_dir / cache_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous-cycle": [
+                        {"cache_name": cache_name, "file_name": "continuous_tri_3Hz.csv", "size_bytes": 16}
+                    ],
+                },
+                "active_uploads": {"continuous-cycle": [cache_name]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+    manifest = load_upload_manifest(paths=paths)
+
+    assert len(remembered_payloads) == 1
+    assert manifest["active_uploads"]["continuous"] == [cache_name]
+    assert manifest["files"]["continuous"][0]["upload_category_original"] == "continuous-cycle"
+
+
+def test_upload_memory_status_reports_remembered_but_missing_files(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [
+                        {
+                            "cache_name": "missing_continuous_tri_1Hz.csv",
+                            "file_name": "continuous_tri_1Hz.csv",
+                            "size_bytes": 16,
+                        }
+                    ],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+                "active_uploads": {
+                    "continuous": ["missing_continuous_tri_1Hz.csv"],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = upload_memory_status(paths=paths)
+    payloads = category_payloads("continuous", None, paths=paths)
+
+    assert payloads == []
+    assert status["remembered_continuous_count"] == 1
+    assert status["cached_continuous_count"] == 0
+    assert status["missing_remembered_continuous_count"] == 1
+    assert status["upload_memory_restore_status"] == "no_cached_files"
+    assert status["continuous_upload_restore_status"] == "remembered_but_missing_files"

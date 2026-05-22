@@ -2133,6 +2133,11 @@ def _render_quick_lut_cache_status(
         st.write(f"- lcr payload count: `{len(lcr_payloads)}`")
         st.write(f"- cached continuous count: `{status['cached_continuous_count']}`")
         st.write(f"- cached finite count: `{status['cached_finite_count']}`")
+        st.write(f"- missing remembered continuous count: `{status.get('missing_remembered_continuous_count', 0)}`")
+        st.write(f"- missing remembered finite count: `{status.get('missing_remembered_finite_count', 0)}`")
+        st.write(f"- upload memory restore status: `{status.get('upload_memory_restore_status', 'unknown')}`")
+        st.write(f"- continuous upload restore status: `{status.get('continuous_upload_restore_status', 'unknown')}`")
+        st.write(f"- upload manifest path: `{status.get('upload_manifest_path', '')}`")
         st.write(f"- selected dataset library count: `{selected_library_count}`")
         st.write(f"- dataset library root path: `{dataset_status['dataset_root_path']}`")
         st.write(f"- dataset manifest exists: `{dataset_status['dataset_manifest_exists']}`")
@@ -2144,7 +2149,12 @@ def _render_quick_lut_cache_status(
             st.warning("Manifest missing. Click Manifest Refresh.")
         elif dataset_status["dataset_root_path"] and int(dataset_status["dataset_manifest_file_count"]) == 0:
             st.warning("Dataset root saved but no supported files found.")
-        if status["cached_continuous_count"] == 0 and status["cached_finite_count"] == 0:
+        if (
+            int(status.get("remembered_continuous_count", 0)) + int(status.get("remembered_finite_count", 0)) > 0
+            and int(status.get("cached_continuous_count", 0)) + int(status.get("cached_finite_count", 0)) == 0
+        ):
+            st.warning("Remembered LUT entries exist, but the physical cached files are missing. Re-upload or reload a Dataset Library source.")
+        elif status["cached_continuous_count"] == 0 and status["cached_finite_count"] == 0:
             st.caption("No remembered LUT data found.")
         elif len(continuous_payloads) + len(finite_payloads) == 0:
             st.warning("Cached files exist but are not active. Select remembered files or load active set.")

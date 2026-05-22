@@ -13,30 +13,20 @@ from .upload_state_dedupe import list_exact_upload_records_from_manifest
 from .upload_state_dedupe import uploaded_file_keys
 from .upload_state_delete import delete_physical_upload_files, delete_upload_result
 from .upload_filename import canonicalize_upload_filename
+from .upload_manifest_normalization import normalize_upload_manifest
+from .upload_category_aliases import (
+    CATEGORY_LABELS,
+    UPLOAD_CATEGORIES,
+    UPLOADER_SESSION_KEYS,
+    UPLOAD_MEMORY_CATEGORY_BY_LABEL,
+    UPLOAD_MEMORY_LABEL_BY_CATEGORY,
+    normalize_upload_category,
+    upload_category_alias_metadata,
+)
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_STATE_DIRNAME = "field_analysis_app_state"
-UPLOAD_CATEGORIES = ("continuous", "transient", "validation", "lcr")
-CATEGORY_LABELS = {
-    "continuous": "연속 cycle",
-    "transient": "finite-cycle",
-    "validation": "2차 보정 검증 run",
-    "lcr": "LCR",
-}
-UPLOADER_SESSION_KEYS = {
-    "continuous": "continuous_uploads",
-    "transient": "transient_uploads",
-    "validation": "validation_uploads",
-    "lcr": "lcr_uploads",
-}
-UPLOAD_MEMORY_LABEL_BY_CATEGORY = {
-    "continuous": "continuous_cycle",
-    "transient": "finite_cycle",
-    "validation": "actual_drive_validation_run",
-    "lcr": "lcr",
-}
-UPLOAD_MEMORY_CATEGORY_BY_LABEL = {value: key for key, value in UPLOAD_MEMORY_LABEL_BY_CATEGORY.items()}
 
 @dataclass(frozen=True)
 class UploadStatePaths:
@@ -48,7 +38,7 @@ class UploadStatePaths:
     validation_retune_history_path: Path
 
     def category_dir(self, category: str) -> Path:
-        return self.uploads_dir / str(category)
+        return self.uploads_dir / normalize_upload_category(category)
 
 def build_upload_state_paths(repo_root: Path | None = None) -> UploadStatePaths:
     root = (repo_root or REPO_ROOT).resolve()
@@ -74,36 +64,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def _normalize_manifest(payload: dict[str, Any]) -> dict[str, Any]:
-    files = payload.get("files")
-    if not isinstance(files, dict):
-        files = {}
-    legacy_manifest_without_active_set = "active_uploads" not in payload
-    active_uploads = payload.get("active_uploads")
-    if not isinstance(active_uploads, dict):
-        active_uploads = {}
-    normalized = {"files": {}, "active_uploads": {}}
-    for category in UPLOAD_CATEGORIES:
-        entries = files.get(category)
-        if not isinstance(entries, list):
-            entries = []
-        normalized["files"][category] = [entry for entry in entries if isinstance(entry, dict)]
-        active = active_uploads.get(category)
-        if isinstance(active, list):
-            normalized["active_uploads"][category] = [str(item) for item in active]
-        elif legacy_manifest_without_active_set:
-            normalized["active_uploads"][category] = [
-                str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "")
-                for entry in normalized["files"][category]
-                if entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name")
-            ]
-        else:
-            normalized["active_uploads"][category] = []
-    return normalized
-
 def load_upload_manifest(*, paths: UploadStatePaths | None = None) -> dict[str, Any]:
     resolved_paths = paths or build_upload_state_paths()
-    return _normalize_manifest(_load_json(resolved_paths.upload_manifest_path, {"files": {}}))
+    return normalize_upload_manifest(_load_json(resolved_paths.upload_manifest_path, {"files": {}}))
 
 def _stable_cache_name(file_name: str, raw_bytes: bytes) -> str:
     leaf = Path(str(file_name or "")).name or "upload.bin"
@@ -150,6 +113,7 @@ def _manifest_record(
 
 def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     category_dir = resolved_paths.category_dir(category)
     manifest = load_upload_manifest(paths=resolved_paths)
     records: list[dict[str, Any]] = []
@@ -205,6 +169,8 @@ def persist_uploaded_files(
     paths: UploadStatePaths | None = None,
 ) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
+    category_alias_meta = upload_category_alias_metadata(category)
+    category = normalize_upload_category(category)
     category_dir = resolved_paths.category_dir(category)
     category_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_upload_manifest(paths=resolved_paths)
@@ -239,6 +205,7 @@ def persist_uploaded_files(
             "upload_item_id": upload_item_id,
             "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
             "category": category,
+            **category_alias_meta,
             "file_name": display_name,
             "original_filename": display_name,
             "display_name": display_name,
@@ -277,10 +244,12 @@ def category_payloads(
     include_cached_uploads: bool = False,
 ) -> list[tuple[str, bytes]]:
     resolved_paths = paths or build_upload_state_paths()
+    requested_category = category
+    category = normalize_upload_category(category)
     current_upload_keys: set[tuple[str, str]] = set()
     if uploaded_files:
         current_upload_keys = uploaded_file_keys(uploaded_files)
-        persist_uploaded_files(category, uploaded_files, paths=resolved_paths)
+        persist_uploaded_files(requested_category, uploaded_files, paths=resolved_paths)
     payloads: list[tuple[str, bytes]] = []
     if include_cached_uploads:
         records = list_persisted_uploads(category, paths=resolved_paths)
@@ -294,6 +263,7 @@ def category_payloads(
     return payloads
 def list_active_upload_payload_records(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     manifest = load_upload_manifest(paths=resolved_paths)
     active_names = {str(item) for item in manifest.get("active_uploads", {}).get(category, []) if str(item)}
     if not active_names:
@@ -339,7 +309,7 @@ def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict
         )
     return rows
 def clear_category_uploads(category: str, *, paths: UploadStatePaths | None = None) -> None:
-    delete_upload_memory_group(category, paths=paths)
+    delete_upload_memory_group(normalize_upload_category(category), paths=paths)
 
 
 def clear_all_uploads(*, paths: UploadStatePaths | None = None) -> None:
@@ -469,7 +439,7 @@ def delete_upload_memory_group(
     paths: UploadStatePaths | None = None,
     delete_physical: bool = True,
 ) -> dict[str, Any]:
-    category = UPLOAD_MEMORY_CATEGORY_BY_LABEL.get(label_or_category, label_or_category)
+    category = normalize_upload_category(UPLOAD_MEMORY_CATEGORY_BY_LABEL.get(label_or_category, label_or_category))
     ids = [
         str(item["upload_item_id"])
         for item in build_upload_memory_items(paths=paths)
@@ -521,6 +491,7 @@ def _list_exact_upload_records(
     *,
     paths: UploadStatePaths,
 ) -> list[dict[str, Any]]:
+    category = normalize_upload_category(category)
     return list_exact_upload_records_from_manifest(
         load_upload_manifest(paths=paths),
         category,
@@ -544,6 +515,7 @@ def _unique_cache_name(base_name: str, existing_names: set[str]) -> str:
 
 
 def _upload_memory_item_from_entry(category: str, entry: dict[str, Any], *, category_dir: Path) -> dict[str, Any] | None:
+    category = normalize_upload_category(category)
     cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "").strip()
     if not cache_name:
         return None
@@ -586,6 +558,9 @@ def _upload_memory_item_from_entry(category: str, entry: dict[str, Any], *, cate
         "duplicate_of": entry.get("duplicate_of"),
         "content_sha256": entry.get("content_sha256"),
         "file_exists": file_exists,
+        "upload_category_original": str(entry.get("upload_category_original") or entry.get("category") or category),
+        "upload_category_canonical": category,
+        "upload_category_alias_applied": bool(entry.get("upload_category_alias_applied")),
     }
 
 
