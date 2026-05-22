@@ -276,7 +276,11 @@ def render_continuous_actual_drive_runtime_panel(
             st.success("Continuous 2차 보정 command 생성 결과를 session_state에 저장했습니다.")
 
     _render_continuous_validation_section(waveform_type=waveform_type, freq_hz=freq_hz)
-    render_continuous_final_voltage_lut_export_section(waveform_type=waveform_type, freq_hz=freq_hz)
+    render_continuous_final_voltage_lut_export_section(
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        key_namespace="continuous_actual_drive",
+    )
 
 
 def _render_continuous_validation_section(*, waveform_type: str | None, freq_hz: float | None) -> None:

@@ -74,7 +74,11 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
     st.caption("자기장 첫 피크를 전압 피크에 맞춘 뒤 residual을 계산했습니다.")
     st.markdown("#### 1cycle 반복 출력용 voltage LUT")
     st.dataframe(pd.DataFrame([_summary(metadata, command)]), use_container_width=True, hide_index=True)
-    render_continuous_final_voltage_lut_export_section(waveform_type=waveform_type, freq_hz=freq_hz)
+    render_continuous_final_voltage_lut_export_section(
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        key_namespace="quick_lut_first_modeling",
+    )
 
 
 def _phase_alignment_plot(command: pd.DataFrame) -> go.Figure:

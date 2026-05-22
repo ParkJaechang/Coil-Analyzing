@@ -130,6 +130,19 @@ def test_continuous_export_contract_markers_exist() -> None:
     assert "Continuous 2차 보정 command가 아직 생성되지 않았습니다." in source
 
 
+def test_continuous_export_section_uses_namespaced_streamlit_keys() -> None:
+    source = CONT_EXPORT_UI.read_text(encoding="utf-8")
+    callers = APP_UI.read_text(encoding="utf-8") + CONT_UI.read_text(encoding="utf-8") + CONT_FIRST_UI.read_text(encoding="utf-8")
+
+    assert "key_namespace" in source
+    assert "continuous_final_lut_export_stage_selector_{key_namespace}" in source
+    assert "download_continuous_final_lut_{key_namespace}_{selected['stage']}" in source
+    assert callers.count("render_continuous_final_voltage_lut_export_section(") >= 3
+    assert "key_namespace=\"quick_lut_first_modeling\"" in callers
+    assert "key_namespace=\"continuous_actual_drive\"" in callers
+    assert "key_namespace=\"quick_lut_compensation_result\"" in callers
+
+
 def test_continuous_export_drops_period_endpoint_for_loop_safe_lut() -> None:
     frame = pd.DataFrame(
         {

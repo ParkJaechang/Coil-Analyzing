@@ -145,7 +145,12 @@ def build_continuous_final_lut_filename(*, stage: str, waveform_type: object | N
     return f"continuous_{stage_part}_voltage_lut_{waveform}_{freq}Hz_1cycle_loop.csv"
 
 
-def render_continuous_final_voltage_lut_export_section(*, waveform_type: object | None, freq_hz: float | None) -> None:
+def render_continuous_final_voltage_lut_export_section(
+    *,
+    waveform_type: object | None,
+    freq_hz: float | None,
+    key_namespace: str = "default",
+) -> None:
     st.markdown("#### Continuous 최종 전압 LUT 추출")
     st.info(
         "Continuous 1차 또는 2차 modeling 결과 중 하나를 선택하여 반복 출력용 1cycle 전압 LUT로 다운로드합니다.\n\n"
@@ -178,7 +183,12 @@ def render_continuous_final_voltage_lut_export_section(*, waveform_type: object 
         hide_index=True,
     )
     labels = [record["label"] for record in records]
-    selected_label = st.radio("추출 대상", options=labels, index=0, key="continuous_final_lut_export_stage_selector")
+    selected_label = st.radio(
+        "추출 대상",
+        options=labels,
+        index=0,
+        key=f"continuous_final_lut_export_stage_selector_{key_namespace}",
+    )
     selected = next(record for record in records if record["label"] == selected_label)
     if not selected["available"]:
         if selected["stage"] == "second":
@@ -209,7 +219,7 @@ def render_continuous_final_voltage_lut_export_section(*, waveform_type: object 
         data=export_frame.to_csv(index=False).encode("utf-8-sig"),
         file_name=file_name,
         mime="text/csv",
-        key=f"download_continuous_final_lut_{selected['stage']}",
+        key=f"download_continuous_final_lut_{key_namespace}_{selected['stage']}",
     )
 
 

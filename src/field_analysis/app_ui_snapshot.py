@@ -2862,6 +2862,7 @@ def _render_quick_lut_tab_v2(
                 render_continuous_final_voltage_lut_export_section(
                     waveform_type=target_waveform,
                     freq_hz=float(target_freq),
+                    key_namespace="quick_lut_compensation_result",
                 )
 
             if finite_cycle_mode:
