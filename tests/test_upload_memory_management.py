@@ -328,3 +328,44 @@ def test_upload_memory_status_reports_remembered_but_missing_files(tmp_path: Pat
     assert status["missing_remembered_continuous_count"] == 1
     assert status["upload_memory_restore_status"] == "no_cached_files"
     assert status["continuous_upload_restore_status"] == "remembered_but_missing_files"
+
+
+def test_active_uploads_fall_back_to_canonical_file_when_old_hash_name_is_missing(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    canonical_name = "continuous_tri_2Hz.csv"
+    stale_cache_name = "166756f8b28c75c9_continuous_tri_2Hz.csv"
+    (category_dir / canonical_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [
+                        {
+                            "cache_name": stale_cache_name,
+                            "file_name": canonical_name,
+                            "original_filename": canonical_name,
+                            "size_bytes": 16,
+                        }
+                    ],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+                "active_uploads": {
+                    "continuous": [stale_cache_name],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(payloads) == 1
+    assert payloads[0][0] == canonical_name
