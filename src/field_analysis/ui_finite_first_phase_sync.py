@@ -21,6 +21,10 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "source_input_waveform_family": command_profile.get("waveform_type", pd.Series(["triangle"])).iloc[0],
         "target_field_shape": "fixed_rounded_triangle",
         "finite_first_modeling_mode": metadata.get("finite_first_modeling_mode", "phase_synced"),
+        "phase sync 기준": metadata.get("phase_sync_peak_reference"),
+        "phase sync peak polarity": metadata.get("phase_sync_peak_polarity"),
+        "measured peak value mT": metadata.get("measured_peak_value_mT"),
+        "voltage peak value V": metadata.get("voltage_peak_value_v"),
         "phase_delay_s": metadata.get("phase_delay_s"),
         "phase_delay_cycles": metadata.get("phase_delay_cycles"),
         "실측 field peak (mT)": metadata.get("measured_abs_peak_effective_mT"),
@@ -33,11 +37,22 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "phase support status": metadata.get("phase_support_status"),
         "required source end": metadata.get("required_phase_aligned_source_end_s"),
         "actual source end": metadata.get("actual_source_time_end_s"),
+        "phase support margin s": metadata.get("phase_sync_support_margin_s"),
         "active_end_kink_detected": metadata.get("active_end_kink_detected"),
         "target ripple check": metadata.get("target_template_ripple_check_passed"),
         "target linear deviation mT": metadata.get("target_linear_segment_deviation_max_mT"),
     }
     st.dataframe(pd.DataFrame([summary]), use_container_width=True, hide_index=True)
+    with st.expander("target template ripple diagnostic", expanded=False):
+        diagnostic = {
+            "target_template_type": metadata.get("target_template_type"),
+            "target_template_ripple_check_passed": metadata.get("target_template_ripple_check_passed"),
+            "target_linear_segment_deviation_max_mT": metadata.get("target_linear_segment_deviation_max_mT"),
+            "target_peak_positive_mT": metadata.get("target_peak_positive_mT"),
+            "target_peak_negative_mT": metadata.get("target_peak_negative_mT"),
+        }
+        st.dataframe(pd.DataFrame([diagnostic]), use_container_width=True, hide_index=True)
+        st.plotly_chart(_finite_first_target_template_plot(command_profile), use_container_width=True)
     if "measured_field_aligned_mT" not in command_profile.columns:
         st.caption("기존 delay 포함 방식, review only: phase sync trace는 생성하지 않습니다.")
         return
@@ -75,6 +90,19 @@ def _finite_first_residual_plot(command_profile: pd.DataFrame) -> go.Figure:
     _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", "phase-aligned measured field")
     _add_profile_trace(fig, command_profile, "residual_for_modeling_mT", "residual")
     fig.update_layout(template="plotly_white", height=320, title="목표 자기장 vs phase-aligned 실측 자기장", xaxis_title="time_s")
+    return fig
+
+
+def _finite_first_target_template_plot(command_profile: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    _add_profile_trace(fig, command_profile, "physical_target_output_mT", "analytic fixed rounded triangle target")
+    fig.update_layout(
+        template="plotly_white",
+        height=260,
+        title="Target template diagnostic: analytic fixed rounded triangle",
+        xaxis_title="time_s",
+        yaxis_title="mT",
+    )
     return fig
 
 

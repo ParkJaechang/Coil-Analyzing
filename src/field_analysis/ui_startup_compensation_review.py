@@ -12,7 +12,7 @@ def render_startup_compensation_review(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
-    st.markdown("#### Startup Compensation Review")
+    st.markdown("#### startup 과도응답 진단 / Advanced Legacy")
     st.caption(
         "이 섹션은 startup-aware compensation의 실사용자 검토용입니다. "
         "모델링 품질은 사용자 그래프 검수로 판단합니다. Physical Target은 변경되지 않습니다."
@@ -162,7 +162,7 @@ def _render_startup_unavailable_panel(command_profile: pd.DataFrame) -> None:
         "startup_compensation_command_delta_v",
     )
     missing = [field for field in required_fields if field not in command_profile.columns]
-    st.info("Startup compensation data unavailable for this route.")
+    st.info("startup 과도응답 진단 데이터가 이 경로에서는 제공되지 않습니다.")
     st.caption(
         "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다. "
         "finite-cycle field compensation에서 사용할 수 있습니다."

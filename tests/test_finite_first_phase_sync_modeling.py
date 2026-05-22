@@ -116,6 +116,65 @@ def test_finite_first_phase_sync_blocks_when_active_end_support_missing() -> Non
     assert result["residual_for_modeling_mT"].isna().any()
 
 
+def test_finite_first_phase_sync_uses_dominant_negative_peak_and_requires_tail_support() -> None:
+    active_duration = 1.0
+    delay_s = 0.09
+    time_s = np.linspace(0.0, active_duration + delay_s + 0.05, 520, endpoint=False)
+    phase = 2.0 * np.pi * time_s
+    voltage = 2.5 * np.sin(phase)
+    measured = 35.0 * np.sin(2.0 * np.pi * (time_s - delay_s))
+    measured += -22.0 * np.exp(-((time_s - (0.75 + delay_s)) / 0.035) ** 2)
+    target = 50.0 * np.sin(phase)
+    profile = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "limited_voltage_v": voltage,
+            "recommended_voltage_v": voltage,
+            "physical_target_output_mT": target,
+            "finite_first_actual_measured_field_mT": measured,
+        }
+    )
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["phase_sync_peak_reference"] == "dominant_absolute_peak"
+    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert float(metadata["measured_first_peak_time_s"]) > 0.75
+    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.75, abs=0.02)
+    assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
+    assert metadata["active_residual_finite_through_end"] is True
+    assert metadata["active_residual_finite_ratio"] == pytest.approx(1.0)
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
+def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support_missing() -> None:
+    active_duration = 1.0
+    delay_s = 0.09
+    time_s = np.linspace(0.0, active_duration, 420, endpoint=False)
+    phase = 2.0 * np.pi * time_s
+    voltage = 2.5 * np.sin(phase)
+    measured = 35.0 * np.sin(2.0 * np.pi * (time_s - delay_s))
+    measured += -22.0 * np.exp(-((time_s - (0.75 + delay_s)) / 0.035) ** 2)
+    profile = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "limited_voltage_v": voltage,
+            "recommended_voltage_v": voltage,
+            "physical_target_output_mT": 50.0 * np.sin(phase),
+            "finite_first_actual_measured_field_mT": measured,
+        }
+    )
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["phase_sync_peak_reference"] == "dominant_absolute_peak"
+    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert metadata["finite_first_modeling_status"] == "insufficient_phase_sync_support"
+    assert metadata["phase_support_status"] == "insufficient"
+    assert metadata["active_residual_finite_through_end"] is False
+    assert result["residual_for_modeling_mT"].isna().any()
+
+
 def test_finite_first_legacy_delay_preserving_is_review_only() -> None:
     result, metadata = apply_finite_first_phase_sync_modeling(
         _finite_profile(),

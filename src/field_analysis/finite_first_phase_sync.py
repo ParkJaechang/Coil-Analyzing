@@ -97,14 +97,24 @@ def apply_finite_first_phase_sync_modeling(
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
     )
-    voltage_peak_time = _first_positive_peak_time(time_s, base_voltage, active_mask)
-    measured_peak_time = _first_positive_peak_time(time_s, smoothed, active_mask)
+    measured_peak_time, measured_peak_polarity, measured_peak_value = _dominant_peak_time(
+        time_s,
+        smoothed,
+        active_mask,
+    )
+    voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _dominant_peak_time(
+        time_s,
+        base_voltage,
+        active_mask,
+        preferred_polarity=measured_peak_polarity,
+    )
     phase_delay_s = 0.0
     alignment_status = "peak_detection_failed"
     if voltage_peak_time is not None and measured_peak_time is not None:
         phase_delay_s = float(measured_peak_time - voltage_peak_time)
         alignment_status = "ok"
-    required_end = active_end_s + max(phase_delay_s, 0.0)
+    support_margin_s = _phase_support_margin_s(time_s)
+    required_end = active_end_s + max(phase_delay_s, 0.0) + support_margin_s
     source_end = float(np.nanmax(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else float("nan")
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     aligned = _interp(time_s, smoothed, time_s + phase_delay_s)
@@ -139,6 +149,15 @@ def apply_finite_first_phase_sync_modeling(
             "required_phase_aligned_source_end_s": required_end,
             "actual_source_time_end_s": source_end,
             "phase_support_status": "insufficient",
+            "phase_sync_peak_reference": "dominant_absolute_peak",
+            "phase_sync_peak_polarity": measured_peak_polarity,
+            "voltage_first_peak_time_s": voltage_peak_time,
+            "measured_first_peak_time_s": measured_peak_time,
+            "voltage_peak_value_v": voltage_peak_value,
+            "measured_peak_value_mT": measured_peak_value,
+            "phase_delay_s": phase_delay_s,
+            "phase_delay_cycles": phase_delay_s * float(freq_hz),
+            "phase_sync_support_margin_s": support_margin_s,
             "active_residual_finite_through_end": False,
             "active_residual_finite_ratio": invalid_ratio,
             "active_end_kink_detected": True,
@@ -229,8 +248,13 @@ def apply_finite_first_phase_sync_modeling(
         "phase_kernel_reference_as_measured_allowed": False,
         "phase_sync_enabled": True,
         "phase_sync_method": "field_peak_to_voltage_peak",
+        "phase_sync_peak_reference": "dominant_absolute_peak",
+        "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,
         "measured_first_peak_time_s": measured_peak_time,
+        "voltage_peak_polarity": voltage_peak_polarity,
+        "voltage_peak_value_v": voltage_peak_value,
+        "measured_peak_value_mT": measured_peak_value,
         "phase_delay_s": phase_delay_s,
         "phase_delay_cycles": phase_delay_s * float(freq_hz),
         "residual_for_modeling_source": "phase_aligned_measured",
@@ -239,7 +263,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_actual_source_end_s": source_end,
         "phase_sync_support_status": "ok" if support_ok else "insufficient",
         "measured_alignment_source": "native_smoothed_source",
-        "phase_sync_support_margin_s": 0.0,
+        "phase_sync_support_margin_s": support_margin_s,
         **measured_norm_meta,
         "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
         "residual_gain_field_scale_applied": True,
@@ -383,23 +407,49 @@ def _first_text_value(frame: pd.DataFrame, column: str) -> str | None:
     return str(series.iloc[0])
 
 
-def _first_positive_peak_time(time_s: np.ndarray, values: np.ndarray, active_mask: np.ndarray) -> float | None:
+def _dominant_peak_time(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    preferred_polarity: str | None = None,
+) -> tuple[float | None, str | None, float | None]:
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(time_s) & np.isfinite(values)
     if active.sum() < 3:
-        return None
+        return None, None, None
     indices = np.flatnonzero(active)
     local = np.asarray(values, dtype=float)[indices]
-    peak_candidates: list[int] = []
+    peak_candidates: list[tuple[int, float]] = []
     for local_index in range(1, len(local) - 1):
-        if local[local_index] > 0.0 and local[local_index] >= local[local_index - 1] and local[local_index] >= local[local_index + 1]:
-            peak_candidates.append(local_index)
-    if peak_candidates:
-        peak_index = int(indices[peak_candidates[0]])
-    else:
-        positive = np.flatnonzero(local > 0.0)
-        selected = int(positive[int(np.nanargmax(local[positive]))]) if positive.size else int(np.nanargmax(local))
-        peak_index = int(indices[selected])
-    return float(np.asarray(time_s, dtype=float)[peak_index])
+        value = float(local[local_index])
+        is_max = value >= float(local[local_index - 1]) and value >= float(local[local_index + 1])
+        is_min = value <= float(local[local_index - 1]) and value <= float(local[local_index + 1])
+        if is_max or is_min:
+            peak_candidates.append((local_index, value))
+    if not peak_candidates:
+        selected = int(np.nanargmax(np.abs(local)))
+        peak_candidates = [(selected, float(local[selected]))]
+    if preferred_polarity in {"positive", "negative"}:
+        preferred_sign = 1.0 if preferred_polarity == "positive" else -1.0
+        same_polarity = [(idx, value) for idx, value in peak_candidates if np.sign(value) == preferred_sign]
+        if same_polarity:
+            peak_candidates = same_polarity
+    selected_index, selected_value = max(peak_candidates, key=lambda item: abs(float(item[1])))
+    peak_index = int(indices[int(selected_index)])
+    polarity = "positive" if float(selected_value) >= 0.0 else "negative"
+    return float(np.asarray(time_s, dtype=float)[peak_index]), polarity, float(selected_value)
+
+
+def _phase_support_margin_s(time_s: np.ndarray) -> float:
+    finite = np.asarray(time_s, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < 3:
+        return 0.0
+    diffs = np.diff(np.sort(finite))
+    diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
+    if diffs.size == 0:
+        return 0.0
+    return float(2.0 * np.nanmedian(diffs))
 
 
 def _interp(source_time: np.ndarray, source_values: np.ndarray, target_time: np.ndarray) -> np.ndarray:

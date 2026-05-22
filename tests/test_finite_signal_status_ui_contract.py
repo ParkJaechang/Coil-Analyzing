@@ -14,7 +14,8 @@ def _source() -> str:
 def test_finite_signal_consistency_status_markers_are_rendered() -> None:
     source = _source()
 
-    assert "Finite Signal Consistency" in source
+    assert "finite 신호 일관성 / Debug" in source
+    assert "Finite Signal Consistency" not in source
     assert "finite_signal_consistency_status" in source
     assert "command_covers_target_end" in source
     assert "predicted_covers_target_end" in source

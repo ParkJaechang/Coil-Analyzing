@@ -31,3 +31,18 @@ Observed startup/runtime checks:
 - `Support Reference Provenance`: absent
 - `Command Prediction Consistency`: absent
 - Legacy hardware terms remain only inside collapsed `Advanced / Legacy` diagnostics.
+
+## Follow-up Evidence At `52dce561cf85c071b80ec2244bd96b1041b28e70`
+
+The user runtime screenshot after the previous cleanup still showed finite first phase sync using the wrong alignment reference and cutting the aligned measured trace near the active end. The follow-up fix changes finite first phase sync from "first positive peak" to "dominant absolute peak with polarity"; if the measured dominant peak is negative, the voltage negative peak is used as the sync reference.
+
+| item | expected | current result | status | evidence |
+|---|---|---|---|---|
+| Legacy DAQ/AMP/extrapolation copy | Not default-visible in Quick LUT main flow. | Exact prohibited labels are removed from default labels; remaining calibration controls are under collapsed `Advanced / Legacy` diagnostics and explicitly marked legacy. | PASS | `tests/test_target_semantics_ui_contract.py`, runtime text capture `outputs/runtime_evidence/pr61_runtime_text_8504.txt` |
+| Startup Compensation Review policy | Not part of default production workflow. | Kept only as Advanced/Legacy diagnostic and renamed `startup 과도응답 진단 / Advanced Legacy`. | PASS | `docs/pr61_acceptance_inventory.md`, `tests/test_startup_compensation_ui_contract.py` |
+| Support/Provenance/Consistency | Korean summary in main flow; verbose internals Debug-only. | English main heading `Finite Signal Consistency` removed; debug heading is localized. | PASS | `tests/test_finite_signal_status_ui_contract.py` |
+| Finite phase sync peak reference | Align by dominant peak, including negative peak. | Synthetic runtime-path evidence uses `phase_sync_peak_polarity=negative`, voltage negative peak at `0.7498s`, measured negative peak at `0.8397s`. | PASS | `outputs/runtime_evidence/pr61_phase_sync_negative_peak_evidence.json` |
+| Finite active-end support | Aligned measured/residual finite through active end; no silent zero-fill. | `required_phase_aligned_source_end_s=1.0943`, `actual_source_time_end_s=1.1378`, `active_residual_finite_ratio=1.0`, `active_end_kink_detected=false`. | PASS | `outputs/runtime_evidence/pr61_phase_sync_negative_peak_evidence.json` |
+| Target template quality | Analytic fixed rounded triangle and ripple check available. | Source-level quality tests pass; runtime target template diagnostic is exposed in finite first review expander. | PASS | `tests/test_target_template_quality.py`, `ui_finite_first_phase_sync.py` |
+
+Headless Selenium could capture the app shell on `8504`, but it starts a fresh Streamlit browser session and did not inherit the user's loaded modeling panel state. User-launched runtime review is still required for the exact screenshot path after the pushed fix.

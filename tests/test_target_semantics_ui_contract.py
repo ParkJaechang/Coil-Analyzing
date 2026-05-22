@@ -32,6 +32,12 @@ def test_plot_semantics_explanation_separates_target_from_support() -> None:
     assert "100pp fixed" not in source
     assert "목표 bz_mT PP" not in source
     assert "Target metric fixed" not in source
+    assert "DAQ 최대 Voltage PP" not in source
+    assert "DC AMP gain" not in source
+    assert "AMP output" not in source
+    assert "필요 AMP Gain" not in source
+    assert "target extrapolation" not in source
+    assert "실험 범위 밖 target extrapolation" not in source
     assert "Advanced / Debug plot references" in source
     assert "이것은 physical target이 아닙니다." in source
 

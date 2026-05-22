@@ -333,10 +333,10 @@ def _run_app_shell(
         default_support_amp_gain_pct = 100.0
         allow_target_extrapolation = True
         with st.expander("Advanced / Legacy hardware calibration", expanded=False):
-            st.caption("현재 Quick LUT 기본 workflow는 정규화 기반 command를 사용합니다. 장비 gain/DAQ 값은 legacy calibration 진단용입니다.")
+            st.caption("현재 Quick LUT 기본 workflow는 정규화 기반 command를 사용합니다. 이 영역은 현재 모델링 의미와 무관한 legacy calibration diagnostic입니다.")
             max_daq_voltage_pp = float(
                 st.number_input(
-                    "DAQ 최대 Voltage PP (V)",
+                    "Legacy voltage limit PP (V)",
                     min_value=0.1,
                     value=20.0,
                     step=1.0,
@@ -344,7 +344,7 @@ def _run_app_shell(
             )
             amp_gain_at_100_pct = float(
                 st.number_input(
-                    "DC AMP gain @100% (x)",
+                    "Legacy amplifier gain @100% (x)",
                     min_value=0.1,
                     value=20.0,
                     step=0.5,
@@ -352,7 +352,7 @@ def _run_app_shell(
             )
             amp_max_output_pk_v = float(
                 st.number_input(
-                    "DC AMP 최대 출력 (±V)",
+                    "Legacy amplifier max output (±V)",
                     min_value=1.0,
                     value=180.0,
                     step=10.0,
@@ -360,7 +360,7 @@ def _run_app_shell(
             )
             amp_gain_limit_pct = float(
                 st.number_input(
-                    "사용 가능 AMP gain 상한 (%)",
+                    "Legacy gain upper bound (%)",
                     min_value=1.0,
                     max_value=100.0,
                     value=100.0,
@@ -369,18 +369,18 @@ def _run_app_shell(
             )
             default_support_amp_gain_pct = float(
                 st.number_input(
-                    "데이터 기준 AMP gain (%)",
+                    "Legacy data gain reference (%)",
                     min_value=1.0,
                     max_value=100.0,
                     value=100.0,
                     step=5.0,
-                    help="파일에 amp_gain_setting이 없을 때 기준값으로 사용합니다.",
+                    help="legacy calibration metadata가 없을 때만 쓰는 진단 기준값입니다.",
                 )
             )
             allow_target_extrapolation = st.checkbox(
-                "실험 범위 밖 target extrapolation 허용",
+                "Legacy support-range outside calculation 허용",
                 value=True,
-                help="실험 support 범위를 넘어도 하드웨어 headroom을 고려해 전압을 외삽합니다.",
+                help="legacy scalar LUT 진단에서만 지원 범위 밖 계산을 허용합니다.",
             )
 
         with st.expander("고급 설정", expanded=usage_mode == "전체 분석"):
@@ -1467,7 +1467,7 @@ def _resolve_compensation_plot_reference(
         return (
             command_profile,
             "support_reference_output_mT",
-            "Support Reference",
+            "support reference",
             "support reference payload",
             _plot_reference_pp(command_profile, "support_reference_output_mT"),
         )
@@ -1488,7 +1488,7 @@ def _resolve_compensation_plot_reference(
             ),
         )
         if support_column is not None:
-            label = "Support Reference" if support_column == "support_reference_output_mT" else "Support-Blended Preview"
+            label = "support reference" if support_column == "support_reference_output_mT" else "support preview"
             return (
                 support_profile_preview,
                 support_column,
@@ -1514,7 +1514,7 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile_preview,
                 nearest_preview_column,
-                "Nearest Support Reference",
+                "nearest support reference",
                 "nearest support preview",
                 _plot_reference_pp(nearest_profile_preview, nearest_preview_column),
             )
@@ -1536,12 +1536,12 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile,
                 nearest_column,
-                "Nearest Support Reference",
+                "nearest support reference",
                 "nearest support output",
                 _plot_reference_pp(nearest_profile, nearest_column),
             )
 
-    return None, "measured_field_mT", "Nearest Support Reference", "none", float("nan")
+    return None, "measured_field_mT", "nearest support reference", "none", float("nan")
 
 
 def _finite_signal_value(
@@ -1707,7 +1707,7 @@ def _render_finite_signal_consistency_summary(
     ) or "unavailable"
     status_tokens = {token.strip() for token in status.split("|") if token.strip()}
 
-    st.markdown("#### Finite Signal Consistency")
+    st.markdown("#### finite 신호 일관성 / Debug")
     if "time_axis_mismatch" in status_tokens:
         st.error(f"finite_signal_consistency_status={status}")
     elif "command_metadata_mismatch" in status_tokens:
@@ -2741,21 +2741,22 @@ def _render_quick_lut_tab_v2(
             st.caption("목표 자기장 개형: fixed rounded triangle. 목표 피크값과 내부 정규화 기준은 분리되어 표시됩니다.")
             with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
                 c1, c2, c3 = st.columns(3)
-                c1.metric("DAQ Voltage PP", f"{limited_voltage_pp:.3f} V")
-                c2.metric("필요 AMP Gain", f"{required_gain_pct:.1f} %")
-                c3.metric("AMP output", f"{amp_output_pp:.1f} Vpp")
+                st.caption("현재 모델링 의미와 무관한 legacy calibration diagnostic입니다.")
+                c1.metric("Legacy voltage PP", f"{limited_voltage_pp:.3f} V")
+                c2.metric("Legacy required gain", f"{required_gain_pct:.1f} %")
+                c3.metric("Legacy amplifier output", f"{amp_output_pp:.1f} Vpp")
                 st.caption(
                     f"raw recommended voltage pp={recommended_voltage_pp:.3f} V, "
-                    f"DAQ limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
-                    f"AMP output={amp_output_pp:.1f} Vpp"
+                    f"legacy voltage limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
+                    f"legacy amplifier output={amp_output_pp:.1f} Vpp"
                 )
                 if compensation["within_hardware_limits"]:
                     st.success(
-                        f"Hardware reference ok: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                        f"Legacy calibration reference ok: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
                     )
                 else:
                     st.warning(
-                        f"Hardware reference exceeds limit: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                        f"Legacy calibration reference exceeds limit: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
                     )
 
             comp_left, comp_right = st.columns(2)
@@ -2807,7 +2808,7 @@ def _render_quick_lut_tab_v2(
                         "reference를 제공할 때 legend-only trace로만 표시됩니다. 이것은 physical target이 아닙니다."
                     )
                     st.caption(
-                        "Legacy provenance labels such as Physical Target / Support Reference / Predicted Output are kept here only for debugging."
+                        "Legacy provenance labels are kept here only for debugging."
                     )
                 with st.expander("데이터 선택 상세 / Debug", expanded=False):
                     _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
@@ -2838,7 +2839,7 @@ def _render_quick_lut_tab_v2(
             with st.expander("데이터 선택 상세 / Debug", expanded=False):
                 st.write(f"- mode: `{compensation['mode']}`")
                 st.write(f"- current axis: `{current_channel}`")
-                st.write(f"- target output type: `{compensation['target_output_type']}`")
+                st.write(f"- legacy target metric type: `{compensation['target_output_type']}`")
                 st.write(f"- finite cycle mode: `{compensation['finite_cycle_mode']}`")
                 if compensation["finite_cycle_mode"]:
                     st.write(f"- active cycle count: `{compensation['target_cycle_count']:.2f}`")
@@ -3084,13 +3085,13 @@ def _render_quick_lut_tab_v2(
         with st.expander("Advanced / Legacy equipment diagnostics", expanded=False):
             st.caption(
                 f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
-                f"DAQ limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
-                f"AMP output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
+                f"legacy voltage limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
+                f"legacy amplifier output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
             )
             if recommendation["within_hardware_limits"]:
-                st.info("Equipment note: the recommended voltage stays within current DAQ / AMP limits.")
+                st.info("Legacy equipment note: the recommended voltage stays within legacy calibration limits.")
             else:
-                st.warning("Equipment note: the recommended voltage exceeds current DAQ / AMP limits.")
+                st.warning("Legacy equipment note: the recommended voltage exceeds legacy calibration limits.")
             _render_lut_equipment_debug(recommendation)
 
         lut_left, lut_right = st.columns(2)

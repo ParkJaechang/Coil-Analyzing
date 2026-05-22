@@ -15,11 +15,11 @@ def _source() -> str:
 def test_startup_compensation_review_section_markers_exist() -> None:
     source = _source()
 
-    assert "Startup Compensation Review" in source
+    assert "startup 과도응답 진단 / Advanced Legacy" in source
     assert "startup-aware compensation의 실사용자 검토용" in source
     assert "모델링 품질은 사용자 그래프 검수로 판단합니다" in source
     assert "Physical Target은 변경되지 않습니다" in source
-    assert "Startup compensation data unavailable for this route." in source
+    assert "startup 과도응답 진단 데이터가 이 경로에서는 제공되지 않습니다." in source
     assert "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다" in source
     assert "finite-cycle field compensation에서 사용할 수 있습니다" in source
     assert "Missing backend fields:" in source
