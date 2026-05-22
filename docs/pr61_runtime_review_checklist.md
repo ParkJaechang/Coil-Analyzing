@@ -4,7 +4,7 @@ PR management document for user-launched runtime review. This file is intended t
 
 - PR: [#61](https://github.com/ParkJaechang/Coil-Analyzing/pull/61)
 - Branch: `codex/finite-feedback-cycle-policy-backend`
-- Baseline checked before docs update: `a5c72dc92d954cf0ff074e9e5100811553874846`
+- Baseline checked: `4e8c250d9f9dbfe4978ebb192d56c9b8ffb06bd0`
 - Rule: PR Manager does not decide model/graph quality. User runtime review decides acceptance.
 
 ## Before launching
@@ -28,15 +28,15 @@ git rev-parse HEAD
 .\launch_quick_lut_local.cmd
 ```
 
-## 1. Quick LUT default UI
+## 1. Quick LUT default UI cleanup
 
 Check:
 
 - Quick LUT is the primary default tab.
-- Raw Waveforms, LUT Review, Data / Cache Status are primary tabs.
-- Advanced / Debug tabs are hidden unless explicitly enabled.
-- Sidebar legacy uploaders are not dominating the default workflow.
-- If sidebar uploaders are visible, record which ones:
+- Raw Waveforms, LUT Review, and Data / Cache Status remain easy to reach.
+- Advanced / Debug content is not mixed into the main user flow.
+- Sidebar legacy uploaders do not dominate the default workflow.
+- Hardware/legacy wording (`DAQ`, `AMP`, `gain`, `extrapolation`) is not shown as core modeling semantics.
 
 Result:
 
@@ -51,30 +51,43 @@ Check:
 - Target peak field and internal normalization are separate concepts.
 - Field review/modeling normalization is +/-50mT.
 - Command voltage limit/export basis is +/-5V.
-- No user-facing `100mT pp fixed`, `100pp fixed`, or equivalent old wording remains.
-- If `fixed 100pp` or DAQ/AMP/gain/extrapolation language appears in the main flow, record location.
+- No user-facing `100mT pp fixed`, `100pp fixed`, `100pp`, or `목표 bz_mT PP` wording appears.
+- If stale old wording appears, record exact tab/section/text.
 
 Result:
 
 - PASS / PARTIAL / FAIL:
 - Notes:
 
-## 3. Finite first modeling
+## 3. Rounded triangle target template
+
+Check:
+
+- Target line segments look ideal and not support-data-rippled.
+- The target template does not inherit measurement noise/ripple.
+- User visual judgment decides whether the target graph is acceptable.
+
+Result:
+
+- PASS / PARTIAL / FAIL:
+- Notes:
+
+## 4. Finite first modeling command plot
 
 Run:
 
 - Mode: finite startup-aware
 - Frequency: 1Hz
 - Cycle: 1.0
-- Apply Quick LUT settings.
 - Run first modeling.
 - Repeat for cycle 1.5.
 
 Check:
 
 - Selected frequency/cycle remain unchanged after modeling.
-- First command main plot shows the final first modeling command clearly.
-- Diagnostic traces are in expanders, not the main graph.
+- Main command plot shows the final first modeled command only.
+- Second/final command plots do not overwrite the first modeling section.
+- Diagnostic traces and internal metadata are under expanders.
 - Phase sync panel shows actual measured source, measured peak, scale-to-50mT, gain/headroom/clipping metadata.
 - Phase-aligned residual remains finite through active end.
 
@@ -84,7 +97,7 @@ Result:
 - 1Hz / 1.5 PASS / PARTIAL / FAIL:
 - Notes:
 
-## 4. Finite second modeling and tail policy
+## 5. Finite second modeling and tail policy
 
 Run:
 
@@ -97,16 +110,44 @@ Check:
 - Manual upload is secondary/legacy, not the main path.
 - 1.0 and 1.5 are production-supported.
 - 1.25, 1.75, and 2.0 are review-only or blocked for production correction/export.
-- Tail mode is clear: auto/on/off or finite-time zero-return policy as intended.
-- Tail threshold text is understandable.
 - Final export source clearly distinguishes first vs second command.
+- Exported CSV columns are exactly `sample_index,time_s,voltage_v`.
 
 Result:
 
 - PASS / PARTIAL / FAIL:
 - Notes:
 
-## 5. Continuous steady-state workflow
+## 6. Support / Provenance / Consistency UI
+
+Check:
+
+- Main screen uses Korean summary text.
+- Internal source/provenance/consistency rows are in Advanced or Debug expanders.
+- Support Reference is not presented as command target.
+- User can still inspect details when Advanced/Debug is opened.
+
+Result:
+
+- PASS / PARTIAL / FAIL:
+- Notes:
+
+## 7. Startup Compensation Review disposition
+
+Check one of the following is true:
+
+- Kept only as Advanced diagnostics.
+- Merged into residual/second modeling review.
+- Hidden from the default user flow.
+- Removed from this workflow.
+
+Record:
+
+- Current disposition:
+- PASS / PARTIAL / FAIL:
+- Notes:
+
+## 8. Continuous steady-state workflow
 
 Run:
 
@@ -130,45 +171,32 @@ Result:
 - PASS / PARTIAL / FAIL:
 - Notes:
 
-## 6. Continuous final LUT export
+## 9. Continuous final LUT export
 
 Check:
 
-- `Continuous 최종 전압 LUT 추출` section appears after continuous result exists.
+- Continuous final voltage LUT export section appears after continuous result exists.
 - First result export option appears when first command exists.
 - Second result export is unavailable until second command exists.
-- If second command exists, second export uses `second_limited_voltage_v`.
-- Export filename includes `continuous`, `first` or `second`, frequency, `1cycle`, and `loop`.
+- If second command exists, second export uses the explicit second command source.
+- Export filename includes continuous, first or second, frequency, 1cycle, and loop-safe intent.
 - Exported CSV columns are exactly `sample_index,time_s,voltage_v`.
-- Export is loop-safe period-exclusive 1cycle.
 
 Result:
 
 - PASS / PARTIAL / FAIL:
 - Notes:
 
-## 7. LUT Review
-
-Check:
-
-- Final exported LUT can be loaded into LUT Review.
-- LUT Review shows time/voltage plots only after button action.
-- Time axis is monotonic and not misinterpreted as milliseconds.
-- Cache edit/delete works per uploaded LUT item.
-
-Result:
-
-- PASS / PARTIAL / FAIL:
-- Notes:
-
-## 8. Evidence to attach to PR
+## 10. Evidence to attach to PR
 
 Attach or summarize:
 
 - Runtime branch/head SHA:
 - Quick LUT default screen notes:
+- Target semantics notes:
 - Finite 1Hz 1.0 result notes:
 - Finite 1Hz 1.5 result notes:
+- Phase sync residual/scale metadata notes:
 - Continuous extraction/modeling notes:
 - Continuous final LUT export notes:
 - Any screenshot paths if the user chooses to share them:
