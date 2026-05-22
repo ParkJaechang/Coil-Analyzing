@@ -23,7 +23,10 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "finite_first_modeling_mode": metadata.get("finite_first_modeling_mode", "phase_synced"),
         "phase_delay_s": metadata.get("phase_delay_s"),
         "phase_delay_cycles": metadata.get("phase_delay_cycles"),
+        "measured peak mT": metadata.get("measured_abs_peak_effective_mT"),
+        "scale to ±50mT": metadata.get("measured_field_scale_to_50mT"),
         "correction_gain": metadata.get("correction_gain_used"),
+        "voltage_headroom_v": metadata.get("voltage_headroom_v"),
         "clipping_fraction": metadata.get("clipping_fraction"),
     }
     st.dataframe(pd.DataFrame([summary]), use_container_width=True, hide_index=True)
@@ -33,6 +36,8 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
     st.plotly_chart(_finite_first_phase_sync_plot(command_profile, metadata), use_container_width=True)
     st.plotly_chart(_finite_first_residual_plot(command_profile), use_container_width=True)
     st.plotly_chart(_finite_first_command_plot(command_profile), use_container_width=True)
+    with st.expander("1차 command diagnostic traces", expanded=False):
+        st.plotly_chart(_finite_first_command_plot(command_profile, diagnostics=True), use_container_width=True)
 
 
 def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[str, object]) -> go.Figure:
@@ -64,12 +69,17 @@ def _finite_first_residual_plot(command_profile: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _finite_first_command_plot(command_profile: pd.DataFrame) -> go.Figure:
+def _finite_first_command_plot(command_profile: pd.DataFrame, *, diagnostics: bool = False) -> go.Figure:
     fig = go.Figure()
-    _add_profile_trace(fig, command_profile, "finite_first_base_voltage_v", "source/base voltage")
-    _add_profile_trace(fig, command_profile, "correction_delta_v", "correction_delta_v")
-    _add_profile_trace(fig, command_profile, "limited_voltage_v", "final/limited voltage")
-    fig.update_layout(template="plotly_white", height=320, title="Finite 1차 modeling command", xaxis_title="time_s")
+    if diagnostics:
+        _add_profile_trace(fig, command_profile, "finite_first_base_voltage_v", "source/base voltage")
+        _add_profile_trace(fig, command_profile, "correction_delta_v", "correction_delta_v")
+        _add_profile_trace(fig, command_profile, "limited_voltage_v", "limited_voltage_v")
+        title = "Finite 1차 command diagnostics"
+    else:
+        _add_profile_trace(fig, command_profile, "limited_voltage_v", "1차 모델링 command")
+        title = "1차 모델링 command"
+    fig.update_layout(template="plotly_white", height=320, title=title, xaxis_title="time_s")
     return fig
 
 

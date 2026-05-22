@@ -83,7 +83,11 @@ def apply_finite_first_phase_sync_modeling(
         }
     target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
     measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
-    measured, measured_source_type, raw_hallbz_available = _coerce_measured_field(measured_raw, measured_column, active_mask)
+    measured, measured_source_type, raw_hallbz_available, measured_norm_meta = _coerce_measured_field(
+        measured_raw,
+        measured_column,
+        active_mask,
+    )
     base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
     smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
         time_s,
@@ -220,13 +224,18 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_support_status": "ok" if support_ok else "insufficient",
         "measured_alignment_source": "native_smoothed_source",
         "phase_sync_support_margin_s": 0.0,
+        **measured_norm_meta,
+        "residual_gain_field_scale_applied": True,
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
         "final_voltage_limit_v": float(voltage_limit_v),
+        "voltage_headroom_v": max(float(voltage_limit_v) - _peak_abs(base_voltage), 0.0),
         "correction_delta_peak_v": _peak_abs(correction_delta),
         "clipping_fraction": float(np.mean(np.abs(modeled) > float(voltage_limit_v) + 1e-12)) if len(modeled) else 0.0,
         "clipping_status": "warning" if np.any(np.abs(modeled) > float(voltage_limit_v) + 1e-12) else "ok",
+        "active_residual_finite_through_end": bool(np.isfinite(residual[active_mask]).all()) if np.any(active_mask) else False,
+        "nonfinite_active_residual_policy": "block_or_warning",
     }
     return output_frame, metadata
 
@@ -254,16 +263,45 @@ def _has_reference_like_field(frame: pd.DataFrame) -> bool:
     )
 
 
-def _coerce_measured_field(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool]:
+def _coerce_measured_field(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool, dict[str, Any]]:
     raw = np.asarray(values, dtype=float)
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
     if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
         effective = -raw
-        baseline = float(np.nanmedian(effective[np.asarray(active_mask, dtype=bool) & np.isfinite(effective)])) if np.any(np.asarray(active_mask, dtype=bool) & np.isfinite(effective)) else 0.0
+        active_effective = np.asarray(active_mask, dtype=bool) & np.isfinite(effective)
+        baseline = float(np.nanmedian(effective[active_effective])) if np.any(active_effective) else 0.0
         centered = effective - baseline
-        peak = float(np.nanmax(np.abs(centered[np.asarray(active_mask, dtype=bool) & np.isfinite(centered)]))) if np.any(np.asarray(active_mask, dtype=bool) & np.isfinite(centered)) else 0.0
-        normalized = centered * (50.0 / peak) if peak > 1e-12 else centered
-        return normalized, "raw_hallbz_effective_normalized", True
-    return raw, "actual_measured_field", False
+        centered_active = np.asarray(active_mask, dtype=bool) & np.isfinite(centered)
+        peak = float(np.nanmax(np.abs(centered[centered_active]))) if np.any(centered_active) else 0.0
+        scale = 50.0 / peak if peak > 1e-12 else 1.0
+        normalized = centered * scale
+        return normalized, "raw_hallbz_effective_normalized", True, _measured_normalization_metadata(
+            raw_peak=_peak_abs(raw[active]) if np.any(active) else 0.0,
+            effective_peak=peak,
+            scale=scale,
+            status="ok" if peak > 1e-12 else "zero_peak",
+        )
+    baseline = float(np.nanmedian(raw[active])) if np.any(active) else 0.0
+    centered = raw - baseline
+    centered_active = np.asarray(active_mask, dtype=bool) & np.isfinite(centered)
+    peak = float(np.nanmax(np.abs(centered[centered_active]))) if np.any(centered_active) else 0.0
+    scale = 50.0 / peak if peak > 1e-12 else 1.0
+    normalized = centered * scale
+    return normalized, "actual_measured_field_normalized", False, _measured_normalization_metadata(
+        raw_peak=_peak_abs(raw[active]) if np.any(active) else 0.0,
+        effective_peak=peak,
+        scale=scale,
+        status="ok" if peak > 1e-12 else "zero_peak",
+    )
+
+
+def _measured_normalization_metadata(*, raw_peak: float, effective_peak: float, scale: float, status: str) -> dict[str, Any]:
+    return {
+        "measured_abs_peak_raw_mT": float(raw_peak),
+        "measured_abs_peak_effective_mT": float(effective_peak),
+        "measured_field_scale_to_50mT": float(scale),
+        "measured_field_normalization_status": status,
+    }
 
 
 def _measured_target_identity_metadata(target: np.ndarray, measured: np.ndarray, active_mask: np.ndarray) -> dict[str, Any]:
@@ -281,7 +319,7 @@ def _measured_target_identity_metadata(target: np.ndarray, measured: np.ndarray,
     target_active = np.asarray(target, dtype=float)[active]
     measured_active = np.asarray(measured, dtype=float)[active]
     corr = float(np.corrcoef(target_active, measured_active)[0, 1]) if np.nanstd(target_active) > 0 and np.nanstd(measured_active) > 0 else float("nan")
-    nearly = bool(rmse <= 1e-6 or (np.isfinite(corr) and corr > 0.999999 and rmse <= 0.05))
+    nearly = bool(rmse <= 1e-6 or (np.isfinite(corr) and corr > 0.999 and rmse <= 1.0))
     return {
         "measured_target_nearly_identical_detected": nearly,
         "measured_target_identity_risk": "warning" if nearly else "ok",

@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -54,8 +55,13 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     assert "measured_field_aligned_mT" in result.columns
     assert "residual_for_modeling_mT" in result.columns
     assert "correction_delta_v" in result.columns
+    assert metadata["measured_abs_peak_effective_mT"] == pytest.approx(42.0, rel=0.01)
+    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / 42.0, rel=0.01)
+    assert metadata["residual_gain_field_scale_applied"] is True
+    assert metadata["active_residual_finite_through_end"] is True
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
+    assert np.nanmax(np.abs(result["measured_field_aligned_mT"])) <= 50.0 + 1e-6
 
 
 def test_finite_first_phase_sync_rejects_reference_or_predicted_field_as_measured() -> None:
@@ -140,3 +146,6 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
     assert "피크 싱크 기반, 기본" in source
     assert "기존 delay 포함 방식, review only" in source
     assert "finite_first_modeling_mode_default" in source
+    assert "scale to ±50mT" in source
+    assert "1차 command diagnostic traces" in source
+    assert '"1차 모델링 command"' in source
