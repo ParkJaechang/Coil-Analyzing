@@ -1455,6 +1455,65 @@ def _plot_reference_pp(frame: pd.DataFrame | None, column: str) -> float:
     return _signal_peak_to_peak(frame, column)
 
 
+def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.DataFrame | None:
+    source_time = compensation.get("selected_support_source_time_s")
+    source_field = compensation.get("selected_support_source_mT")
+    if source_time is None or source_field is None:
+        return None
+    time_values = np.asarray(source_time, dtype=float)
+    field_values = np.asarray(source_field, dtype=float)
+    finite = np.isfinite(time_values) & np.isfinite(field_values)
+    if finite.sum() < 3:
+        return None
+    time_values = time_values[finite]
+    field_values = field_values[finite]
+    order = np.argsort(time_values)
+    time_values = time_values[order]
+    field_values = field_values[order]
+
+    # Plot the real measured support beyond target_end.  The target-aligned
+    # support reference remains available as a debug trace only.
+    target_end = first_number(
+        compensation.get("target_end_s")
+        if compensation.get("target_end_s") is not None
+        else compensation.get("target_active_end_s")
+    )
+    nonzero_end = first_number(compensation.get("selected_support_original_nonzero_end_s"))
+    plot_end = nonzero_end if nonzero_end is not None and np.isfinite(nonzero_end) else float(np.nanmax(time_values))
+    if target_end is not None and np.isfinite(target_end):
+        plot_end = max(float(plot_end), float(target_end))
+    plot_end = min(float(plot_end), float(np.nanmax(time_values)))
+    keep = time_values <= plot_end + 1e-12
+    if keep.sum() < 3:
+        keep = np.ones_like(time_values, dtype=bool)
+    time_values = time_values[keep]
+    field_values = field_values[keep]
+
+    baseline = float(np.nanmedian(field_values)) if np.isfinite(field_values).any() else 0.0
+    centered = field_values - baseline
+    window = max(3, min(51, int(len(centered) // 20) * 2 + 1))
+    smoothed = (
+        pd.Series(centered)
+        .rolling(window=window, center=True, min_periods=1)
+        .median()
+        .rolling(window=window, center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+    peak = float(np.nanmax(np.abs(smoothed))) if np.isfinite(smoothed).any() else 0.0
+    scale = 50.0 / peak if peak > 1e-12 else 1.0
+    frame = pd.DataFrame(
+        {
+            "time_s": time_values,
+            "support_reference_native_mT": smoothed * scale,
+        }
+    )
+    frame.attrs["support_reference_plot_timebase"] = "native_measured_source_until_zero_return"
+    frame.attrs["support_reference_native_end_s"] = plot_end
+    frame.attrs["support_reference_native_scale_to_50mT"] = scale
+    return frame
+
+
 def _resolve_compensation_plot_reference(
     compensation: dict[str, object],
 ) -> tuple[pd.DataFrame | None, str, str, str, float]:
@@ -1462,6 +1521,16 @@ def _resolve_compensation_plot_reference(
     # "Support-Blended Output"
     # "Nearest Support Preview"
     # "Nearest Support Output"
+    native_support = _native_support_reference_plot_frame(compensation)
+    if _is_nonempty_frame(native_support):
+        return (
+            native_support,
+            "support_reference_native_mT",
+            "support reference",
+            "native measured support source",
+            _plot_reference_pp(native_support, "support_reference_native_mT"),
+        )
+
     command_profile = compensation.get("command_profile")
     if _is_nonempty_frame(command_profile) and "support_reference_output_mT" in command_profile.columns:
         return (

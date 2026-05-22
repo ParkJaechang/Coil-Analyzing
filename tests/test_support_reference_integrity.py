@@ -13,6 +13,7 @@ if str(TEST_ROOT) not in sys.path:
     sys.path.insert(0, str(TEST_ROOT))
 
 import test_finite_empirical_field_route as finite_fixture
+from field_analysis.app_ui_snapshot import _resolve_compensation_plot_reference
 
 
 def _support_entries() -> list[dict[str, object]]:
@@ -145,6 +146,22 @@ def test_support_reference_uses_motion_start_plus_requested_duration_not_full_re
     assert str(profile["support_reference_timebase_mapping_mode"].iloc[0]) == "active_segment_to_target_window"
     assert bool(profile["source_pre_baseline_excluded_from_reference"].iloc[0]) is True
     assert bool(profile["source_tail_excluded_from_reference"].iloc[0]) is True
+
+
+def test_ui_support_reference_preview_uses_native_source_beyond_target_end() -> None:
+    result = finite_fixture._run_field_compensation(
+        finite_support_entries=[_support_entry_with_prebaseline_and_tail()],
+        waveform_type="sine",
+        freq_hz=3.0,
+        target_cycle_count=1.25,
+    )
+    reference_profile, reference_column, _label, reference_source, _pp = _resolve_compensation_plot_reference(result)
+
+    assert reference_profile is not None
+    assert reference_column == "support_reference_native_mT"
+    assert reference_source == "native measured support source"
+    assert float(reference_profile["time_s"].max()) > float(result["target_active_end_s"])
+    assert float(reference_profile["time_s"].max()) >= float(result["selected_support_original_nonzero_end_s"]) - 1e-9
 
 
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:

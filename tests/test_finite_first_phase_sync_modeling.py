@@ -212,6 +212,40 @@ def test_finite_first_phase_sync_uses_native_support_from_dataframe_attrs() -> N
     assert result["residual_for_modeling_mT"].notna().all()
 
 
+def test_finite_first_phase_sync_maps_target_relative_grid_to_native_source_start() -> None:
+    active_duration = 1.0
+    source_start = 0.4
+    delay_s = 0.08
+    active_time = np.linspace(0.0, active_duration, 420, endpoint=False)
+    support_time = np.linspace(source_start, source_start + active_duration + delay_s + 0.05, 540, endpoint=False)
+    support_rel = support_time - source_start
+    active_phase = 2.0 * np.pi * active_time
+    support_measured = 42.0 * np.sin(2.0 * np.pi * (support_rel - delay_s))
+    active_measured = np.interp(source_start + active_time, support_time, support_measured)
+    profile = pd.DataFrame(
+        {
+            "time_s": active_time,
+            "limited_voltage_v": 2.5 * np.sin(active_phase),
+            "recommended_voltage_v": 2.5 * np.sin(active_phase),
+            "physical_target_output_mT": 50.0 * np.sin(active_phase),
+            "finite_first_actual_measured_field_mT": active_measured,
+            "support_reference_source_window_start_s": source_start,
+        }
+    )
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = support_measured.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["phase_sync_source_active_start_s"] == pytest.approx(source_start)
+    assert metadata["required_phase_aligned_source_end_s"] > source_start + active_duration
+    assert metadata["actual_source_time_end_s"] >= metadata["required_phase_aligned_source_end_s"]
+    assert metadata["active_residual_finite_ratio"] == pytest.approx(1.0)
+    assert result["measured_field_aligned_mT"].notna().all()
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
 def test_finite_first_phase_sync_normalizes_after_smoothing_not_raw_spike() -> None:
     active_duration = 1.0
     delay_s = 0.09

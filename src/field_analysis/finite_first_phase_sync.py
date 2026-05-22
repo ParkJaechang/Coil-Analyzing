@@ -36,8 +36,10 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_modeling_status": "empty_command_profile",
         }
     time_s = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
-    active_end_s = float(cycle_count) / max(float(freq_hz), 1e-12)
-    active_mask = np.isfinite(time_s) & (time_s <= active_end_s + 1e-12)
+    active_duration_s = float(cycle_count) / max(float(freq_hz), 1e-12)
+    output_start_s = float(np.nanmin(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else 0.0
+    output_end_s = output_start_s + active_duration_s
+    active_mask = np.isfinite(time_s) & (time_s >= output_start_s - 1e-12) & (time_s <= output_end_s + 1e-12)
     target_column = _first_existing_column(
         frame,
         ("physical_target_output_mT", "target_field_mT", "target_output", "aligned_target_output"),
@@ -91,10 +93,13 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_measured=measured_raw,
     )
+    source_active_start_s = _source_active_start_s(frame, native_time_s, output_start_s)
+    source_time_for_output = source_active_start_s + (time_s - output_start_s)
+    source_active_end_s = source_active_start_s + active_duration_s
     native_active_mask = (
         np.isfinite(native_time_s)
-        & (native_time_s >= float(np.nanmin(time_s[active_mask])) - 1e-12 if np.any(active_mask) else True)
-        & (native_time_s <= active_end_s + 1e-12)
+        & (native_time_s >= source_active_start_s - 1e-12 if np.any(active_mask) else True)
+        & (native_time_s <= source_active_end_s + 1e-12)
     )
     measured_centered, measured_source_type, raw_hallbz_available, measured_center_meta = _coerce_measured_field_centered(
         native_measured_raw,
@@ -130,16 +135,22 @@ def apply_finite_first_phase_sync_modeling(
         preferred_polarity=measured_peak_polarity,
     )
     phase_delay_s = 0.0
+    measured_peak_plot_time = measured_peak_time
+    measured_peak_source_time = measured_peak_time
     alignment_status = "peak_detection_failed"
     if voltage_peak_time is not None and measured_peak_time is not None:
-        phase_delay_s = float(measured_peak_time - voltage_peak_time)
+        voltage_peak_rel = float(voltage_peak_time - output_start_s)
+        measured_peak_rel = float(measured_peak_time - source_active_start_s)
+        phase_delay_s = float(measured_peak_rel - voltage_peak_rel)
+        measured_peak_plot_time = float(output_start_s + measured_peak_rel)
+        measured_peak_source_time = float(measured_peak_time)
         alignment_status = "ok"
     support_margin_s = _phase_support_margin_s(time_s)
-    required_end = active_end_s + max(phase_delay_s, 0.0) + support_margin_s
+    required_end = source_active_end_s + max(phase_delay_s, 0.0) + support_margin_s
     source_end = float(np.nanmax(native_time_s[np.isfinite(native_time_s)])) if np.isfinite(native_time_s).any() else float("nan")
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
-    smoothed = _interp(native_time_s, native_smoothed, time_s)
-    aligned = _interp(native_time_s, native_smoothed, time_s + phase_delay_s)
+    smoothed = _interp(native_time_s, native_smoothed, source_time_for_output)
+    aligned = _interp(native_time_s, native_smoothed, source_time_for_output + phase_delay_s)
     active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
     if not support_ok or not active_aligned_ok:
         invalid_residual = target - aligned
@@ -178,7 +189,8 @@ def apply_finite_first_phase_sync_modeling(
             "phase_sync_peak_reference": "dominant_absolute_peak",
             "phase_sync_peak_polarity": measured_peak_polarity,
             "voltage_first_peak_time_s": voltage_peak_time,
-            "measured_first_peak_time_s": measured_peak_time,
+            "measured_first_peak_time_s": measured_peak_plot_time,
+            "measured_first_peak_source_time_s": measured_peak_source_time,
             "voltage_peak_value_v": voltage_peak_value,
             "measured_peak_value_mT": measured_peak_value,
             "phase_delay_s": phase_delay_s,
@@ -191,13 +203,15 @@ def apply_finite_first_phase_sync_modeling(
             "phase_kernel_source_data_origin": "finite_lut_measured",
             "phase_kernel_source_validation_status": "insufficient_phase_sync_support",
             "phase_kernel_reference_as_measured_allowed": False,
+            "phase_sync_source_active_start_s": source_active_start_s,
+            "phase_sync_source_active_end_s": source_active_end_s,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
     active_residual_valid = np.asarray(active_mask, dtype=bool) & np.isfinite(residual)
     active_count = int(np.asarray(active_mask, dtype=bool).sum())
     active_residual_finite_ratio = float(active_residual_valid.sum() / active_count) if active_count else 0.0
-    measured_on_output = _interp(native_time_s, native_smoothed, time_s)
+    measured_on_output = _interp(native_time_s, native_smoothed, source_time_for_output)
     identity_meta = _merge_identity_metadata(
         _measured_target_identity_metadata(target, measured_on_output, active_mask),
         _measured_target_identity_metadata(target, aligned, finite_active),
@@ -279,7 +293,8 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_peak_reference": "dominant_absolute_peak",
         "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,
-        "measured_first_peak_time_s": measured_peak_time,
+        "measured_first_peak_time_s": measured_peak_plot_time,
+        "measured_first_peak_source_time_s": measured_peak_source_time,
         "voltage_peak_polarity": voltage_peak_polarity,
         "voltage_peak_value_v": voltage_peak_value,
         "measured_peak_value_mT": measured_peak_value,
@@ -290,6 +305,8 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_required_source_end_s": required_end,
         "phase_sync_actual_source_end_s": source_end,
         "phase_sync_support_status": "ok" if support_ok else "insufficient",
+        "phase_sync_source_active_start_s": source_active_start_s,
+        "phase_sync_source_active_end_s": source_active_end_s,
         "measured_alignment_source": "native_smoothed_source",
         "measurement_support_grid_separate_from_output_grid": measured_alignment_source.startswith("selected_support_source_native"),
         "measurement_support_source": measured_alignment_source,
@@ -531,6 +548,19 @@ def first_numeric(values: pd.Series) -> float | bool | None:
         return bool(values.dropna().iloc[0]) if not values.dropna().empty else None
     numeric = pd.to_numeric(values, errors="coerce").dropna()
     return float(numeric.iloc[0]) if not numeric.empty else None
+
+
+def _source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output_start_s: float) -> float:
+    for column in ("support_reference_source_window_start_s", "selected_support_source_window_start_s"):
+        if column in frame.columns:
+            value = first_numeric(frame[column])
+            if isinstance(value, (int, float)) and np.isfinite(float(value)):
+                return float(value)
+    finite = np.asarray(native_time_s, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size:
+        return float(np.nanmin(finite))
+    return float(output_start_s)
 
 
 def _active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_mask: np.ndarray) -> bool:
