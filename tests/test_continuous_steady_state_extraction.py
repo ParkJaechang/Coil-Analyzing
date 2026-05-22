@@ -309,6 +309,7 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
 
     command, metadata = build_continuous_phase_aligned_command_profile(
         case["steady_state_one_cycle_frame"],
+        support_frame=case["steady_state_support_frame"],
         freq_hz=2.0,
         waveform_type="sine",
     )
@@ -438,6 +439,73 @@ def test_continuous_phase_alignment_uses_voltage_peak_reference() -> None:
     assert abs(float(metadata["continuous_phase_delay_s"]) - delay_s) < 0.03
     assert abs(float(metadata["measured_aligned_first_peak_time_s"]) - float(metadata["voltage_first_peak_time_s"])) < 0.03
     assert command["measured_field_aligned_mT"].notna().all()
+
+
+def test_continuous_phase_alignment_requires_support_beyond_output_cycle() -> None:
+    freq_hz = 2.0
+    period = 1.0 / freq_hz
+    delay_s = 0.08
+    output_time = np.linspace(0.0, period, 200, endpoint=False)
+    window = pd.DataFrame(
+        {
+            "time_s": output_time,
+            "raw_voltage_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+            "voltage_normalized_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+            "measured_field_normalized_mT": 45.0 * np.sin(2.0 * np.pi * freq_hz * (output_time - delay_s)),
+            "normalized_physical_target_output_mT": 50.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+        }
+    )
+    support_time = np.linspace(0.0, period + delay_s + 0.03, 260, endpoint=False)
+    support = pd.DataFrame(
+        {
+            "time_s": support_time,
+            "raw_voltage_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * support_time),
+            "voltage_normalized_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * support_time),
+            "measured_field_normalized_mT": 45.0 * np.sin(2.0 * np.pi * freq_hz * (support_time - delay_s)),
+        }
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        window,
+        support_frame=support,
+        freq_hz=freq_hz,
+        waveform_type="sine",
+    )
+
+    assert metadata["measurement_support_grid_separate_from_output_grid"] is True
+    assert metadata["aligned_measured_support_status"] == "ok"
+    assert metadata["aligned_measured_finite_ratio"] == 1.0
+    assert metadata["continuous_nan_to_zero_used"] is False
+    assert command["measured_field_aligned_mT"].notna().all()
+    assert command["residual_for_modeling_mT"].notna().all()
+
+
+def test_continuous_phase_alignment_blocks_when_support_tail_missing() -> None:
+    freq_hz = 2.0
+    period = 1.0 / freq_hz
+    delay_s = 0.08
+    output_time = np.linspace(0.0, period, 200, endpoint=False)
+    window = pd.DataFrame(
+        {
+            "time_s": output_time,
+            "raw_voltage_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+            "voltage_normalized_v": 4.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+            "measured_field_normalized_mT": 45.0 * np.sin(2.0 * np.pi * freq_hz * (output_time - delay_s)),
+            "normalized_physical_target_output_mT": 50.0 * np.sin(2.0 * np.pi * freq_hz * output_time),
+        }
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        window,
+        support_frame=window,
+        freq_hz=freq_hz,
+        waveform_type="sine",
+    )
+
+    assert command.empty
+    assert metadata["continuous_first_modeling_status"] == "unavailable_phase_support_incomplete"
+    assert metadata["continuous_phase_support_incomplete_blocked"] is True
+    assert metadata["continuous_nan_to_zero_used"] is False
 
 
 def test_continuous_modeling_case_is_finite_like_one_cycle_and_loop_safe() -> None:

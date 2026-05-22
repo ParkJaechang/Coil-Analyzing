@@ -345,9 +345,12 @@ def build_continuous_second_command_profile(
     actual["time_s"] = time_s.to_numpy(dtype=float)
     command, metadata = build_continuous_phase_aligned_command_profile(
         actual,
+        support_frame=actual,
         freq_hz=float(freq_hz),
         waveform_type=waveform_type,
     )
+    if not isinstance(command, pd.DataFrame) or command.empty or "limited_voltage_v" not in command.columns:
+        raise ValueError(str(metadata.get("continuous_first_modeling_status") or "continuous_second_command_generation_failed"))
     second = first_command_profile.copy(deep=True).reset_index(drop=True)
     for column in command.columns:
         second[column] = command[column].to_numpy() if len(command[column]) == len(second) else command[column]

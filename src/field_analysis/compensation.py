@@ -1990,6 +1990,8 @@ def _build_finite_modeled_profile(
     modeled["recommended_voltage_v"] = np.asarray(support_payload["voltage_v"], dtype=float)
     modeled["expected_current_a"] = np.asarray(support_payload["current_a"], dtype=float)
     modeled["expected_field_mT"] = np.asarray(support_payload["field_mT"], dtype=float)
+    modeled["finite_first_actual_measured_field_mT"] = modeled["expected_field_mT"]
+    modeled["finite_first_measured_source_is_actual_measured"] = True
     modeled["support_scaled_current_a"] = modeled["expected_current_a"]
     modeled["support_scaled_field_mT"] = modeled["expected_field_mT"]
     modeled["target_output"] = _finite_target_template(
@@ -2012,6 +2014,7 @@ def _build_finite_modeled_profile(
         modeled["target_pp_fixed"] = float(FIELD_ROUTE_NORMALIZED_TARGET_PP)
         modeled["support_family_used"] = selected_support_waveform
         modeled["support_family_requested"] = waveform_type
+        modeled["finite_first_measured_source_label"] = selected_support_waveform
     active_duration_s = float(target_cycle_count) / float(freq_hz) if np.isfinite(freq_hz) and float(freq_hz) > 0 else 0.0
     modeled["waveform_type"] = waveform_type
     modeled["freq_hz"] = float(freq_hz)
@@ -2432,6 +2435,8 @@ def synthesize_finite_empirical_compensation(
                     guarded_current = np.asarray(guarded_payload["current_a"], dtype=float)
                     modeled["expected_field_mT"] = guarded_field
                     modeled["expected_current_a"] = guarded_current
+                    modeled["finite_first_actual_measured_field_mT"] = guarded_field
+                    modeled["finite_first_measured_source_is_actual_measured"] = True
                     modeled["support_scaled_field_mT"] = guarded_field
                     modeled["support_scaled_current_a"] = guarded_current
                     modeled["expected_output"] = guarded_field if target_output_type == "field" else guarded_current

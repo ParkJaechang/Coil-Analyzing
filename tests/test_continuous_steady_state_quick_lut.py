@@ -575,7 +575,7 @@ def test_continuous_second_command_profile_is_not_placeholder_copy() -> None:
     steady_actual = pd.DataFrame(
         {
             "time_s": time_s,
-            "measured_field_normalized_mT": 42.0 * np.sin(2.0 * np.pi * time_s / period - 0.1),
+            "measured_field_normalized_mT": 42.0 * np.sin(2.0 * np.pi * time_s / period),
             "normalized_physical_target_output_mT": 50.0 * np.sin(2.0 * np.pi * time_s / period),
             "voltage_normalized_v": 2.0 * np.sin(2.0 * np.pi * time_s / period),
         }

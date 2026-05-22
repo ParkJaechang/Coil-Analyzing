@@ -13,6 +13,11 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
     st.markdown("#### Finite 1차 phase sync 확인")
     st.caption("Finite 1차 모델링은 전압 피크와 자기장 피크를 맞춘 뒤 residual을 계산합니다.")
     summary = {
+        "source file": metadata.get("finite_first_measured_source_file"),
+        "source label": metadata.get("finite_first_measured_source_label"),
+        "measured field column": metadata.get("finite_first_measured_source_column"),
+        "actual measured source": metadata.get("finite_first_measured_source_is_actual_measured"),
+        "source data origin": metadata.get("finite_first_source_data_origin"),
         "source_input_waveform_family": command_profile.get("waveform_type", pd.Series(["triangle"])).iloc[0],
         "target_field_shape": "fixed_rounded_triangle",
         "finite_first_modeling_mode": metadata.get("finite_first_modeling_mode", "phase_synced"),
@@ -32,9 +37,10 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
 
 def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[str, object]) -> go.Figure:
     fig = go.Figure()
+    measured_column = str(metadata.get("finite_first_measured_source_column") or "actual source")
     _add_profile_trace(fig, command_profile, "finite_first_base_voltage_v", "source/base voltage, scaled")
-    _add_profile_trace(fig, command_profile, "measured_field_smoothed_mT", "measured field smoothed")
-    _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", "measured field aligned")
+    _add_profile_trace(fig, command_profile, "measured_field_smoothed_mT", f"measured field smoothed, actual source: {measured_column}")
+    _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", f"measured field aligned, actual source: {measured_column}")
     for key, label in (
         ("voltage_first_peak_time_s", "voltage first peak"),
         ("measured_first_peak_time_s", "measured first peak before alignment"),

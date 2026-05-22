@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from field_analysis.continuous_phase_support import continuous_peak_alignment_metadata, interpolate_signal
-from field_analysis.finite_second_modeling_stabilization import align_measured_field_for_residual
 from field_analysis.finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling
 from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
 from field_analysis.finite_second_modeling_tail import compute_second_modeling_gain
@@ -55,26 +54,56 @@ def build_continuous_phase_aligned_command_profile(
     period_s = 1.0 / max(float(freq_hz), 1e-12)
     peak_meta = continuous_peak_alignment_metadata(support_time, support_voltage, support_smoothed, period_s=period_s)
     delay_s = float(peak_meta.get("continuous_phase_delay_s") or 0.0)
-    measured_aligned = interpolate_signal(time_s + delay_s, support_time, support_smoothed)
+    aligned_source_time = time_s + delay_s
+    measured_aligned = interpolate_signal(aligned_source_time, support_time, support_smoothed)
+    aligned_finite = np.isfinite(measured_aligned)
+    aligned_finite_ratio = float(np.mean(aligned_finite)) if aligned_finite.size else 0.0
+    support_start_s = float(np.nanmin(support_time[np.isfinite(support_time)])) if np.isfinite(support_time).any() else float("nan")
+    support_end_s = float(np.nanmax(support_time[np.isfinite(support_time)])) if np.isfinite(support_time).any() else float("nan")
+    output_start_s = float(np.nanmin(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else 0.0
+    output_end_s = float(np.nanmax(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else period_s
+    support_status = "ok" if aligned_finite_ratio >= 0.999999 else "incomplete"
     alignment_meta = {
-        "phase_alignment_status": "ok" if np.isfinite(measured_aligned).all() else "unavailable_source_range",
+        "phase_alignment_status": "ok" if support_status == "ok" else "unavailable_phase_support_incomplete",
         "continuous_phase_alignment_method": "field_peak_to_voltage_peak",
         "continuous_first_modeling_phase_reference": "voltage_peak",
-        "phase_alignment_fallback_used": not np.isfinite(measured_aligned).all(),
+        "phase_alignment_fallback_used": False,
+        "measurement_support_grid_separate_from_output_grid": True,
+        "continuous_output_grid_start_s": output_start_s,
+        "continuous_output_grid_end_s": output_end_s,
+        "continuous_output_period_s": period_s,
+        "continuous_support_grid_start_s": support_start_s,
+        "continuous_support_grid_end_s": support_end_s,
+        "measured_support_start_s": support_start_s,
+        "measured_support_end_s": support_end_s,
+        "aligned_source_time_min_s": float(np.nanmin(aligned_source_time[np.isfinite(aligned_source_time)])) if np.isfinite(aligned_source_time).any() else None,
+        "aligned_source_time_max_s": float(np.nanmax(aligned_source_time[np.isfinite(aligned_source_time)])) if np.isfinite(aligned_source_time).any() else None,
+        "aligned_measured_finite_ratio": aligned_finite_ratio,
+        "aligned_measured_support_status": support_status,
+        "continuous_residual_invalid_detected": support_status != "ok",
+        "continuous_residual_invalid_time_ranges": _invalid_ranges(time_s, ~aligned_finite),
+        "continuous_nan_to_zero_used": False,
+        "continuous_phase_support_incomplete_blocked": support_status != "ok",
         **peak_meta,
     }
     if alignment_meta["phase_alignment_status"] != "ok":
-        measured_aligned, legacy_alignment_meta = align_measured_field_for_residual(
-            time_s,
-            target,
-            measured_smoothed,
-            active_mask,
-            freq_hz=float(freq_hz),
-            residual_alignment_mode="first_peak_aligned",
-        )
-        alignment_meta.update(legacy_alignment_meta)
-        alignment_meta["phase_alignment_fallback_used"] = True
-    measured_for_modeling = measured_aligned if alignment_meta.get("phase_alignment_status") == "ok" else measured_smoothed
+        return pd.DataFrame(), {
+            **smoothing_meta,
+            **alignment_meta,
+            **voltage_norm_meta,
+            "continuous_first_modeling_available": False,
+            "continuous_first_modeling_status": "unavailable_phase_support_incomplete",
+            "continuous_first_modeling_uses_phase_aligned_kernel": True,
+            "continuous_first_modeling_tail_disabled": True,
+            "continuous_first_modeling_cycle_count": 1.0,
+            "continuous_loop_output": True,
+            "continuous_modeling_kernel_source": "finite_second_modeling_shared_kernel",
+            "continuous_target_shape": "fixed_rounded_triangle",
+            "continuous_target_cycle_count": 1.0,
+            "continuous_export_cycle_count": 1.0,
+            "loop_endpoint_policy": "period_exclusive",
+        }
+    measured_for_modeling = measured_aligned
     residual = target - measured_for_modeling
     unit_delta = residual / 50.0 * float(voltage_limit_v)
     gain, gain_meta = compute_second_modeling_gain(
@@ -249,3 +278,22 @@ def _clipping_metadata(unclipped: np.ndarray, limited: np.ndarray, *, voltage_li
         "continuous_voltage_clip_fraction": fraction,
         "continuous_voltage_clip_status": status,
     }
+
+
+def _invalid_ranges(time_s: np.ndarray, invalid_mask: np.ndarray) -> list[dict[str, float]]:
+    time = np.asarray(time_s, dtype=float)
+    invalid = np.asarray(invalid_mask, dtype=bool) & np.isfinite(time)
+    ranges: list[dict[str, float]] = []
+    indices = np.flatnonzero(invalid)
+    if indices.size == 0:
+        return ranges
+    start = int(indices[0])
+    previous = int(indices[0])
+    for index in indices[1:]:
+        idx = int(index)
+        if idx != previous + 1:
+            ranges.append({"start_s": float(time[start]), "end_s": float(time[previous])})
+            start = idx
+        previous = idx
+    ranges.append({"start_s": float(time[start]), "end_s": float(time[previous])})
+    return ranges

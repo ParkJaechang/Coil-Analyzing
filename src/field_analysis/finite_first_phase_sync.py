@@ -41,23 +41,49 @@ def apply_finite_first_phase_sync_modeling(
     )
     measured_column = _first_existing_column(
         frame,
-        ("predicted_field_mT", "expected_field_mT", "support_reference_output_mT", "expected_output", "modeled_output"),
+        (
+            "finite_first_actual_measured_field_mT",
+            "measured_field_effective_mT",
+            "measured_field_normalized_mT",
+            "normalized_measured_field_mT",
+            "raw_hallbz_mT",
+            "HallBz",
+            "HallZ",
+            "bz_mT",
+            "Bz_mT",
+        ),
     )
     voltage_column = _first_existing_column(
         frame,
         ("limited_voltage_v", "feedback_corrected_limited_voltage_v", "recommended_voltage_v", "first_modeled_voltage_v"),
     )
-    if target_column is None or measured_column is None or voltage_column is None:
+    if measured_column is None:
+        return frame, {
+            "finite_first_modeling_mode": "phase_synced",
+            "finite_first_modeling_phase_sync_enabled": False,
+            "finite_first_modeling_status": "missing_actual_measured_field",
+            "finite_first_measured_source_is_actual_measured": False,
+            "finite_first_rejected_reference_field_source": _has_reference_like_field(frame),
+            "finite_first_source_data_origin": "finite_lut_measured",
+            "finite_first_uses_continuous_source": False,
+            "finite_first_uses_support_reference_as_measured": False,
+            "finite_first_uses_target_as_measured": False,
+            "phase_kernel_source_data_origin": "finite_lut_measured",
+            "phase_kernel_source_validation_status": "missing_actual_measured_field",
+            "phase_kernel_reference_as_measured_allowed": False,
+        }
+    if target_column is None or voltage_column is None:
         return frame, {
             "finite_first_modeling_mode": "phase_synced",
             "finite_first_modeling_phase_sync_enabled": False,
             "finite_first_modeling_status": "missing_required_columns",
             "finite_first_modeling_missing_target": target_column is None,
-            "finite_first_modeling_missing_measured": measured_column is None,
+            "finite_first_modeling_missing_measured": False,
             "finite_first_modeling_missing_voltage": voltage_column is None,
         }
     target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
-    measured = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
+    measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
+    measured, measured_source_type, raw_hallbz_available = _coerce_measured_field(measured_raw, measured_column, active_mask)
     base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
     smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
         time_s,
@@ -78,8 +104,38 @@ def apply_finite_first_phase_sync_modeling(
     source_end = float(np.nanmax(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else float("nan")
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     aligned = _interp(time_s, smoothed, time_s + phase_delay_s)
+    active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
+    if not support_ok or not active_aligned_ok:
+        frame["measured_field_smoothed_mT"] = smoothed
+        frame["measured_field_aligned_mT"] = aligned
+        frame["residual_for_modeling_mT"] = target - aligned
+        frame["finite_first_measured_source_column"] = measured_column
+        frame["finite_first_measured_source_is_actual_measured"] = True
+        return frame.loc[active_mask].copy().reset_index(drop=True), {
+            **smoothing_meta,
+            "finite_first_modeling_status": "insufficient_phase_sync_support",
+            "finite_first_modeling_mode": "phase_synced",
+            "finite_first_modeling_phase_sync_enabled": False,
+            "finite_first_modeling_kernel": "shared_phase_aligned",
+            "finite_first_measured_source_column": measured_column,
+            "finite_first_measured_source_is_actual_measured": True,
+            "finite_first_source_data_origin": "finite_lut_measured",
+            "finite_first_uses_continuous_source": False,
+            "finite_first_uses_support_reference_as_measured": False,
+            "finite_first_uses_target_as_measured": False,
+            "phase_sync_required_source_end_s": required_end,
+            "phase_sync_actual_source_end_s": source_end,
+            "phase_sync_support_status": "insufficient",
+            "phase_kernel_source_data_origin": "finite_lut_measured",
+            "phase_kernel_source_validation_status": "insufficient_phase_sync_support",
+            "phase_kernel_reference_as_measured_allowed": False,
+        }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
+    identity_meta = _merge_identity_metadata(
+        _measured_target_identity_metadata(target, measured, active_mask),
+        _measured_target_identity_metadata(target, aligned, finite_active),
+    )
     unit_delta = residual / 50.0 * float(voltage_limit_v)
     unit_delta[~finite_active] = np.nan
     gain, gain_meta = compute_second_modeling_gain(
@@ -119,11 +175,14 @@ def apply_finite_first_phase_sync_modeling(
     frame["phase_sync_method"] = "field_peak_to_voltage_peak"
     frame["finite_first_modeling_kernel"] = "shared_phase_aligned"
     frame["finite_first_modeling_mode"] = "phase_synced"
+    frame["finite_first_measured_source_column"] = measured_column
+    frame["finite_first_measured_source_is_actual_measured"] = True
     output_frame = frame.loc[active_mask].copy().reset_index(drop=True)
     metadata = {
         **smoothing_meta,
         **gain_meta,
         **stabilization_meta,
+        **identity_meta,
         "finite_first_modeling_status": "ok" if support_ok and alignment_status == "ok" else alignment_status,
         "finite_first_modeling_mode": "phase_synced",
         "finite_first_modeling_mode_default": "phase_synced",
@@ -132,7 +191,22 @@ def apply_finite_first_phase_sync_modeling(
         "finite_first_modeling_target_shape": "fixed_rounded_triangle",
         "finite_first_modeling_kernel": "shared_phase_aligned",
         "finite_first_modeling_legacy_delay_preserving": False,
+        "finite_first_legacy_trace_hidden_by_default": True,
         "finite_first_modeling_cycle_count": float(cycle_count),
+        "finite_first_measured_source_type": measured_source_type,
+        "finite_first_measured_source_file": _first_text_value(frame, "finite_first_measured_source_file"),
+        "finite_first_measured_source_label": _first_text_value(frame, "finite_first_measured_source_label") or _first_text_value(frame, "source_file"),
+        "finite_first_measured_source_column": measured_column,
+        "finite_first_measured_source_is_actual_measured": True,
+        "finite_first_rejected_reference_field_source": False,
+        "finite_first_source_data_origin": "finite_lut_measured",
+        "finite_first_uses_continuous_source": False,
+        "finite_first_uses_support_reference_as_measured": False,
+        "finite_first_uses_target_as_measured": False,
+        "raw_hallbz_available": raw_hallbz_available,
+        "phase_kernel_source_data_origin": "finite_lut_measured",
+        "phase_kernel_source_validation_status": "ok",
+        "phase_kernel_reference_as_measured_allowed": False,
         "phase_sync_enabled": True,
         "phase_sync_method": "field_peak_to_voltage_peak",
         "voltage_first_peak_time_s": voltage_peak_time,
@@ -162,6 +236,74 @@ def _first_existing_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> 
         if column in frame.columns and pd.to_numeric(frame[column], errors="coerce").notna().any():
             return column
     return None
+
+
+def _has_reference_like_field(frame: pd.DataFrame) -> bool:
+    return any(
+        column in frame.columns and pd.to_numeric(frame[column], errors="coerce").notna().any()
+        for column in (
+            "target_field_mT",
+            "physical_target_output_mT",
+            "support_reference_output_mT",
+            "target_aligned_support_reference_mT",
+            "predicted_field_mT",
+            "expected_field_mT",
+            "expected_output",
+            "modeled_output",
+        )
+    )
+
+
+def _coerce_measured_field(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool]:
+    raw = np.asarray(values, dtype=float)
+    if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
+        effective = -raw
+        baseline = float(np.nanmedian(effective[np.asarray(active_mask, dtype=bool) & np.isfinite(effective)])) if np.any(np.asarray(active_mask, dtype=bool) & np.isfinite(effective)) else 0.0
+        centered = effective - baseline
+        peak = float(np.nanmax(np.abs(centered[np.asarray(active_mask, dtype=bool) & np.isfinite(centered)]))) if np.any(np.asarray(active_mask, dtype=bool) & np.isfinite(centered)) else 0.0
+        normalized = centered * (50.0 / peak) if peak > 1e-12 else centered
+        return normalized, "raw_hallbz_effective_normalized", True
+    return raw, "actual_measured_field", False
+
+
+def _measured_target_identity_metadata(target: np.ndarray, measured: np.ndarray, active_mask: np.ndarray) -> dict[str, Any]:
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(target) & np.isfinite(measured)
+    if active.sum() < 3:
+        return {
+            "measured_target_nearly_identical_detected": False,
+            "measured_target_identity_risk": "unknown",
+            "measured_target_rmse_mT": float("nan"),
+            "measured_target_corr": float("nan"),
+            "measured_source_suspicious_reference_like": False,
+        }
+    residual = np.asarray(target, dtype=float)[active] - np.asarray(measured, dtype=float)[active]
+    rmse = float(np.sqrt(np.nanmean(residual**2)))
+    target_active = np.asarray(target, dtype=float)[active]
+    measured_active = np.asarray(measured, dtype=float)[active]
+    corr = float(np.corrcoef(target_active, measured_active)[0, 1]) if np.nanstd(target_active) > 0 and np.nanstd(measured_active) > 0 else float("nan")
+    nearly = bool(rmse <= 1e-6 or (np.isfinite(corr) and corr > 0.999999 and rmse <= 0.05))
+    return {
+        "measured_target_nearly_identical_detected": nearly,
+        "measured_target_identity_risk": "warning" if nearly else "ok",
+        "measured_target_rmse_mT": rmse,
+        "measured_target_corr": corr,
+        "measured_source_suspicious_reference_like": nearly,
+    }
+
+
+def _merge_identity_metadata(raw_meta: dict[str, Any], aligned_meta: dict[str, Any]) -> dict[str, Any]:
+    if raw_meta.get("measured_target_nearly_identical_detected"):
+        return raw_meta
+    return aligned_meta
+
+
+def _first_text_value(frame: pd.DataFrame, column: str) -> str | None:
+    if column not in frame.columns:
+        return None
+    series = frame[column].dropna()
+    if series.empty:
+        return None
+    return str(series.iloc[0])
 
 
 def _first_positive_peak_time(time_s: np.ndarray, values: np.ndarray, active_mask: np.ndarray) -> float | None:
