@@ -67,6 +67,7 @@ def test_upload_memory_group_records_include_item_level_metadata(tmp_path: Path)
     assert len(records) == 1
     record = records[0]
     assert record["original filename"] == "finite_sine_1Hz_1.5cycle.csv"
+    assert record["canonical filename"] == "finite_sine_1Hz_1.5cycle.csv"
     assert record["parsed waveform"] == "sine"
     assert record["parsed freq_hz"] == 1.0
     assert record["parsed cycle_count"] == 1.5

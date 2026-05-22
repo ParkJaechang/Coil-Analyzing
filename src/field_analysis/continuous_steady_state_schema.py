@@ -35,6 +35,8 @@ RAW_HALL_ALIASES = (
     "raw_measured_field_mT",
     "measured_field_raw_mT",
     "measured_field_raw",
+    "Bz_mT",
+    "bz_mT",
 )
 EFFECTIVE_FIELD_ALIASES = ("measured_field_effective_mT",)
 NORMALIZED_FIELD_ALIASES = (
@@ -117,6 +119,7 @@ def adapt_continuous_source_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, di
         "continuous_schema_hall_or_field_column": field_column,
         "continuous_schema_accepted_source_type": accepted_source_type,
         "continuous_schema_reject_reason": None,
+        "continuous_schema_columns": list(frame.columns),
         "raw_hallbz_available": raw_hall_available,
         "normalized_field_available": normalized_field_available,
         "continuous_source_file": frame.attrs.get("continuous_source_file"),
@@ -127,6 +130,11 @@ def adapt_continuous_source_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, di
         "continuous_source_freq_user_override": frame.attrs.get("continuous_source_freq_user_override", False),
         "continuous_source_waveform_family": frame.attrs.get("continuous_source_waveform_family"),
         "continuous_source_waveform_source": frame.attrs.get("continuous_source_waveform_source"),
+        "upload_storage_filename": frame.attrs.get("upload_storage_filename"),
+        "upload_original_filename": frame.attrs.get("upload_original_filename"),
+        "upload_canonical_filename": frame.attrs.get("upload_canonical_filename"),
+        "upload_filename_prefix_stripped": frame.attrs.get("upload_filename_prefix_stripped"),
+        "upload_filename_prefix_strip_status": frame.attrs.get("upload_filename_prefix_strip_status"),
     }
     source.attrs.update({key: value for key, value in metadata.items() if value is not None})
     return source.sort_values("time_s_abs").reset_index(drop=True), metadata

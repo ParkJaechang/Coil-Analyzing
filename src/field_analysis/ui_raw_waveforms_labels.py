@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import PurePath
 
+from .upload_filename import canonical_upload_filename
+
 
 FIXED_DAQ_OUTPUT_LABEL = "±5V"
 FIXED_GAIN_LABEL = "Gain 100%"
@@ -16,7 +18,7 @@ _OPAQUE_PREFIX_PATTERN = re.compile(r"^[0-9a-f]{12,}_", re.IGNORECASE)
 
 
 def infer_new_dataset_filename_metadata(file_name: object) -> dict[str, float | str | None]:
-    leaf_name = str(file_name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    leaf_name = canonical_upload_filename(str(file_name or "").replace("\\", "/").rsplit("/", 1)[-1])
     stem = PurePath(_OPAQUE_PREFIX_PATTERN.sub("", leaf_name)).stem
     match = _NEW_DATASET_FILENAME_PATTERN.match(stem)
     if match is None:

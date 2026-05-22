@@ -9,9 +9,10 @@ from typing import Any
 import streamlit as st
 from .upload_state_dedupe import dedupe_exact_upload_entries
 from .upload_state_dedupe import exact_upload_key
-from .upload_state_dedupe import is_relative_to
 from .upload_state_dedupe import list_exact_upload_records_from_manifest
 from .upload_state_dedupe import uploaded_file_keys
+from .upload_state_delete import delete_physical_upload_files, delete_upload_result
+from .upload_filename import canonicalize_upload_filename
 from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,15 +123,23 @@ def _manifest_record(
     upload_item_id: str | None = None,
     duplicate_of: str | None = None,
 ) -> dict[str, Any]:
+    filename_meta = canonicalize_upload_filename(cache_name, original_filename=display_name)
+    canonical_filename = str(filename_meta["upload_canonical_filename"])
     return {
         "upload_item_id": upload_item_id or _upload_item_id(category, cache_name),
         "label": UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown"),
         "category": category,
         "original_filename": display_name,
+        "canonical_filename": canonical_filename,
         "display_name": display_name,
         "file_name": display_name,
         "cache_name": cache_name,
         "stored_filename": cache_name,
+        "upload_storage_filename": cache_name,
+        "upload_original_filename": display_name,
+        "upload_canonical_filename": canonical_filename,
+        "upload_filename_prefix_stripped": filename_meta.get("upload_filename_prefix_stripped"),
+        "upload_filename_prefix_strip_status": filename_meta.get("upload_filename_prefix_strip_status"),
         "size_bytes": int(size_bytes),
         "file_size": int(size_bytes),
         "path": str(path),
@@ -154,10 +163,12 @@ def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = No
         if not path.exists():
             continue
         display_name = str(entry.get("display_name") or entry.get("file_name") or cache_name)
+        filename_meta = canonicalize_upload_filename(cache_name, original_filename=entry.get("original_filename") or display_name)
+        canonical_filename = str(filename_meta["upload_canonical_filename"])
         records.append(
             _manifest_record(
                 category=category,
-                display_name=display_name,
+                display_name=canonical_filename,
                 cache_name=cache_name,
                 size_bytes=int(entry.get("size_bytes") or path.stat().st_size),
                 path=path,
@@ -279,7 +290,7 @@ def category_payloads(
         records = list_active_upload_payload_records(category, paths=resolved_paths)
     for record in records:
         path = Path(str(record["path"]))
-        payloads.append((str(record["cache_name"]), path.read_bytes()))
+        payloads.append((str(record.get("canonical_filename") or record.get("original_filename") or record["cache_name"]), path.read_bytes()))
     return payloads
 def list_active_upload_payload_records(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
@@ -297,7 +308,18 @@ def list_active_upload_payload_records(category: str, *, paths: UploadStatePaths
             continue
         path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
         if path.exists() and path.is_file():
-            records.append({"cache_name": cache_name, "path": str(path), "payload_source": "remembered_upload"})
+            filename_meta = canonicalize_upload_filename(
+                cache_name,
+                original_filename=entry.get("original_filename") or entry.get("display_name") or entry.get("file_name"),
+            )
+            records.append(
+                {
+                    "cache_name": cache_name,
+                    "canonical_filename": filename_meta["upload_canonical_filename"],
+                    "path": str(path),
+                    "payload_source": "remembered_upload",
+                }
+            )
     return sorted(records, key=lambda item: str(item.get("cache_name") or ""))
 def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
@@ -393,7 +415,7 @@ def delete_upload_memory_items(
     resolved_paths = paths or build_upload_state_paths()
     target_ids = {str(item_id) for item_id in upload_item_ids if str(item_id)}
     if not target_ids:
-        return _delete_result([], [], [])
+        return delete_upload_result([], [], [])
     manifest = load_upload_manifest(paths=resolved_paths)
     deleted: list[dict[str, Any]] = []
     retained_by_category: dict[str, list[dict[str, Any]]] = {}
@@ -432,9 +454,13 @@ def delete_upload_memory_items(
     for category, retained in retained_by_category.items():
         manifest["files"][category] = retained
     _write_json(resolved_paths.upload_manifest_path, manifest)
-    physical_deleted = _delete_physical_files(deleted, resolved_paths=resolved_paths, delete_physical=delete_physical)
+    physical_deleted = delete_physical_upload_files(
+        deleted,
+        upload_root=resolved_paths.uploads_dir,
+        delete_physical=delete_physical,
+    )
     invalidated = sorted({UPLOADER_SESSION_KEYS.get(str(item.get("category")), "") for item in deleted} - {""})
-    return _delete_result(deleted, physical_deleted, invalidated)
+    return delete_upload_result(deleted, physical_deleted, invalidated)
 
 
 def delete_upload_memory_group(
@@ -522,7 +548,12 @@ def _upload_memory_item_from_entry(category: str, entry: dict[str, Any], *, cate
     if not cache_name:
         return None
     stored_path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
-    original_filename = str(entry.get("original_filename") or entry.get("display_name") or entry.get("file_name") or cache_name)
+    upload_filename_meta = canonicalize_upload_filename(
+        cache_name,
+        original_filename=entry.get("original_filename") or entry.get("display_name") or entry.get("file_name"),
+    )
+    canonical_filename = str(upload_filename_meta["upload_canonical_filename"])
+    original_filename = canonical_filename
     file_exists = stored_path.exists() and stored_path.is_file()
     size = int(entry.get("file_size") or entry.get("size_bytes") or (stored_path.stat().st_size if file_exists else 0))
     filename_meta = infer_new_dataset_filename_metadata(original_filename)
@@ -533,7 +564,13 @@ def _upload_memory_item_from_entry(category: str, entry: dict[str, Any], *, cate
         "label": str(entry.get("label") or UPLOAD_MEMORY_LABEL_BY_CATEGORY.get(category, "unknown")),
         "category": category,
         "original_filename": original_filename,
+        "canonical_filename": canonical_filename,
         "stored_filename": cache_name,
+        "upload_storage_filename": cache_name,
+        "upload_original_filename": str(upload_filename_meta.get("upload_original_filename") or original_filename),
+        "upload_canonical_filename": canonical_filename,
+        "upload_filename_prefix_stripped": bool(upload_filename_meta.get("upload_filename_prefix_stripped")),
+        "upload_filename_prefix_strip_status": upload_filename_meta.get("upload_filename_prefix_strip_status"),
         "stored_path": str(stored_path),
         "uploaded_at": entry.get("uploaded_at"),
         "discovered_at": entry.get("discovered_at"),
@@ -557,40 +594,4 @@ def _row_count(path: Path) -> int | None:
         return max(len(path.read_text(encoding="utf-8-sig").splitlines()) - 1, 0)
     except OSError:
         return None
-
-
-def _delete_physical_files(
-    items: list[dict[str, Any]],
-    *,
-    resolved_paths: UploadStatePaths,
-    delete_physical: bool,
-) -> list[str]:
-    deleted: list[str] = []
-    if not delete_physical:
-        return deleted
-    upload_root = resolved_paths.uploads_dir.resolve()
-    for item in items:
-        path = Path(str(item.get("stored_path") or ""))
-        try:
-            resolved = path.resolve()
-        except OSError:
-            continue
-        if not is_relative_to(resolved, upload_root):
-            continue
-        if resolved.exists() and resolved.is_file():
-            resolved.unlink()
-            deleted.append(str(resolved))
-    return deleted
-
-
-def _delete_result(deleted: list[dict[str, Any]], physical_deleted: list[str], invalidated: list[str]) -> dict[str, Any]:
-    return {
-        "deleted_count": len(deleted),
-        "deleted_item_ids": [str(item.get("upload_item_id")) for item in deleted],
-        "physical_deleted_count": len(physical_deleted),
-        "physical_deleted_paths": physical_deleted,
-        "invalidated_session_keys": invalidated,
-    }
-
-
 __all__ = [name for name in globals() if not name.startswith("_")]

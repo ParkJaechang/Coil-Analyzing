@@ -74,6 +74,7 @@ def build_upload_memory_group_records(
                 "category": category,
                 "upload_item_id": str(item.get("upload_item_id") or ""),
                 "original filename": str(item.get("original_filename") or ""),
+                "canonical filename": str(item.get("canonical_filename") or item.get("original_filename") or ""),
                 "stored filename": str(item.get("stored_filename") or ""),
                 "stored path": str(item.get("stored_path") or ""),
                 "internal id": str(item.get("upload_item_id") or ""),
@@ -129,6 +130,7 @@ def render_upload_memory_management(*, paths: UploadStatePaths | None = None) ->
     resolved_paths = paths or build_upload_state_paths()
     st.caption("Upload memory")
     st.caption("Manage cached uploads per file. Selection values are stable scalar upload_item_id values.")
+    st.caption("표시명은 원본/canonical 파일명입니다. 저장명에 붙은 hash prefix는 내부 충돌 방지용입니다.")
     _render_danger_actions(resolved_paths)
     _render_summary(resolved_paths)
     for category in UPLOAD_CATEGORIES:
@@ -198,6 +200,8 @@ def _render_group(category: str, paths: UploadStatePaths) -> None:
                 selected_ids.append(row_id)
             cols[1].write(f"**{row['original filename']}**")
             cols[1].caption(f"upload_item_id: {row_id}")
+            if row["stored filename"] != row["canonical filename"]:
+                cols[1].caption(f"storage filename: {row['stored filename']}")
             cols[2].caption(
                 f"size={row['file size']} bytes | waveform={row['parsed waveform'] or 'n/a'} | "
                 f"freq={_format_optional(row['parsed freq_hz'])} | cycle={_format_optional(row['parsed cycle_count'])} | "

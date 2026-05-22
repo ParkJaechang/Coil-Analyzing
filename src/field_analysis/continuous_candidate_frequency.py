@@ -6,18 +6,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .upload_filename import canonical_upload_filename
+
 
 FREQUENCY_MATCH_TOLERANCE = 0.02
 _HZ_PATTERN = re.compile(r"(?<![A-Za-z0-9.])(?P<freq>\d+(?:\.\d+)?)\s*Hz(?![A-Za-z])", re.IGNORECASE)
 _WAVEFORM_PATTERNS = (
     ("rounded_triangle", re.compile(r"rounded[_-]?triangle", re.IGNORECASE)),
-    ("triangle", re.compile(r"(?<!rounded[_-])triangle", re.IGNORECASE)),
+    ("triangle", re.compile(r"(?<!rounded[_-])(?:triangle|tri)(?![A-Za-z])", re.IGNORECASE)),
     ("sine", re.compile(r"sine|sinus", re.IGNORECASE)),
 )
 
 
 def infer_continuous_source_frequency(name: str | None) -> tuple[float | None, str | None]:
-    text = str(name or "")
+    text = canonical_upload_filename(name)
     for match in _HZ_PATTERN.finditer(text):
         try:
             return float(match.group("freq")), "filename"
@@ -27,7 +29,7 @@ def infer_continuous_source_frequency(name: str | None) -> tuple[float | None, s
 
 
 def infer_continuous_source_waveform(name: str | None) -> tuple[str | None, str | None]:
-    text = str(name or "")
+    text = canonical_upload_filename(name)
     for family, pattern in _WAVEFORM_PATTERNS:
         if pattern.search(text):
             return family, "filename"
@@ -102,6 +104,7 @@ def build_continuous_candidate_details(
         elif np.isfinite(source_freq):
             status = "no_target_frequency"
         filename = str(attrs.get("continuous_source_file") or name.split(":", 1)[-1])
+        storage_filename = str(attrs.get("upload_storage_filename") or filename)
         source_waveform = attrs.get("continuous_source_waveform_family") or "unknown"
         waveform_filter = str(source_waveform_filter or "all")
         waveform_status = (
@@ -114,6 +117,8 @@ def build_continuous_candidate_details(
             {
                 "name": name,
                 "filename": filename,
+                "canonical_filename": filename,
+                "storage_filename": storage_filename,
                 "source_category": name.split(":", 1)[0] if ":" in name else "unknown",
                 "source_freq_hz": float(source_freq) if np.isfinite(source_freq) else None,
                 "target_freq_hz": float(target) if np.isfinite(target) else None,
@@ -127,6 +132,10 @@ def build_continuous_candidate_details(
                 "continuous_source_waveform_match_status": waveform_status,
                 "continuous_target_field_waveform": "fixed_rounded_triangle",
                 "continuous_candidate_label": label,
+                "candidate_canonical_filename": filename,
+                "candidate_storage_filename": storage_filename,
+                "candidate_schema_columns": attrs.get("continuous_schema_columns"),
+                "candidate_reject_reason": attrs.get("continuous_schema_reject_reason"),
             }
         )
     return sorted(details, key=_candidate_sort_key)
