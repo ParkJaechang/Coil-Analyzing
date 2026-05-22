@@ -25,8 +25,9 @@ def test_target_support_predicted_semantics_markers_exist() -> None:
 def test_plot_semantics_explanation_separates_target_from_support() -> None:
     source = _source()
 
-    assert "Finite target semantics: Physical Target = fixed rounded triangle at 100pp." in source
-    assert "Support Reference is a support-conditioned preview, not the physical target." in source
+    assert "Finite target semantics: Physical Target = fixed rounded triangle." in source
+    assert "Support Reference는 support-conditioned preview이며 물리 목표 자기장이 아닙니다." in source
+    assert "fixed rounded triangle at 100pp" not in source
     assert "Plot semantics: `Physical Target`은 요청한 field waveform이고" in source
     assert "`Support Reference`는 target이 아닙니다." in source
     assert "`Predicted Output`은 1차 모델링 command의 model response" in source

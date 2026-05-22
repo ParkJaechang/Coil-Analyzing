@@ -169,9 +169,11 @@ def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets
 
     assert any("Quick LUT" in value for value in text_values)
     assert any("rounded triangle" in value for value in text_values)
-    assert any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
-    assert any("current / gain / hardware / LCR" in value for value in text_values)
-    assert any("Runtime: Quick LUT field-only renderer v2" in value for value in text_values)
+    assert any("목표 피크 자기장" in value for value in text_values)
+    assert any("±50 mT" in value or "±50mT" in value for value in text_values)
+    assert not any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
+    assert not any("FIELD-ONLY" in value for value in text_values)
+    assert any("Runtime: Quick LUT renderer" in value for value in text_values)
     assert any("source=repo-local src" in value for value in text_values)
     assert "크기 LUT 목표값" not in number_input_labels
     assert "파형 보정 목표 항목" not in selectbox_labels
@@ -235,12 +237,13 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         selectbox_labels = _selectbox_labels(app)
         number_input_labels = _number_input_labels(app)
 
-        assert any("FIELD-ONLY 운용 모드입니다." in value for value in text_values)
+        assert any("Quick LUT 운용 모드입니다." in value for value in text_values)
         assert any("rounded triangle" in value for value in text_values)
-        assert any("100pp fixed" in value or "100 mT pp fixed" in value for value in text_values)
+        assert any("목표 피크 자기장" in value for value in text_values)
+        assert not any("100pp fixed" in value or "100 mT pp fixed" in value for value in text_values)
         assert any("support/input waveform family" in value for value in text_values)
-        assert any("current / gain / hardware / LCR" in value for value in text_values)
-        assert any("Runtime: Quick LUT field-only renderer v2" in value for value in text_values)
+        assert not any("FIELD-ONLY" in value for value in text_values)
+        assert any("Runtime: Quick LUT renderer" in value for value in text_values)
         assert any("source=repo-local src" in value for value in text_values)
         assert "지원 입력 파형 family" in selectbox_labels
         assert "파형" not in selectbox_labels

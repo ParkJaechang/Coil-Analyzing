@@ -17,9 +17,9 @@ def test_finite_cycle_selector_policy_source_contract() -> None:
     assert "2-cycle production 정책은 폐기되었습니다." in source
     assert "Previous finite cycle value `0.75` is not supported by the primary finite-cycle selector" in source
     assert "0.75 is not treated as 1.75" in source
-    assert "DAQ output fixed: ±5V" in source
-    assert "DCAMP Gain fixed: 100%" in source
-    assert "target field remains rounded-triangle / 100pp fixed" in source
+    assert "최종 command voltage는 ±5V 기준으로 제한" in source
+    assert "target field shape는 fixed rounded triangle" in source
+    assert "target field remains rounded-triangle / 100pp fixed" not in source
     assert "0.75 / 1.0 / 1.25 / 1.5 are supported" not in source
     assert "0.75 is supported." not in source
     assert "0.75 is legacy and not treated as 1.75" not in source

@@ -143,8 +143,13 @@ def render_upload_memory_management(*, paths: UploadStatePaths | None = None) ->
     st.caption("표시명은 원본/canonical 파일명입니다. 저장명에 붙은 hash prefix는 내부 충돌 방지용입니다.")
     _render_danger_actions(resolved_paths)
     _render_summary(resolved_paths)
-    for category in UPLOAD_CATEGORIES:
-        _render_group(category, resolved_paths)
+    with st.expander("Legacy / 고급 업로드", expanded=False):
+        st.warning(
+            "현재 기본 Quick LUT workflow는 Global upload memory, Dataset Library, 지정 폴더 자동 로드를 우선 사용합니다. "
+            "아래 수동 업로드/삭제 UI는 legacy 또는 복구 작업이 필요할 때만 사용하십시오."
+        )
+        for category in UPLOAD_CATEGORIES:
+            _render_group(category, resolved_paths)
 
 
 def _render_danger_actions(paths: UploadStatePaths) -> None:

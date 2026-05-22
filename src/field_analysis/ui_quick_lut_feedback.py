@@ -49,8 +49,8 @@ def render_quick_lut_feedback_input_section(
     freq_hz: float | None = None,
     cycle_count: float | None = None,
 ) -> dict[str, object] | None:
-    st.markdown("#### Quick LUT 피드백 보정")
-    st.caption("목표 자기장은 유지하고, 실제 구동 결과로 전압 명령만 보정합니다.")
+    st.markdown("#### 2차 보정 입력 source")
+    st.caption("지정된 2nd 폴더 / upload memory에서 실구동 결과를 자동 로드해 2차 보정 입력으로 사용합니다.")
     st.caption("TimeMs / Voltage1_V / HallBz 컬럼이 있으면 실구동 결과 후보로 사용할 수 있습니다.")
     st.caption("Raw/absolute gain 평가는 하지 않고, ±50mT / ±5V 정규화 기준으로 개형과 타이밍을 봅니다.")
     st.caption("Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.")
@@ -65,28 +65,30 @@ def render_quick_lut_feedback_input_section(
         cache_state = {}
         st.session_state[FEEDBACK_CACHE_STATE_KEY] = cache_state
 
-    uploaded_files = st.file_uploader(
-        "실구동 결과 CSV 업로드",
-        type=["csv"],
-        accept_multiple_files=True,
-        key="quick_lut_feedback_result_upload",
-        help="TimeMs / Voltage1_V / HallBz schema의 실제 구동 결과 CSV를 업로드합니다.",
-    )
-    for uploaded_file in uploaded_files or []:
-        add_upload_cache_bytes(
-            cache_state,
-            uploaded_file.name,
-            uploaded_file.getvalue(),
-            cache_type="actual_drive_validation",
-            allow_duplicate=False,
+    with st.expander("Legacy / 수동 실구동 결과 CSV 업로드", expanded=False):
+        st.warning("현재 기본 workflow에서는 사용하지 않습니다. 2nd 폴더 자동 로드를 우선 사용하십시오.")
+        uploaded_files = st.file_uploader(
+            "실구동 결과 CSV 업로드",
+            type=["csv"],
+            accept_multiple_files=True,
+            key="quick_lut_feedback_result_upload",
+            help="TimeMs / Voltage1_V / HallBz schema의 실구동 결과 CSV를 legacy cache에 추가합니다.",
         )
+        for uploaded_file in uploaded_files or []:
+            add_upload_cache_bytes(
+                cache_state,
+                uploaded_file.name,
+                uploaded_file.getvalue(),
+                cache_type="actual_drive_validation",
+                allow_duplicate=False,
+            )
 
     run_label = st.selectbox(
-        "피드백 run 단계",
+        "2차 보정 run 단계",
         options=["first_run", "second_run", "unknown"],
         index=0,
         key=FEEDBACK_RUN_LABEL_KEY,
-        help="피드백 원본이 1차/2차/unknown run 중 어느 단계인지 구분하는 metadata입니다.",
+        help="2nd 폴더 후보를 1차/2차/unknown run metadata로 구분합니다.",
     )
     records = [record for record in build_upload_cache_records(cache_state) if record.cache_type == "actual_drive_validation"]
     cache_candidates = [

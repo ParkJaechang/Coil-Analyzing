@@ -525,8 +525,11 @@ def _run_app_shell(
     if active_payload_hash and active_payload_hash != loaded_hash:
         if loaded_hash is not None:
             st.warning("설정이 변경되었습니다. 계산을 갱신하려면 실행 버튼을 누르십시오.")
-        if not st.button("Load / Analyze LUT Data", key="load_analyze_lut_data"):
-            st.info("활성 payload를 parse/analyze하려면 LUT 데이터 불러오기 / 분석 시작 버튼을 누르십시오.")
+        if not st.button("LUT 데이터 불러오기 / 분석 시작", key="load_analyze_lut_data"):
+            st.info(
+                "업로드 메모리 또는 Dataset Library에서 감지된 LUT 데이터를 구조 인식하려면 "
+                "`LUT 데이터 불러오기 / 분석 시작` 버튼을 누르십시오."
+            )
             return
         st.session_state["active_payload_snapshot_hash"] = active_payload_hash
         st.session_state["quick_lut_dirty"] = False
@@ -1114,7 +1117,7 @@ def _render_quick_lut_tab(
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True)
 
     if not estimate_clicked:
-        st.info("FIELD-ONLY route는 support/input waveform family와 주파수만 고른 뒤 계산합니다.")
+        st.info("Quick LUT는 support/input waveform family와 주파수를 기준으로 데이터를 고르고, fixed rounded triangle 목표 개형으로 계산합니다.")
         return
 
     recommendation = recommend_voltage_waveform(
@@ -2055,26 +2058,33 @@ def _render_field_only_quick_lut_banner() -> None:
     excluded_inputs = ", ".join(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES)
     st.markdown("### Quick LUT")
     st.success(
-        "FIELD-ONLY 운용 모드입니다. 목표 자기장 개형은 항상 rounded triangle이고 목표 자기장 PP는 100 mT pp fixed입니다."
+        "Quick LUT 운용 모드입니다. 목표 자기장 개형은 fixed rounded triangle로 고정하고, "
+        "목표 피크 자기장과 내부 정규화 기준은 분리해서 표시합니다."
     )
     summary_left, summary_mid, summary_right = st.columns([1.0, 1.0, 1.6])
     with summary_left:
-        st.metric("목표 자기장 개형", FIELD_ONLY_TARGET_SHAPE.replace("_", " "))
+        st.metric("목표 자기장 개형", "fixed rounded triangle")
     with summary_mid:
-        st.metric("목표 자기장 PP", f"{FIELD_ONLY_FIXED_TARGET_PP:.0f} mT pp fixed")
+        target_config = st.session_state.get("quick_lut_target_config") or {}
+        target_peak = target_config.get("user_target_peak_field_mT") or target_config.get("target_peak_field_mT") or 50.0
+        try:
+            target_peak_label = f"{float(target_peak):g} mT"
+        except (TypeError, ValueError):
+            target_peak_label = "사용자 설정"
+        st.metric("목표 피크 자기장", target_peak_label)
     with summary_right:
-        st.markdown("**개형 선택 입력**")
+        st.markdown("**모델링 입력**")
         st.write("- support/input 파형 family")
         st.write("- 주파수")
-        st.write("- DAQ 전압 파형")
+        st.write("- finite cycle 또는 continuous 1cycle 정책")
         st.write(f"- excluded: `{excluded_inputs}`")
     st.caption(
         "아래 파형 선택은 support/input waveform family만 고릅니다. "
-        "목표 자기장 개형은 항상 rounded triangle이며 current / gain / hardware / LCR은 main shape selection에서 제외됩니다."
+        "목표 자기장 개형은 source waveform과 별개로 fixed rounded triangle을 사용합니다."
     )
     st.caption(
         "Field review/modeling은 ±50mT 기준으로 정규화합니다. Command voltage는 ±5V 기준으로 정규화/제한합니다. "
-        "DCAMP gain은 앱 밖에서 조절합니다. HallBz convention: effective field = -HallBz raw."
+        "HallBz convention: effective field = -HallBz raw."
     )
     st.caption(
         "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
@@ -2083,8 +2093,8 @@ def _render_field_only_quick_lut_banner() -> None:
     )
     st.caption("최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.")
     st.caption(
-        "Runtime: Quick LUT field-only renderer v2 · target=rounded_triangle · "
-        "target_pp=100 fixed · source=repo-local src"
+        "Runtime: Quick LUT renderer · target_shape=fixed_rounded_triangle · "
+        "field_normalization_reference=±50mT · source=repo-local src"
     )
     st.caption(
         "변경 후에도 legacy target control이 보이면 기존 Streamlit 프로세스를 종료하고 "
@@ -2260,18 +2270,18 @@ def _render_quick_lut_tab_v2(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**목표 자기장 / rounded triangle / 100pp fixed**")
+        st.markdown("**목표 자기장 / fixed rounded triangle**")
         st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
         compensation_target_type = "field"
         compensation_target_current_pp = float(FIELD_ONLY_FIXED_TARGET_PP)
         st.caption(
-            "Main LUT target field shape is a canonical rounded triangle and target PP is locked to `100`. "
-            "Current, gain, hardware, and LCR remain debug/reference only."
+            "목표 자기장 개형은 canonical fixed rounded triangle입니다. 모델링 내부 field normalization은 ±50 mT 기준이며, "
+            "목표 피크 자기장 설정은 command voltage scaling 의미와 분리해서 관리합니다."
         )
         st.caption(
-            "Finite target semantics: Physical Target = fixed rounded triangle at 100pp. "
-            "Support Reference is a support-conditioned preview, not the physical target. "
+            "Finite target semantics: Physical Target = fixed rounded triangle. "
+            "Support Reference는 support-conditioned preview이며 물리 목표 자기장이 아닙니다. "
             "`Predicted Output`은 1차 모델링 command에 대한 forward prediction입니다."
         )
         modeling_input_mode_label = st.radio(
@@ -2307,7 +2317,7 @@ def _render_quick_lut_tab_v2(
                 "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
                 "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
                 "2-cycle production 정책은 폐기되었습니다. "
-                "DAQ output fixed: ±5V | DCAMP Gain fixed: 100% | target field remains rounded-triangle / 100pp fixed."
+                "최종 command voltage는 ±5V 기준으로 제한하며, target field shape는 fixed rounded triangle입니다."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
@@ -2354,7 +2364,7 @@ def _render_quick_lut_tab_v2(
         st.markdown("#### 1. LUT 데이터 준비")
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
         st.markdown("#### 2. 1차 모델링 command")
-        st.caption("아래 동작은 모두 같은 fixed target을 사용합니다: rounded triangle, 100pp fixed.")
+        st.caption("아래 동작은 모두 같은 fixed rounded triangle 목표 개형과 ±50mT 내부 정규화 기준을 사용합니다.")
         quick_target_config = build_quick_lut_target_config(
             modeling_input_mode=modeling_input_mode,
             target_waveform_family=str(target_waveform) if target_waveform is not None else None,
@@ -2485,7 +2495,7 @@ def _render_quick_lut_tab_v2(
                 waveform_type=str(target_waveform) if target_waveform is not None else None,
             )
         else:
-            st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
+            st.info("Quick LUT route는 지원 입력 파형 family와 주파수로 source를 고른 뒤 fixed rounded triangle 목표 개형으로 계산합니다.")
         return
 
     if compensation_clicked:
@@ -2541,7 +2551,7 @@ def _render_quick_lut_tab_v2(
         )
         st.markdown(f"#### {compensation_title}")
         st.caption(
-            f"이 기능은 {compensation_basis} (100pp fixed)을 기준으로 recommended voltage waveform을 계산합니다. "
+            f"이 기능은 {compensation_basis} 기준의 정규화된 field target으로 recommended voltage waveform을 계산합니다. "
             "Current, gain, hardware, and LCR are not the main shape-selection basis in this path."
         )
         frequency_mode = "interpolate" if use_frequency_trend else "exact"
@@ -2787,16 +2797,17 @@ def _render_quick_lut_tab_v2(
                         "`Internal Reference (debug, hidden by default)`는 backend가 내부 lag/support-conditioned "
                         "reference를 제공할 때 legend-only trace로만 표시됩니다. 이것은 physical target이 아닙니다."
                     )
-                _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
-                # Contract marker: _render_support_reference_provenance_panel(compensation, command_profile)
-                _render_support_reference_provenance_panel(compensation, first_command_profile)
-                # Contract marker: _render_command_prediction_consistency_card(compensation, command_profile)
-                _render_command_prediction_consistency_card(compensation, first_command_profile)
-                _render_finite_prediction_availability(compensation)
-                _render_end_marker_summary(compensation, first_command_profile)
-                # Contract marker: _render_finite_signal_consistency_summary(compensation, command_profile)
-                _render_finite_signal_consistency_summary(compensation, first_command_profile)
-                render_startup_compensation_review(compensation, first_command_profile)
+                with st.expander("데이터 선택 상세 / Debug", expanded=False):
+                    _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
+                    # Contract marker: _render_support_reference_provenance_panel(compensation, command_profile)
+                    _render_support_reference_provenance_panel(compensation, first_command_profile)
+                    # Contract marker: _render_command_prediction_consistency_card(compensation, command_profile)
+                    _render_command_prediction_consistency_card(compensation, first_command_profile)
+                    _render_finite_prediction_availability(compensation)
+                    _render_end_marker_summary(compensation, first_command_profile)
+                    # Contract marker: _render_finite_signal_consistency_summary(compensation, command_profile)
+                    _render_finite_signal_consistency_summary(compensation, first_command_profile)
+                    render_startup_compensation_review(compensation, first_command_profile)
                 # Contract marker: _render_finite_cycle_correction_summary(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, first_command_profile)
                 render_feedback_correction_review(first_command_profile, feedback_metadata or {})

@@ -27,7 +27,7 @@ def test_quick_lut_primary_nav_is_simple_and_debug_tabs_are_hidden() -> None:
 def test_heavy_app_paths_have_explicit_buttons() -> None:
     combined = "\n".join(path.read_text(encoding="utf-8") for path in [APP_UI, RAW_UI, LUT_UI, ACTUAL_UI, SECOND_UI])
     for marker in [
-        "Load / Analyze LUT Data",
+        "LUT 데이터 불러오기 / 분석 시작",
         "Apply Raw Waveform Selection",
         "Render Raw Waveform Plot",
         "Load LUT CSV",
