@@ -64,8 +64,10 @@ from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
 from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
+from .ui_finite_first_phase_sync import render_finite_first_phase_sync_review
 from .continuous_steady_state_extraction import build_continuous_steady_state_modeling_case
 from .continuous_steady_state_extraction import build_continuous_phase_aligned_command_profile
+from .finite_first_phase_sync import apply_finite_first_phase_sync_modeling
 from .ui_continuous_steady_state import (
     render_continuous_actual_drive_runtime_panel,
     render_continuous_steady_state_runtime_panel,
@@ -111,6 +113,15 @@ UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5
 
 def _build_continuous_steady_state_modeling_case_for_quick_lut(*args, **kwargs):
     return build_continuous_steady_state_modeling_case(*args, **kwargs)
+
+
+def _ordered_source_waveform_options(waveform_options: list[str] | tuple[str, ...] | None) -> list[str]:
+    available = [str(option) for option in (waveform_options or []) if str(option).strip()]
+    if not available:
+        available = ["triangle", "sine", "rounded_triangle"]
+    extras = [option for option in ("triangle", "sine", "rounded_triangle", "auto", "all") if option not in available]
+    ordered = list(dict.fromkeys([*available, *extras]))
+    return sorted(ordered, key=lambda value: (0 if value == "triangle" else 1, value))
 
 
 def _runtime_git_value(*args: str) -> str:
@@ -2202,12 +2213,16 @@ def _render_quick_lut_tab_v2(
 
     left, mid, right = st.columns(3)
     with left:
+        source_waveform_options = _ordered_source_waveform_options(waveform_options)
         target_waveform = st.selectbox(
             "지원 입력 파형 family",
-            options=waveform_options or ["sine"],
+            options=source_waveform_options,
+            index=0,
             key="lut_waveform_v2",
             help="이 선택은 목표 자기장 shape selector가 아니라 support/input waveform family selector입니다.",
         )
+        st.caption("지원/input waveform family")
+        st.caption("기본값은 triangle입니다.")
         st.caption(
             "이 선택은 실험 support/input waveform family를 고르는 것이며, 목표 자기장 개형은 항상 rounded triangle입니다."
         )
@@ -2311,6 +2326,20 @@ def _render_quick_lut_tab_v2(
         if modeling_input_mode == "continuous_steady_state":
             target_cycle_count = 1.0
             preview_tail_cycles = 0.0
+        finite_first_modeling_mode_label = st.radio(
+            "Finite 1차 모델링 방식",
+            options=["피크 싱크 기반, 기본", "기존 delay 포함 방식, review only"],
+            index=0,
+            key="finite_first_modeling_mode_selector",
+            horizontal=False,
+        )
+        finite_first_modeling_mode = (
+            "legacy_delay_preserving"
+            if finite_first_modeling_mode_label == "기존 delay 포함 방식, review only"
+            else "phase_synced"
+        )
+        st.caption("Finite 1차 모델링은 전압 피크와 자기장 피크를 맞춘 뒤 오차를 계산합니다.")
+        st.caption("기존 startup delay-preserving 방식은 비교 검토용이며 production 기본값이 아닙니다.")
     with right:
         st.markdown("#### 1. LUT 데이터 준비")
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
@@ -2324,6 +2353,7 @@ def _render_quick_lut_tab_v2(
             use_frequency_trend=bool(use_frequency_trend),
             finite_cycle_mode=bool(finite_cycle_mode),
             preview_tail_cycles=float(preview_tail_cycles),
+            finite_first_modeling_mode=finite_first_modeling_mode,
         )
         quick_config_snapshot = legacy_quick_lut_config(quick_target_config)
         st.session_state["quick_lut_target_config"] = target_config_snapshot(quick_target_config)
@@ -2396,6 +2426,7 @@ def _render_quick_lut_tab_v2(
         finite_cycle_mode = bool(applied_for_modeling.get("finite_cycle_mode"))
         use_frequency_trend = bool(applied_for_modeling.get("use_frequency_trend"))
         preview_tail_cycles = float(applied_for_modeling.get("preview_tail_cycles") or 0.0)
+        finite_first_modeling_mode = str(applied_for_modeling.get("finite_first_modeling_mode") or "phase_synced")
         modeling_input_mode = str(applied_for_modeling.get("modeling_input_mode") or modeling_input_mode)
         continuous_repeating_lut = bool(applied_for_modeling.get("continuous_repeating_lut"))
         continuous_zero_return_tail_enabled = bool(applied_for_modeling.get("continuous_zero_return_tail_enabled") or False)
@@ -2584,6 +2615,16 @@ def _render_quick_lut_tab_v2(
                 )
                 compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
+            finite_first_phase_meta: dict[str, object] = {}
+            if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:
+                first_command_profile, finite_first_phase_meta = apply_finite_first_phase_sync_modeling(
+                    first_command_profile,
+                    freq_hz=float(target_freq),
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else 1.0,
+                    mode=finite_first_modeling_mode,
+                )
+                command_profile = first_command_profile.copy(deep=True)
+                compensation["command_profile"] = command_profile
             if modeling_input_mode == "continuous_steady_state":
                 first_bundle = run_continuous_first_modeling(
                     extraction_result=continuous_extraction_case,
@@ -2625,6 +2666,7 @@ def _render_quick_lut_tab_v2(
                     "cycle_count": float(target_cycle_count) if target_cycle_count is not None else None,
                     "command_source_column": "limited_voltage_v",
                     "modeling_input_mode": modeling_input_mode,
+                    **finite_first_phase_meta,
                     "continuous_production_cycle_count": 1.0 if modeling_input_mode == "continuous_steady_state" else None,
                     "continuous_repeating_lut": modeling_input_mode == "continuous_steady_state",
                     "zero_return_tail_enabled": False if modeling_input_mode == "continuous_steady_state" else None,
@@ -2720,6 +2762,7 @@ def _render_quick_lut_tab_v2(
                     use_container_width=True,
                 )
             if finite_cycle_mode:
+                render_finite_first_phase_sync_review(first_command_profile, finite_first_phase_meta)
                 st.caption(
                     "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬된 목표이고, "
                     "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."

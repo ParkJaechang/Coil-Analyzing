@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
+from .finite_second_modeling_tail import compute_second_modeling_gain
+
+
+def apply_finite_first_phase_sync_modeling(
+    command_profile: pd.DataFrame,
+    *,
+    freq_hz: float,
+    cycle_count: float,
+    mode: str = "phase_synced",
+    voltage_limit_v: float = 5.0,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if str(mode) == "legacy_delay_preserving":
+        return command_profile.copy(deep=True), {
+            "finite_first_modeling_mode": "legacy_delay_preserving",
+            "finite_first_modeling_mode_default": "phase_synced",
+            "finite_first_modeling_review_only": True,
+            "finite_first_modeling_phase_sync_enabled": False,
+            "finite_first_modeling_legacy_delay_preserving": True,
+        }
+    frame = command_profile.copy(deep=True).reset_index(drop=True)
+    if frame.empty or "time_s" not in frame.columns:
+        return frame, {
+            "finite_first_modeling_mode": "phase_synced",
+            "finite_first_modeling_phase_sync_enabled": False,
+            "finite_first_modeling_status": "empty_command_profile",
+        }
+    time_s = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
+    active_end_s = float(cycle_count) / max(float(freq_hz), 1e-12)
+    active_mask = np.isfinite(time_s) & (time_s <= active_end_s + 1e-12)
+    target_column = _first_existing_column(
+        frame,
+        ("physical_target_output_mT", "target_field_mT", "target_output", "aligned_target_output"),
+    )
+    measured_column = _first_existing_column(
+        frame,
+        ("predicted_field_mT", "expected_field_mT", "support_reference_output_mT", "expected_output", "modeled_output"),
+    )
+    voltage_column = _first_existing_column(
+        frame,
+        ("limited_voltage_v", "feedback_corrected_limited_voltage_v", "recommended_voltage_v", "first_modeled_voltage_v"),
+    )
+    if target_column is None or measured_column is None or voltage_column is None:
+        return frame, {
+            "finite_first_modeling_mode": "phase_synced",
+            "finite_first_modeling_phase_sync_enabled": False,
+            "finite_first_modeling_status": "missing_required_columns",
+            "finite_first_modeling_missing_target": target_column is None,
+            "finite_first_modeling_missing_measured": measured_column is None,
+            "finite_first_modeling_missing_voltage": voltage_column is None,
+        }
+    target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
+    measured = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
+    base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
+    smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
+        time_s,
+        measured,
+        time_s,
+        active_mask,
+        freq_hz=float(freq_hz),
+        cycle_count=float(cycle_count),
+    )
+    voltage_peak_time = _first_positive_peak_time(time_s, base_voltage, active_mask)
+    measured_peak_time = _first_positive_peak_time(time_s, smoothed, active_mask)
+    phase_delay_s = 0.0
+    alignment_status = "peak_detection_failed"
+    if voltage_peak_time is not None and measured_peak_time is not None:
+        phase_delay_s = float(measured_peak_time - voltage_peak_time)
+        alignment_status = "ok"
+    required_end = active_end_s + max(phase_delay_s, 0.0)
+    source_end = float(np.nanmax(time_s[np.isfinite(time_s)])) if np.isfinite(time_s).any() else float("nan")
+    support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
+    aligned = _interp(time_s, smoothed, time_s + phase_delay_s)
+    finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
+    residual = target - aligned
+    unit_delta = residual / 50.0 * float(voltage_limit_v)
+    unit_delta[~finite_active] = np.nan
+    gain, gain_meta = compute_second_modeling_gain(
+        unit_delta,
+        base_voltage,
+        finite_active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=float(voltage_limit_v),
+        tail_mask=np.zeros_like(finite_active, dtype=bool),
+    )
+    raw_delta = unit_delta * float(gain)
+    correction_delta, stabilization_meta, arrays = stabilize_correction_delta(
+        raw_delta,
+        base_voltage,
+        time_s,
+        finite_active,
+        freq_hz=float(freq_hz),
+        cycle_count=float(cycle_count),
+        enabled=True,
+        tail_mask=np.zeros_like(finite_active, dtype=bool),
+    )
+    modeled = base_voltage + correction_delta
+    limited = np.clip(modeled, -float(voltage_limit_v), float(voltage_limit_v))
+    frame["finite_first_base_voltage_v"] = base_voltage
+    frame["first_modeled_voltage_v"] = modeled
+    frame["limited_voltage_v"] = limited
+    frame["correction_delta_v"] = correction_delta
+    frame["raw_correction_delta_v"] = raw_delta
+    frame["smoothed_correction_delta_v"] = arrays.get("smoothed_correction_delta_v", correction_delta)
+    frame["measured_field_smoothed_mT"] = smoothed
+    frame["measured_field_aligned_mT"] = aligned
+    frame["residual_for_modeling_mT"] = residual
+    frame["phase_delay_s"] = phase_delay_s
+    frame["phase_delay_cycles"] = phase_delay_s * float(freq_hz)
+    frame["phase_sync_enabled"] = True
+    frame["phase_sync_method"] = "field_peak_to_voltage_peak"
+    frame["finite_first_modeling_kernel"] = "shared_phase_aligned"
+    frame["finite_first_modeling_mode"] = "phase_synced"
+    output_frame = frame.loc[active_mask].copy().reset_index(drop=True)
+    metadata = {
+        **smoothing_meta,
+        **gain_meta,
+        **stabilization_meta,
+        "finite_first_modeling_status": "ok" if support_ok and alignment_status == "ok" else alignment_status,
+        "finite_first_modeling_mode": "phase_synced",
+        "finite_first_modeling_mode_default": "phase_synced",
+        "finite_first_modeling_phase_sync_enabled": True,
+        "finite_first_modeling_source_waveform_family": str(frame.get("waveform_type", pd.Series(["triangle"])).iloc[0]),
+        "finite_first_modeling_target_shape": "fixed_rounded_triangle",
+        "finite_first_modeling_kernel": "shared_phase_aligned",
+        "finite_first_modeling_legacy_delay_preserving": False,
+        "finite_first_modeling_cycle_count": float(cycle_count),
+        "phase_sync_enabled": True,
+        "phase_sync_method": "field_peak_to_voltage_peak",
+        "voltage_first_peak_time_s": voltage_peak_time,
+        "measured_first_peak_time_s": measured_peak_time,
+        "phase_delay_s": phase_delay_s,
+        "phase_delay_cycles": phase_delay_s * float(freq_hz),
+        "residual_for_modeling_source": "phase_aligned_measured",
+        "modeling_kernel": "shared_phase_aligned",
+        "phase_sync_required_source_end_s": required_end,
+        "phase_sync_actual_source_end_s": source_end,
+        "phase_sync_support_status": "ok" if support_ok else "insufficient",
+        "measured_alignment_source": "native_smoothed_source",
+        "phase_sync_support_margin_s": 0.0,
+        "source_voltage_raw_peak_v": _peak_abs(base_voltage),
+        "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
+        "base_voltage_peak_setting_v": _peak_abs(base_voltage),
+        "final_voltage_limit_v": float(voltage_limit_v),
+        "correction_delta_peak_v": _peak_abs(correction_delta),
+        "clipping_fraction": float(np.mean(np.abs(modeled) > float(voltage_limit_v) + 1e-12)) if len(modeled) else 0.0,
+        "clipping_status": "warning" if np.any(np.abs(modeled) > float(voltage_limit_v) + 1e-12) else "ok",
+    }
+    return output_frame, metadata
+
+
+def _first_existing_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    for column in candidates:
+        if column in frame.columns and pd.to_numeric(frame[column], errors="coerce").notna().any():
+            return column
+    return None
+
+
+def _first_positive_peak_time(time_s: np.ndarray, values: np.ndarray, active_mask: np.ndarray) -> float | None:
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(time_s) & np.isfinite(values)
+    if active.sum() < 3:
+        return None
+    indices = np.flatnonzero(active)
+    local = np.asarray(values, dtype=float)[indices]
+    peak_candidates: list[int] = []
+    for local_index in range(1, len(local) - 1):
+        if local[local_index] > 0.0 and local[local_index] >= local[local_index - 1] and local[local_index] >= local[local_index + 1]:
+            peak_candidates.append(local_index)
+    if peak_candidates:
+        peak_index = int(indices[peak_candidates[0]])
+    else:
+        positive = np.flatnonzero(local > 0.0)
+        selected = int(positive[int(np.nanargmax(local[positive]))]) if positive.size else int(np.nanargmax(local))
+        peak_index = int(indices[selected])
+    return float(np.asarray(time_s, dtype=float)[peak_index])
+
+
+def _interp(source_time: np.ndarray, source_values: np.ndarray, target_time: np.ndarray) -> np.ndarray:
+    source_t = np.asarray(source_time, dtype=float)
+    source_y = np.asarray(source_values, dtype=float)
+    target_t = np.asarray(target_time, dtype=float)
+    finite = np.isfinite(source_t) & np.isfinite(source_y)
+    if finite.sum() < 2:
+        return np.full_like(target_t, np.nan, dtype=float)
+    order = np.argsort(source_t[finite])
+    sorted_t = source_t[finite][order]
+    sorted_y = source_y[finite][order]
+    out = np.interp(target_t, sorted_t, sorted_y)
+    out[(target_t < sorted_t[0]) | (target_t > sorted_t[-1])] = np.nan
+    return out
+
+
+def _peak_abs(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    return float(np.nanmax(np.abs(finite))) if finite.size else 0.0

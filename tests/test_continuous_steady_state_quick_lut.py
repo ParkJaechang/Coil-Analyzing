@@ -345,7 +345,7 @@ def test_continuous_candidates_are_ranked_by_target_frequency_match() -> None:
     assert ranked[1]["frequency_match_status"] == "mismatch"
 
 
-def test_continuous_candidate_waveform_filter_defaults_to_sine() -> None:
+def test_continuous_candidate_waveform_filter_defaults_to_triangle() -> None:
     csv_bytes = b"TimeMs,Voltage1_V,HallBz\n0,0,0\n10,1,-1\n20,0,0\n"
     names, candidates, scan = discover_continuous_candidate_frames(
         {},
@@ -355,14 +355,14 @@ def test_continuous_candidate_waveform_filter_defaults_to_sine() -> None:
         ],
         dataset_library_payloads=[],
         target_freq_hz=3.0,
-        source_waveform_filter="sine",
+        source_waveform_filter="triangle",
     )
 
-    assert names == ["upload_memory:continuous_sine_3Hz.csv"]
+    assert names == ["upload_memory:continuous_triangle_3Hz.csv"]
     detail = scan["continuous_candidate_details"][0]
-    assert detail["continuous_source_waveform_family"] == "sine"
-    assert "sine" in detail["continuous_candidate_label"]
-    assert candidates[names[0]].attrs["continuous_source_waveform_family"] == "sine"
+    assert detail["continuous_source_waveform_family"] == "triangle"
+    assert "triangle" in detail["continuous_candidate_label"]
+    assert candidates[names[0]].attrs["continuous_source_waveform_family"] == "triangle"
 
 
 def test_continuous_candidate_waveform_filter_can_select_triangle() -> None:
@@ -542,6 +542,7 @@ def test_continuous_runtime_markers_include_waveform_filter_and_modeling_plots()
     for marker in [
         "Continuous source waveform family",
         "continuous_source_waveform_filter",
+        "[\"triangle\", \"sine\", \"rounded_triangle\", \"all\"]",
         "목표 자기장 개형: finite와 동일한 fixed rounded-triangle",
         "Continuous 1차 모델링 실행",
         "Phase alignment 확인",

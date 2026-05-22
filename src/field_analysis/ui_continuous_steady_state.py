@@ -60,7 +60,7 @@ def render_continuous_steady_state_runtime_panel(
     st.caption("source waveform family는 모델링 입력 데이터 선택용입니다.")
     source_waveform_filter = st.selectbox(
         "Continuous source waveform family",
-        ["sine", "triangle", "rounded_triangle", "all"],
+        ["triangle", "sine", "rounded_triangle", "all"],
         index=0,
         key="continuous_source_waveform_filter",
     )

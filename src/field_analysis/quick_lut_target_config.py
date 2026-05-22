@@ -13,6 +13,7 @@ def build_quick_lut_target_config(
     use_frequency_trend: bool,
     finite_cycle_mode: bool,
     preview_tail_cycles: float,
+    finite_first_modeling_mode: str = "phase_synced",
 ) -> dict[str, Any]:
     mode = "continuous_steady_state" if str(modeling_input_mode) == "continuous_steady_state" else "finite_startup_aware"
     cycle = 1.0 if mode == "continuous_steady_state" else (float(target_cycle_count) if target_cycle_count is not None else None)
@@ -22,10 +23,16 @@ def build_quick_lut_target_config(
         "target_freq_hz": float(target_freq_hz),
         "target_cycle_count": cycle,
         "target_field_shape": "fixed_rounded_triangle",
+        "source_input_waveform_family": target_waveform_family,
+        "source_input_waveform_family_default": "triangle",
         "target_peak_mT": 50.0,
         "use_frequency_trend": bool(use_frequency_trend),
         "finite_cycle_mode": bool(finite_cycle_mode and mode != "continuous_steady_state"),
         "finite_tail_mode": None,
+        "finite_first_modeling_mode": "legacy_delay_preserving"
+        if str(finite_first_modeling_mode) == "legacy_delay_preserving"
+        else "phase_synced",
+        "finite_first_modeling_mode_default": "phase_synced",
         "preview_tail_cycles": float(preview_tail_cycles),
         "continuous_loop_output": mode == "continuous_steady_state",
         "continuous_repeating_lut": mode == "continuous_steady_state",
@@ -35,6 +42,7 @@ def build_quick_lut_target_config(
         "target_cycle_count_source": "mode_policy" if mode == "continuous_steady_state" else "ui_user_selection",
         "target_config_auto_overwrite_detected": False,
         "target_config_auto_overwrite_blocked": True,
+        "target_field_shape_policy": "fixed_rounded_triangle",
     }
 
 
@@ -46,6 +54,8 @@ def legacy_quick_lut_config(config: Mapping[str, Any]) -> dict[str, Any]:
         "finite_cycle_mode": config.get("finite_cycle_mode"),
         "target_cycle_count": config.get("target_cycle_count"),
         "preview_tail_cycles": config.get("preview_tail_cycles"),
+        "finite_first_modeling_mode": config.get("finite_first_modeling_mode"),
+        "source_input_waveform_family": config.get("source_input_waveform_family"),
         "modeling_input_mode": config.get("modeling_input_mode"),
         "continuous_production_cycle_count": 1.0,
         "continuous_repeating_lut": config.get("continuous_repeating_lut"),
@@ -88,6 +98,7 @@ def _canonical(config: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
         "use_frequency_trend",
         "finite_cycle_mode",
         "preview_tail_cycles",
+        "finite_first_modeling_mode",
         "continuous_loop_output",
     )
     return tuple((key, _normal(config.get(key))) for key in keys)
