@@ -14,6 +14,7 @@ from .upload_state_dedupe import uploaded_file_keys
 from .upload_state_delete import delete_physical_upload_files, delete_upload_result
 from .upload_filename import canonicalize_upload_filename
 from .upload_manifest_normalization import normalize_upload_manifest
+from .upload_active_records import list_active_upload_payload_records_from_manifest
 from .upload_category_aliases import (
     CATEGORY_LABELS,
     UPLOAD_CATEGORIES,
@@ -264,68 +265,12 @@ def category_payloads(
 def list_active_upload_payload_records(category: str, *, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
     category = normalize_upload_category(category)
-    manifest = load_upload_manifest(paths=resolved_paths)
-    active_names = {str(item) for item in manifest.get("active_uploads", {}).get(category, []) if str(item)}
-    if not active_names:
-        return []
-    records: list[dict[str, Any]] = []
-    category_dir = resolved_paths.category_dir(category)
-    for entry in manifest["files"].get(category, []):
-        if not isinstance(entry, dict):
-            continue
-        cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "")
-        if cache_name not in active_names:
-            continue
-        path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
-        if path.exists() and path.is_file():
-            filename_meta = canonicalize_upload_filename(
-                cache_name,
-                original_filename=entry.get("original_filename") or entry.get("display_name") or entry.get("file_name"),
-            )
-            records.append(
-                {
-                    "cache_name": cache_name,
-                    "canonical_filename": filename_meta["upload_canonical_filename"],
-                    "path": str(path),
-                    "payload_source": "remembered_upload",
-                }
-            )
-    if not records:
-        active_canonical_names = _active_canonical_names(category, active_names, manifest=manifest)
-        for record in list_persisted_uploads(category, paths=resolved_paths):
-            canonical_name = str(record.get("canonical_filename") or record.get("original_filename") or "")
-            cache_name = str(record.get("cache_name") or record.get("stored_filename") or "")
-            path = Path(str(record.get("path") or record.get("stored_path") or ""))
-            if cache_name not in active_names and canonical_name not in active_canonical_names:
-                continue
-            if path.exists() and path.is_file():
-                records.append(
-                    {
-                        "cache_name": cache_name,
-                        "canonical_filename": canonical_name,
-                        "path": str(path),
-                        "payload_source": "remembered_upload_canonical_fallback",
-                    }
-                )
-    return sorted(records, key=lambda item: str(item.get("cache_name") or ""))
-
-
-def _active_canonical_names(category: str, active_names: set[str], *, manifest: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
-    for entry in manifest["files"].get(category, []):
-        if not isinstance(entry, dict):
-            continue
-        cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "")
-        if cache_name not in active_names:
-            continue
-        filename_meta = canonicalize_upload_filename(
-            cache_name,
-            original_filename=entry.get("original_filename") or entry.get("display_name") or entry.get("file_name"),
-        )
-        canonical_name = str(filename_meta.get("upload_canonical_filename") or "")
-        if canonical_name:
-            names.add(canonical_name)
-    return names
+    return list_active_upload_payload_records_from_manifest(
+        category,
+        paths=resolved_paths,
+        manifest=load_upload_manifest(paths=resolved_paths),
+        list_persisted_uploads=list_persisted_uploads,
+    )
 def category_summary_rows(*, paths: UploadStatePaths | None = None) -> list[dict[str, Any]]:
     resolved_paths = paths or build_upload_state_paths()
     item_summary = build_upload_memory_group_summary(build_upload_memory_items(paths=resolved_paths))
