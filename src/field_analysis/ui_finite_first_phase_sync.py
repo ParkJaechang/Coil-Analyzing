@@ -56,6 +56,12 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
     if "measured_field_aligned_mT" not in command_profile.columns:
         st.caption("기존 delay 포함 방식, review only: phase sync trace는 생성하지 않습니다.")
         return
+    if str(metadata.get("finite_first_modeling_status") or "") == "insufficient_phase_sync_support":
+        st.warning(
+            "phase sync 이후 active 끝까지 필요한 실측 support가 부족합니다. "
+            "이 결과는 1차 command 성공 결과로 사용하지 않습니다."
+        )
+        return
     st.plotly_chart(_finite_first_phase_sync_plot(command_profile, metadata), use_container_width=True)
     st.plotly_chart(_finite_first_residual_plot(command_profile), use_container_width=True)
     st.caption("다운로드 voltage_v source: limited_voltage_v")

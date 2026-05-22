@@ -46,3 +46,16 @@ The user runtime screenshot after the previous cleanup still showed finite first
 | Target template quality | Analytic fixed rounded triangle and ripple check available. | Source-level quality tests pass; runtime target template diagnostic is exposed in finite first review expander. | PASS | `tests/test_target_template_quality.py`, `ui_finite_first_phase_sync.py` |
 
 Headless Selenium could capture the app shell on `8504`, but it starts a fresh Streamlit browser session and did not inherit the user's loaded modeling panel state. User-launched runtime review is still required for the exact screenshot path after the pushed fix.
+
+## Follow-up After User Recheck
+
+The user-launched screenshot still showed the same cutoff. Root cause: finite first phase sync was still building smoothed/aligned measured traces from the active-only `command_profile` grid. The compensation route already preserved full native measured support in `selected_support_source_time_s` / `selected_support_source_mT`, but the phase-sync kernel ignored it.
+
+Fix added after this report:
+
+- `apply_finite_first_phase_sync_modeling()` now uses `selected_support_source_time_s` / `selected_support_source_mT` as the native measurement support grid when available.
+- Smoothing is performed on the native support grid, not on the active output command grid.
+- Aligned measured is sampled back onto the output grid using `native_time + phase_delay`.
+- Metadata now marks `measurement_support_grid_separate_from_output_grid=True` and `measurement_support_source=selected_support_source_native`.
+- If native support is unavailable or insufficient, the UI stops before plotting a misleading partial phase-sync result and shows a support warning.
+- Regression test `test_finite_first_phase_sync_uses_native_support_beyond_active_output_grid` covers the exact active-only-output + longer-native-support case.
