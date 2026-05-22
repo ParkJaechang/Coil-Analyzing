@@ -181,6 +181,37 @@ def test_finite_first_phase_sync_uses_native_support_beyond_active_output_grid()
     assert result["residual_for_modeling_mT"].notna().all()
 
 
+def test_finite_first_phase_sync_uses_native_support_from_dataframe_attrs() -> None:
+    active_duration = 1.0
+    delay_s = 0.09
+    active_time = np.linspace(0.0, active_duration, 420, endpoint=False)
+    support_time = np.linspace(0.0, active_duration + delay_s + 0.05, 520, endpoint=False)
+    active_phase = 2.0 * np.pi * active_time
+    support_measured = 35.0 * np.sin(2.0 * np.pi * (support_time - delay_s))
+    support_measured += -22.0 * np.exp(-((support_time - (0.75 + delay_s)) / 0.035) ** 2)
+    active_measured = np.interp(active_time, support_time, support_measured)
+    profile = pd.DataFrame(
+        {
+            "time_s": active_time,
+            "limited_voltage_v": 2.5 * np.sin(active_phase),
+            "recommended_voltage_v": 2.5 * np.sin(active_phase),
+            "physical_target_output_mT": 50.0 * np.sin(active_phase),
+            "finite_first_actual_measured_field_mT": active_measured,
+        }
+    )
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = support_measured.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["measurement_support_grid_separate_from_output_grid"] is True
+    assert metadata["measurement_support_source"] == "selected_support_source_native_attrs"
+    assert metadata["active_residual_finite_ratio"] == pytest.approx(1.0)
+    assert result["measured_field_aligned_mT"].notna().all()
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
 def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support_missing() -> None:
     active_duration = 1.0
     delay_s = 0.09

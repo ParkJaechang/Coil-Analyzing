@@ -25,7 +25,9 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_modeling_phase_sync_enabled": False,
             "finite_first_modeling_legacy_delay_preserving": True,
         }
+    source_attrs = dict(getattr(command_profile, "attrs", {}) or {})
     frame = command_profile.copy(deep=True).reset_index(drop=True)
+    frame.attrs.update(source_attrs)
     if frame.empty or "time_s" not in frame.columns:
         return frame, {
             "finite_first_modeling_mode": "phase_synced",
@@ -158,7 +160,7 @@ def apply_finite_first_phase_sync_modeling(
             "phase_sync_actual_source_end_s": source_end,
             "phase_sync_support_status": "insufficient",
             "measured_alignment_source": measured_alignment_source,
-            "measurement_support_grid_separate_from_output_grid": measured_alignment_source == "selected_support_source_native",
+            "measurement_support_grid_separate_from_output_grid": measured_alignment_source.startswith("selected_support_source_native"),
             "measurement_support_source_sample_count": int(np.isfinite(native_time_s).sum()),
             "required_phase_aligned_source_end_s": required_end,
             "actual_source_time_end_s": source_end,
@@ -278,7 +280,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_actual_source_end_s": source_end,
         "phase_sync_support_status": "ok" if support_ok else "insufficient",
         "measured_alignment_source": "native_smoothed_source",
-        "measurement_support_grid_separate_from_output_grid": measured_alignment_source == "selected_support_source_native",
+        "measurement_support_grid_separate_from_output_grid": measured_alignment_source.startswith("selected_support_source_native"),
         "measurement_support_source": measured_alignment_source,
         "measurement_support_source_sample_count": int(np.isfinite(native_time_s).sum()),
         "phase_sync_support_margin_s": support_margin_s,
@@ -431,16 +433,45 @@ def _native_measured_support_source(
     fallback_time_s: np.ndarray,
     fallback_measured: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, str]:
+    attr_time = frame.attrs.get("selected_support_source_time_s")
+    attr_measured = frame.attrs.get("selected_support_source_mT")
+    native_from_attrs = _validate_native_support_arrays(attr_time, attr_measured)
+    if native_from_attrs is not None:
+        return (*native_from_attrs, "selected_support_source_native_attrs")
     source_time = _first_sequence_value(frame, "selected_support_source_time_s")
     source_measured = _first_sequence_value(frame, "selected_support_source_mT")
-    if source_time is not None and source_measured is not None:
-        source_time_arr = np.asarray(source_time, dtype=float)
-        source_measured_arr = np.asarray(source_measured, dtype=float)
-        if source_time_arr.size == source_measured_arr.size and source_time_arr.size >= 3:
-            finite = np.isfinite(source_time_arr) & np.isfinite(source_measured_arr)
-            if finite.sum() >= 3:
-                return source_time_arr, source_measured_arr, "selected_support_source_native"
+    native_from_columns = _validate_native_support_arrays(source_time, source_measured)
+    if native_from_columns is not None:
+        return (*native_from_columns, "selected_support_source_native")
+    column_time = _numeric_column_sequence(frame, "selected_support_source_time_s")
+    column_measured = _numeric_column_sequence(frame, "selected_support_source_mT")
+    native_from_numeric_columns = _validate_native_support_arrays(column_time, column_measured)
+    if native_from_numeric_columns is not None:
+        return (*native_from_numeric_columns, "selected_support_source_native_columns")
     return np.asarray(fallback_time_s, dtype=float), np.asarray(fallback_measured, dtype=float), "output_command_grid_fallback"
+
+
+def _validate_native_support_arrays(
+    source_time: Any,
+    source_measured: Any,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if source_time is None or source_measured is None:
+        return None
+    source_time_arr = np.asarray(source_time, dtype=float)
+    source_measured_arr = np.asarray(source_measured, dtype=float)
+    if source_time_arr.size != source_measured_arr.size or source_time_arr.size < 3:
+        return None
+    finite = np.isfinite(source_time_arr) & np.isfinite(source_measured_arr)
+    if finite.sum() < 3:
+        return None
+    return source_time_arr, source_measured_arr
+
+
+def _numeric_column_sequence(frame: pd.DataFrame, column: str) -> np.ndarray | None:
+    if column not in frame.columns or frame.empty:
+        return None
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+    return values if np.isfinite(values).sum() >= 3 else None
 
 
 def _first_sequence_value(frame: pd.DataFrame, column: str) -> list[float] | tuple[float, ...] | np.ndarray | None:

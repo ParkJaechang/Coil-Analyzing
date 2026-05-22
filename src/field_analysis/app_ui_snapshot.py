@@ -2642,6 +2642,13 @@ def _render_quick_lut_tab_v2(
                 )
                 compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
+            if isinstance(compensation, dict):
+                support_time = compensation.get("selected_support_source_time_s")
+                support_field = compensation.get("selected_support_source_mT")
+                if support_time is not None and support_field is not None:
+                    first_command_profile.attrs["selected_support_source_time_s"] = support_time
+                    first_command_profile.attrs["selected_support_source_mT"] = support_field
+                    first_command_profile.attrs["selected_support_source_file"] = compensation.get("selected_support_source_file")
             finite_first_phase_meta: dict[str, object] = {}
             if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:
                 first_command_profile, finite_first_phase_meta = apply_finite_first_phase_sync_modeling(

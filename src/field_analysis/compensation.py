@@ -977,6 +977,10 @@ def synthesize_current_waveform_compensation(
         command_profile["selected_support_original_pp_mT"] = selected_support_original_pp_mT
         command_profile["selected_support_original_nonzero_end_s"] = selected_support_original_nonzero_end_s
         command_profile["selected_support_source_available"] = bool(selected_support_source_available)
+        if selected_support_source_time_s is not None and selected_support_source_mT is not None:
+            command_profile.attrs["selected_support_source_time_s"] = selected_support_source_time_s
+            command_profile.attrs["selected_support_source_mT"] = selected_support_source_mT
+            command_profile.attrs["selected_support_source_file"] = selected_support_source_file
         command_profile["exact_cycle_support_used"] = bool(
             use_finite_empirical_route and support_cycle_count is not None and np.isfinite(float(support_cycle_count))
             and target_cycle_count is not None and np.isfinite(float(target_cycle_count))
