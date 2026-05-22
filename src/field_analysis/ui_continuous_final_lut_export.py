@@ -193,7 +193,7 @@ def render_continuous_final_voltage_lut_export_section(
     if not selected["available"]:
         if selected["stage"] == "second":
             st.warning("Continuous 2차 보정 command가 아직 생성되지 않았습니다.")
-            st.caption("먼저 Continuous 1차 실구동 결과 업로드 → 안정 1cycle 추출 → Continuous 2차 보정 command 생성을 실행하십시오.")
+            st.caption("먼저 2nd 폴더 / upload memory의 Continuous 1차 실구동 결과를 스캔하고 안정 1cycle 추출 → Continuous 2차 보정 command 생성을 실행하십시오.")
         else:
             st.warning("Continuous 1차 modeling command가 아직 생성되지 않았습니다.")
         return

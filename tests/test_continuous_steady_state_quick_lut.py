@@ -81,7 +81,7 @@ def test_quick_lut_continuous_actual_drive_and_validation_runtime_markers_exist(
     source = app_source + CONT_UI.read_text(encoding="utf-8")
 
     for marker in [
-        "Continuous 1차 실구동 결과 업로드",
+        "Legacy / 수동 continuous 실구동 결과 CSV 업로드",
         "실구동 결과에서 안정 1cycle 추출",
         "Continuous 2차 보정 command 생성",
         "Continuous 2차 구동 결과 평가",

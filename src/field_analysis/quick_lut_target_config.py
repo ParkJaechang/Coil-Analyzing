@@ -14,6 +14,7 @@ def build_quick_lut_target_config(
     finite_cycle_mode: bool,
     preview_tail_cycles: float,
     finite_first_modeling_mode: str = "phase_synced",
+    user_target_peak_field_mT: float = 50.0,
 ) -> dict[str, Any]:
     mode = "continuous_steady_state" if str(modeling_input_mode) == "continuous_steady_state" else "finite_startup_aware"
     cycle = 1.0 if mode == "continuous_steady_state" else (float(target_cycle_count) if target_cycle_count is not None else None)
@@ -25,7 +26,11 @@ def build_quick_lut_target_config(
         "target_field_shape": "fixed_rounded_triangle",
         "source_input_waveform_family": target_waveform_family,
         "source_input_waveform_family_default": "triangle",
-        "target_peak_mT": 50.0,
+        "target_peak_mT": float(user_target_peak_field_mT),
+        "user_target_peak_field_mT": float(user_target_peak_field_mT),
+        "target_peak_field_source": "ui_user_selection",
+        "field_modeling_normalization_reference_mT": 50.0,
+        "target_pp_fixed_removed": True,
         "use_frequency_trend": bool(use_frequency_trend),
         "finite_cycle_mode": bool(finite_cycle_mode and mode != "continuous_steady_state"),
         "finite_tail_mode": None,
@@ -43,6 +48,8 @@ def build_quick_lut_target_config(
         "target_config_auto_overwrite_detected": False,
         "target_config_auto_overwrite_blocked": True,
         "target_field_shape_policy": "fixed_rounded_triangle",
+        "target_shape": "fixed_rounded_triangle",
+        "target_shape_fixed": True,
     }
 
 
@@ -100,6 +107,7 @@ def _canonical(config: Mapping[str, Any]) -> tuple[tuple[str, Any], ...]:
         "preview_tail_cycles",
         "finite_first_modeling_mode",
         "continuous_loop_output",
+        "user_target_peak_field_mT",
     )
     return tuple((key, _normal(config.get(key))) for key in keys)
 

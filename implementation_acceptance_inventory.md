@@ -1,18 +1,18 @@
 # PR61 Implementation Acceptance Inventory
 
-Runtime head checked: `3b3fbf48537e2a4779914742eed5fc506b1cd210` before this audit.
+Runtime head checked: `a5c72dc92d954cf0ff074e9e5100811553874846` before the latest cleanup pass.
 
 Legend: `PASS` = code, UI path, and tests exist. `PARTIAL` = implementation exists but UI/runtime evidence or scope is incomplete. `FAIL` = requirement is not implemented. `NOT VERIFIED` = code may exist but runtime evidence was not collected in this pass.
 
 | # | Requirement | Current code files | UI location | session_state key(s) | Runtime evidence | Tests | Verdict | Needed fix |
 |---|---|---|---|---|---|---|---|---|
 | 1 | Quick LUT 기본 workflow 정리 | `src/field_analysis/app_ui_snapshot.py`, `src/field_analysis/ui_voltage_lut_review.py` | Quick LUT, LUT Review, Data / Cache Status | `quick_lut_target_config`, `active_payload_snapshot_hash` | PARTIAL: browser showed upload memory restored but model UI was still behind load/analyze gate | `tests/test_quick_lut_ui_contract.py`, `tests/test_button_gated_calculation_contract.py` | PARTIAL | Main flow labels were cleaned, but full finite/continuous/export grouping still needs runtime review. |
-| 2 | 수동 실구동 CSV 업로드 제거/숨김 | `src/field_analysis/ui_quick_lut_feedback.py` | 2차 보정 입력 source | `actual_drive_validation_cache_items`, `quick_lut_feedback_run_label` | NOT VERIFIED | `tests/test_quick_lut_feedback_correction_ui.py` | PARTIAL | Finite manual uploader is hidden under Legacy; continuous actual-drive uploader still exists in continuous panel. |
-| 3 | 목표 자기장 의미 정리 | `src/field_analysis/app_ui_snapshot.py`, `src/field_analysis/quick_lut_target_config.py` | Quick LUT target summary | `quick_lut_target_config` | NOT VERIFIED | `tests/test_quick_lut_ui_contract.py`, `tests/test_target_semantics_ui_contract.py` | PARTIAL | User-facing `100mT pp fixed` copy removed; target peak input/absolute scaling still needs deeper product review. |
-| 4 | Bz_mT waveform compensation legacy 문구 제거 | `src/field_analysis/app_ui_snapshot.py` | Quick LUT recommendation path | none | NOT VERIFIED | `tests/test_simplified_user_workflow_ui_contract.py` | PARTIAL | Main visible copy cleaned; older recommendation/debug code paths still contain legacy-ish amp/gain terms in backend diagnostics. |
+| 2 | 수동 실구동 CSV 업로드 제거/숨김 | `src/field_analysis/ui_quick_lut_feedback.py`, `src/field_analysis/ui_continuous_steady_state.py` | Legacy expanders | `actual_drive_validation_cache_items`, `quick_lut_feedback_run_label` | NOT VERIFIED | `tests/test_quick_lut_feedback_correction_ui.py`, `tests/test_continuous_steady_state_quick_lut.py` | PASS | Finite and continuous manual uploaders are hidden under Legacy expanders; 2nd folder/source scan remains the main path. |
+| 3 | 목표 자기장 의미 정리 | `src/field_analysis/app_ui_snapshot.py`, `src/field_analysis/quick_lut_target_config.py` | Quick LUT target summary | `quick_lut_target_config`, `quick_lut_user_target_peak_field_mT` | NOT VERIFIED | `tests/test_quick_lut_ui_contract.py`, `tests/test_target_semantics_ui_contract.py` | PASS | Legacy fixed-pp copy removed; target peak input and normalization metadata are now explicit. |
+| 4 | Bz_mT waveform compensation legacy 문구 제거 | `src/field_analysis/app_ui_snapshot.py` | Quick LUT recommendation path | none | NOT VERIFIED | `tests/test_simplified_user_workflow_ui_contract.py` | PASS | DAQ/AMP/extrapolation controls and hardware diagnostics are hidden under Advanced/Legacy expanders in the main Quick LUT flow. |
 | 5 | Support/Provenance/Consistency 정보 정리 | `src/field_analysis/app_ui_snapshot.py` | `데이터 선택 상세 / Debug` expander | compensation metadata only | NOT VERIFIED | `tests/test_support_family_override_ui_contract.py`, `tests/test_support_reference_provenance_ui_contract.py` | PARTIAL | Moved under Debug expander, but internal headings remain English for test compatibility. |
 | 6 | Startup Compensation Review 처리 | `src/field_analysis/ui_startup_compensation_review.py`, `src/field_analysis/app_ui_snapshot.py` | `데이터 선택 상세 / Debug` expander | compensation metadata only | NOT VERIFIED | `tests/test_startup_compensation_ui_contract.py` | PARTIAL | Hidden from main flow; not renamed or merged. |
-| 7 | 사이드바 정리 | `src/field_analysis/ui_upload_memory_management.py` | Sidebar Upload memory | upload manifest/cache state | Browser screenshot before fix showed uploaders; post-fix not screenshot-verified | `tests/test_upload_memory_management_ui.py` | PASS | No further code fix in this pass. |
+| 7 | 사이드바 정리 | `src/field_analysis/app_ui_snapshot.py`, `src/field_analysis/ui_upload_memory_management.py` | Sidebar Upload memory / Legacy upload expander | upload manifest/cache state | Browser screenshot before fix showed uploaders; post-fix not screenshot-verified | `tests/test_upload_memory_management_ui.py` | PASS | Sidebar direct uploaders and hardware calibration controls are hidden under collapsed Legacy/Advanced expanders. |
 | 8 | target rounded triangle template 품질 | `src/field_analysis/compensation.py`, target generation helpers | Target/plot output | command profile columns | NOT VERIFIED | Existing semantic tests only | NOT VERIFIED | Needs analytic template/ripple-specific test and visual/runtime evidence. |
 | 9 | finite phase sync / residual 끝부분 잘림 | `src/field_analysis/finite_first_phase_sync.py`, `src/field_analysis/finite_second_modeling_active_support.py` | Finite phase sync review / second modeling plots | first/second model result metadata | NOT VERIFIED | `tests/test_finite_first_phase_sync_modeling.py`, `tests/test_finite_second_modeling_active_support.py` | PARTIAL | Second-model active support is covered; finite first now carries finite residual and support metadata, but runtime plot evidence is still needed. |
 | 10 | measured field normalization scale | `src/field_analysis/finite_first_phase_sync.py`, `src/field_analysis/ui_finite_first_phase_sync.py` | Finite 1차 phase sync summary | result metadata | NOT VERIFIED | `tests/test_finite_first_phase_sync_modeling.py` | PASS | Added measured peak, scale-to-50mT, residual scale, headroom metadata/UI in this pass. |
@@ -24,9 +24,13 @@ Legend: `PASS` = code, UI path, and tests exist. `PARTIAL` = implementation exis
 | 16 | 1Hz target config | `src/field_analysis/quick_lut_target_config.py`, `src/field_analysis/app_ui_snapshot.py`, second modeling modules | Quick LUT target/debug | `quick_lut_target_config`, `quick_lut_applied_target_config` | NOT VERIFIED | `tests/test_quick_lut_ui_contract.py`, `tests/test_finite_cycle_selector_policy.py` | PARTIAL | Source-of-truth markers exist; 1Hz finite 1.0/1.5 runtime evidence still required. |
 | 17 | Upload memory / cache restore | `src/field_analysis/ui_upload_state.py`, `src/field_analysis/upload_active_records.py`, `src/field_analysis/upload_manifest_normalization.py` | Sidebar Global upload memory / Data Cache Status | upload manifest/cache state | Browser showed continuous 18, finite 72 after restore | `tests/test_upload_memory_management.py`, `tests/test_upload_memory_management_ui.py` | PASS | No file rename/delete performed. |
 
-Summary after this pass: PASS 5, PARTIAL 11, FAIL 0, NOT VERIFIED 1.
+Summary after this pass: PASS 8, PARTIAL 8, FAIL 0, NOT VERIFIED 1.
 
 Items fixed in this pass:
+- #2 manual finite/continuous actual-drive uploaders hidden under Legacy.
+- #3 target peak input and target config metadata added; legacy fixed-pp main copy removed.
+- #4 DAQ/AMP/extrapolation UI moved under Advanced/Legacy diagnostics.
+- #7 sidebar direct uploaders and hardware calibration controls moved under collapsed expanders.
 - #10 measured field normalization scale metadata/UI for finite first phase sync.
 - #11 finite first phase-sync command plot main trace cleanup.
 

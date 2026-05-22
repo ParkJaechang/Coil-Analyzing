@@ -234,34 +234,40 @@ def _run_app_shell(
         st.header("입력")
         render_sidebar_memory_panel()
         render_dataset_library_panel()
-        continuous_files = st.file_uploader(
-            "연속 cycle 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="continuous_uploads",
-            help="현재 분석과 LUT의 기본 입력입니다.",
-        )
-        transient_files = st.file_uploader(
-            "finite-cycle 전용 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="transient_uploads",
-            help="1.0 / 1.25 / 1.5 / 1.75 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
-        )
-        validation_files = st.file_uploader(
-            "2차 보정 검증 run 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="validation_uploads",
-            help="추천 LUT/보정 결과를 실제 측정과 다시 비교하는 validation run 데이터를 적재합니다.",
-        )
-        lcr_files = st.file_uploader(
-            "LCR 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="lcr_uploads",
-            help="LCR 파일은 자동 기억 목록과 업로드 폴더 요약에 함께 남깁니다.",
-        )
+        continuous_files = []
+        transient_files = []
+        validation_files = []
+        lcr_files = []
+        with st.expander("Legacy / 고급 파일 업로드", expanded=False):
+            st.warning("현재 기본 workflow는 Global upload memory와 Dataset Library를 사용합니다. 직접 업로드는 호환성 검토용입니다.")
+            continuous_files = st.file_uploader(
+                "연속 cycle 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="continuous_uploads",
+                help="현재 분석과 LUT의 기본 입력입니다.",
+            )
+            transient_files = st.file_uploader(
+                "finite-cycle 전용 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="transient_uploads",
+                help="1.0 / 1.25 / 1.5 / 1.75 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
+            )
+            validation_files = st.file_uploader(
+                "2차 보정 검증 run 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="validation_uploads",
+                help="추천 LUT/보정 결과를 실제 측정과 다시 비교하는 validation run 데이터를 적재합니다.",
+            )
+            lcr_files = st.file_uploader(
+                "LCR 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="lcr_uploads",
+                help="LCR 파일은 자동 기억 목록과 업로드 폴더 요약에 함께 남깁니다.",
+            )
         continuous_library_payloads = render_dataset_library_file_selector(
             dataset_mode="continuous",
             key_prefix="continuous",
@@ -320,55 +326,62 @@ def _run_app_shell(
             options=["bz_mT", "bmag_mT", "bx_mT", "by_mT", "bproj_mT"],
             index=0,
         )
-        st.subheader("구동 하드웨어")
-        max_daq_voltage_pp = float(
-            st.number_input(
-                "DAQ 최대 Voltage PP (V)",
-                min_value=0.1,
-                value=20.0,
-                step=1.0,
+        max_daq_voltage_pp = 20.0
+        amp_gain_at_100_pct = 20.0
+        amp_max_output_pk_v = 180.0
+        amp_gain_limit_pct = 100.0
+        default_support_amp_gain_pct = 100.0
+        allow_target_extrapolation = True
+        with st.expander("Advanced / Legacy hardware calibration", expanded=False):
+            st.caption("현재 Quick LUT 기본 workflow는 정규화 기반 command를 사용합니다. 장비 gain/DAQ 값은 legacy calibration 진단용입니다.")
+            max_daq_voltage_pp = float(
+                st.number_input(
+                    "DAQ 최대 Voltage PP (V)",
+                    min_value=0.1,
+                    value=20.0,
+                    step=1.0,
+                )
             )
-        )
-        amp_gain_at_100_pct = float(
-            st.number_input(
-                "DC AMP gain @100% (x)",
-                min_value=0.1,
-                value=20.0,
-                step=0.5,
+            amp_gain_at_100_pct = float(
+                st.number_input(
+                    "DC AMP gain @100% (x)",
+                    min_value=0.1,
+                    value=20.0,
+                    step=0.5,
+                )
             )
-        )
-        amp_max_output_pk_v = float(
-            st.number_input(
-                "DC AMP 최대 출력 (±V)",
-                min_value=1.0,
-                value=180.0,
-                step=10.0,
+            amp_max_output_pk_v = float(
+                st.number_input(
+                    "DC AMP 최대 출력 (±V)",
+                    min_value=1.0,
+                    value=180.0,
+                    step=10.0,
+                )
             )
-        )
-        amp_gain_limit_pct = float(
-            st.number_input(
-                "사용 가능 AMP gain 상한 (%)",
-                min_value=1.0,
-                max_value=100.0,
-                value=100.0,
-                step=5.0,
+            amp_gain_limit_pct = float(
+                st.number_input(
+                    "사용 가능 AMP gain 상한 (%)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=100.0,
+                    step=5.0,
+                )
             )
-        )
-        default_support_amp_gain_pct = float(
-            st.number_input(
-                "데이터 기준 AMP gain (%)",
-                min_value=1.0,
-                max_value=100.0,
-                value=100.0,
-                step=5.0,
-                help="파일에 amp_gain_setting이 없을 때 기준값으로 사용합니다.",
+            default_support_amp_gain_pct = float(
+                st.number_input(
+                    "데이터 기준 AMP gain (%)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=100.0,
+                    step=5.0,
+                    help="파일에 amp_gain_setting이 없을 때 기준값으로 사용합니다.",
+                )
             )
-        )
-        allow_target_extrapolation = st.checkbox(
-            "실험 범위 밖 target extrapolation 허용",
-            value=True,
-            help="실험 support 범위를 넘어도 하드웨어 headroom을 고려해 전압을 외삽합니다.",
-        )
+            allow_target_extrapolation = st.checkbox(
+                "실험 범위 밖 target extrapolation 허용",
+                value=True,
+                help="실험 support 범위를 넘어도 하드웨어 headroom을 고려해 전압을 외삽합니다.",
+            )
 
         with st.expander("고급 설정", expanded=usage_mode == "전체 분석"):
             baseline_seconds = float(st.number_input("Baseline 구간 (초)", min_value=0.0, value=0.0, step=0.1))
@@ -2365,6 +2378,17 @@ def _render_quick_lut_tab_v2(
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
         st.markdown("#### 2. 1차 모델링 command")
         st.caption("아래 동작은 모두 같은 fixed rounded triangle 목표 개형과 ±50mT 내부 정규화 기준을 사용합니다.")
+        user_target_peak_field_mT = float(
+            st.number_input(
+                "목표 피크 자기장 (mT)",
+                min_value=1.0,
+                value=float(st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0)),
+                step=5.0,
+                key="quick_lut_user_target_peak_field_mT",
+                help="목표 개형은 fixed rounded triangle이며, 내부 비교는 ±50mT 정규화 기준으로 수행합니다.",
+            )
+        )
+        st.caption("모델링 내부 정규화 기준: ±50 mT. 목표 피크 자기장은 target config metadata에 저장됩니다.")
         quick_target_config = build_quick_lut_target_config(
             modeling_input_mode=modeling_input_mode,
             target_waveform_family=str(target_waveform) if target_waveform is not None else None,
@@ -2374,6 +2398,7 @@ def _render_quick_lut_tab_v2(
             finite_cycle_mode=bool(finite_cycle_mode),
             preview_tail_cycles=float(preview_tail_cycles),
             finite_first_modeling_mode=finite_first_modeling_mode,
+            user_target_peak_field_mT=user_target_peak_field_mT,
         )
         quick_config_snapshot = legacy_quick_lut_config(quick_target_config)
         st.session_state["quick_lut_target_config"] = target_config_snapshot(quick_target_config)
@@ -2421,8 +2446,8 @@ def _render_quick_lut_tab_v2(
             key="lut_comp_button_v2",
         )
         st.caption(
-            "`크기 LUT 계산`은 fixed 100pp rounded-triangle field target에 맞는 scalar voltage estimate를 계산합니다. "
-            f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
+            "`크기 LUT 계산`은 fixed rounded-triangle target shape와 내부 ±50mT 정규화 기준으로 scalar voltage estimate를 계산합니다. "
+            f"`{compensation_button_label}`은 같은 target shape로 recommended voltage waveform을 계산합니다."
         )
         st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
         st.caption("2차 보정 결과가 아닙니다.")
@@ -2720,28 +2745,31 @@ def _render_quick_lut_tab_v2(
             available_gain_pct = float(command_profile["available_amp_gain_pct"].iloc[0])
             amp_output_pp = float(command_profile["amp_output_pp_at_required"].iloc[0])
             output_unit = compensation["target_output_unit"]
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("DAQ Voltage PP", f"{limited_voltage_pp:.3f} V")
-            c2.metric(
+            summary_cols = st.columns(3)
+            summary_cols[0].metric(
                 f"목표 {compensation['target_output_label']}",
                 f"{compensation['target_output_pp']:.3f} {output_unit}",
             )
-            c3.metric("지원 실험점 수", f"{compensation['support_point_count']}")
-            c4.metric("필요 AMP Gain", f"{required_gain_pct:.1f} %")
-            c5.metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
-            st.caption(
-                f"raw recommended voltage pp={recommended_voltage_pp:.3f} V, "
-                f"DAQ limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
-                f"AMP output={amp_output_pp:.1f} Vpp"
-            )
-            if compensation["within_hardware_limits"]:
-                st.success(
-                    f"하드웨어 가능: 필요 AMP gain {required_gain_pct:.1f}% / 사용 가능 {available_gain_pct:.1f}%"
+            summary_cols[1].metric("지원 실험점 수", f"{compensation['support_point_count']}")
+            summary_cols[2].metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
+            with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("DAQ Voltage PP", f"{limited_voltage_pp:.3f} V")
+                c2.metric("필요 AMP Gain", f"{required_gain_pct:.1f} %")
+                c3.metric("AMP output", f"{amp_output_pp:.1f} Vpp")
+                st.caption(
+                    f"raw recommended voltage pp={recommended_voltage_pp:.3f} V, "
+                    f"DAQ limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
+                    f"AMP output={amp_output_pp:.1f} Vpp"
                 )
-            else:
-                st.error(
-                    f"하드웨어 제한 초과: 필요 AMP gain {required_gain_pct:.1f}% / 사용 가능 {available_gain_pct:.1f}%"
-                )
+                if compensation["within_hardware_limits"]:
+                    st.success(
+                        f"Hardware reference ok: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                    )
+                else:
+                    st.warning(
+                        f"Hardware reference exceeds limit: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                    )
 
             comp_left, comp_right = st.columns(2)
             with comp_left:
@@ -2822,41 +2850,42 @@ def _render_quick_lut_tab_v2(
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
                 render_startup_compensation_review(compensation, command_profile)
 
-            st.write(f"- mode: `{compensation['mode']}`")
-            st.write(f"- current axis: `{current_channel}`")
-            st.write(f"- target output type: `{compensation['target_output_type']}`")
-            st.write(f"- finite cycle mode: `{compensation['finite_cycle_mode']}`")
-            if compensation["finite_cycle_mode"]:
-                st.write(f"- active cycle count: `{compensation['target_cycle_count']:.2f}`")
-                st.write(f"- preview tail cycles: `{compensation['preview_tail_cycles']:.2f}`")
-            st.write(
-                f"- estimated output lag: `{compensation['estimated_output_lag_seconds']:.6f}` s "
-                f"(`{compensation['estimated_output_lag_cycles']:.4f}` cycle)"
-            )
-            st.write(
-                f"- requested/used freq: `{compensation['requested_freq_hz']:.3f}` / "
-                f"`{compensation['used_freq_hz']:.3f}` Hz"
-            )
-            st.write(
-                f"- available freq range: `{compensation['available_freq_min']:.3f}` ~ "
-                f"`{compensation['available_freq_max']:.3f}` Hz "
-                f"({compensation['frequency_support_count']} freq)"
-            )
-            st.write(f"- nearest support test: `{compensation['nearest_test_id']}`")
-            st.write(
-                f"- available output pp: `{compensation['available_output_pp_min']:.3f}` ~ "
-                f"`{compensation['available_output_pp_max']:.3f}` {output_unit}"
-            )
-            st.write(f"- raw recommended voltage pp: `{recommended_voltage_pp:.3f}` V")
-            st.write(f"- DAQ-limited voltage pp: `{limited_voltage_pp:.3f}` V")
-            st.write(f"- required dc amp gain multiplier: `{required_gain_multiplier:.3f}x`")
-            st.write(f"- support amp gain: `{compensation['support_amp_gain_pct']:.1f}` %")
-            st.write(f"- required amp gain: `{required_gain_pct:.1f}` %")
-            st.write(f"- available amp gain: `{available_gain_pct:.1f}` %")
-            st.write(f"- amp output at required gain: `{compensation['amp_output_pp_at_required']:.3f}` Vpp")
-            st.write(f"- within hardware limits: `{compensation['within_hardware_limits']}`")
-            if pd.notna(compensation["scale_ratio_from_nearest"]):
-                st.write(f"- nearest profile scale ratio: `{compensation['scale_ratio_from_nearest']:.3f}`")
+            with st.expander("데이터 선택 상세 / Debug", expanded=False):
+                st.write(f"- mode: `{compensation['mode']}`")
+                st.write(f"- current axis: `{current_channel}`")
+                st.write(f"- target output type: `{compensation['target_output_type']}`")
+                st.write(f"- finite cycle mode: `{compensation['finite_cycle_mode']}`")
+                if compensation["finite_cycle_mode"]:
+                    st.write(f"- active cycle count: `{compensation['target_cycle_count']:.2f}`")
+                    st.write(f"- preview tail cycles: `{compensation['preview_tail_cycles']:.2f}`")
+                st.write(
+                    f"- estimated output lag: `{compensation['estimated_output_lag_seconds']:.6f}` s "
+                    f"(`{compensation['estimated_output_lag_cycles']:.4f}` cycle)"
+                )
+                st.write(
+                    f"- requested/used freq: `{compensation['requested_freq_hz']:.3f}` / "
+                    f"`{compensation['used_freq_hz']:.3f}` Hz"
+                )
+                st.write(
+                    f"- available freq range: `{compensation['available_freq_min']:.3f}` ~ "
+                    f"`{compensation['available_freq_max']:.3f}` Hz "
+                    f"({compensation['frequency_support_count']} freq)"
+                )
+                st.write(f"- nearest support test: `{compensation['nearest_test_id']}`")
+                st.write(
+                    f"- available output pp: `{compensation['available_output_pp_min']:.3f}` ~ "
+                    f"`{compensation['available_output_pp_max']:.3f}` {output_unit}"
+                )
+                st.write(f"- raw recommended voltage pp: `{recommended_voltage_pp:.3f}` V")
+                st.write(f"- DAQ-limited voltage pp: `{limited_voltage_pp:.3f}` V")
+                st.write(f"- required dc amp gain multiplier: `{required_gain_multiplier:.3f}x`")
+                st.write(f"- support amp gain: `{compensation['support_amp_gain_pct']:.1f}` %")
+                st.write(f"- required amp gain: `{required_gain_pct:.1f}` %")
+                st.write(f"- available amp gain: `{available_gain_pct:.1f}` %")
+                st.write(f"- amp output at required gain: `{compensation['amp_output_pp_at_required']:.3f}` Vpp")
+                st.write(f"- within hardware limits: `{compensation['within_hardware_limits']}`")
+                if pd.notna(compensation["scale_ratio_from_nearest"]):
+                    st.write(f"- nearest profile scale ratio: `{compensation['scale_ratio_from_nearest']:.3f}`")
 
             with st.expander("상세 진단 / Debug", expanded=False):
                 st.markdown("#### 보정 LUT 실험점")
@@ -3066,16 +3095,17 @@ def _render_quick_lut_tab_v2(
         )
         c3.metric("Support Freqs", f"{recommendation['frequency_support_count']}")
         c4.metric("Waveform Scope", str(recommendation["recommendation_scope_label"]))
-        st.caption(
-            f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
-            f"DAQ limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
-            f"AMP output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
-        )
-        if recommendation["within_hardware_limits"]:
-            st.info("Equipment note: the recommended voltage stays within current DAQ / AMP limits.")
-        else:
-            st.warning("Equipment note: the recommended voltage exceeds current DAQ / AMP limits.")
-        _render_lut_equipment_debug(recommendation)
+        with st.expander("Advanced / Legacy equipment diagnostics", expanded=False):
+            st.caption(
+                f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
+                f"DAQ limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
+                f"AMP output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
+            )
+            if recommendation["within_hardware_limits"]:
+                st.info("Equipment note: the recommended voltage stays within current DAQ / AMP limits.")
+            else:
+                st.warning("Equipment note: the recommended voltage exceeds current DAQ / AMP limits.")
+            _render_lut_equipment_debug(recommendation)
 
         lut_left, lut_right = st.columns(2)
         with lut_left:
@@ -3109,10 +3139,8 @@ def _render_quick_lut_tab_v2(
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
         st.write(f"- support waveform family: `{recommendation['support_waveform_type']}` (`{recommendation['support_waveform_role']}`)")
-        st.write(
-            f"- fixed field target: `{recommendation['field_only_target_shape']}` / "
-            f"`{recommendation['field_only_fixed_target_pp']:.0f}pp`"
-        )
+        st.write(f"- target field shape: `{recommendation['field_only_target_shape']}`")
+        st.write("- modeling normalization reference: `±50mT`")
         st.write(f"- target metric: `{target_metric_label(target_metric)}`")
         st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
         st.write(f"- finite cycle mode: `{recommendation['finite_cycle_mode']}`")
@@ -3135,13 +3163,14 @@ def _render_quick_lut_tab_v2(
             f"(range `{recommendation['available_target_min']:.3f}` ~ `{recommendation['available_target_max']:.3f}`)"
         )
         st.write(f"- mode: `{recommendation['recommendation_mode']}`")
-        st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
-        st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
+        with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
+            st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
+            st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
+            st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
         st.write(
             "- main shape-selection excludes: "
             f"`{', '.join(recommendation['shape_selection_excludes'])}`"
         )
-        st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
 
         st.markdown("#### 근거 실험점")
         neighbor_points = recommendation["neighbor_points"].copy()

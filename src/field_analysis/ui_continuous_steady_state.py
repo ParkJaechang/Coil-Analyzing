@@ -213,42 +213,42 @@ def render_continuous_actual_drive_runtime_panel(
     waveform_type: str | None,
     freq_hz: float | None,
 ) -> None:
-    st.markdown("#### Continuous 1차 실구동 결과 업로드")
-    st.caption("Continuous 1차 실구동 결과도 startup transient를 제외하고 안정화된 1cycle만 2차 보정 입력으로 사용합니다.")
-    uploaded = st.file_uploader(
-        "Continuous 1차 실구동 결과 CSV",
-        type=["csv"],
-        key="continuous_first_drive_actual_upload",
-        help="TimeMs / Voltage1_V / HallBz schema의 장비 측정 CSV를 업로드하십시오.",
-    )
-    if st.button("실구동 결과에서 안정 1cycle 추출", key="continuous_first_drive_extract_button"):
-        if uploaded is None:
-            st.warning("Continuous 1차 실구동 결과 CSV를 먼저 업로드하십시오.")
-        else:
-            try:
-                review_frame, review_metadata = _parse_actual_drive_upload(
-                    uploaded.name,
-                    uploaded.getvalue(),
-                    waveform_type=str(waveform_type or "sine"),
-                    freq_hz=float(freq_hz or 1.0),
-                    cycle_count=1.0,
-                )
-                result = build_continuous_actual_drive_review_case(
-                    review_frame,
-                    waveform_type=str(waveform_type or "sine"),
-                    freq_hz=float(freq_hz or 1.0),
-                    purpose="second_modeling",
-                )
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Continuous 1차 실구동 안정 1cycle 추출 실패: {exc}")
+    with st.expander("Legacy / 수동 continuous 실구동 결과 CSV 업로드", expanded=False):
+        st.caption("기본 workflow는 지정된 2nd 폴더 / upload memory source scan을 사용합니다. 이 업로드는 호환성 검토용입니다.")
+        uploaded = st.file_uploader(
+            "Continuous 1차 실구동 결과 CSV",
+            type=["csv"],
+            key="continuous_first_drive_actual_upload",
+            help="TimeMs / Voltage1_V / HallBz schema의 장비 측정 CSV를 업로드하십시오.",
+        )
+        if st.button("실구동 결과에서 안정 1cycle 추출", key="continuous_first_drive_extract_button"):
+            if uploaded is None:
+                st.warning("Continuous 1차 실구동 결과 CSV를 먼저 업로드하십시오.")
             else:
-                st.session_state["continuous_first_drive_actual_result"] = {
-                    "review_frame": review_frame,
-                    "metadata": review_metadata,
-                }
-                st.session_state["continuous_first_drive_steady_window_frame"] = result["steady_state_one_cycle_frame"]
-                st.session_state["continuous_first_drive_steady_metadata"] = result["metadata"]
-                st.success("Continuous 1차 실구동 결과에서 안정 1cycle 추출 완료")
+                try:
+                    review_frame, review_metadata = _parse_actual_drive_upload(
+                        uploaded.name,
+                        uploaded.getvalue(),
+                        waveform_type=str(waveform_type or "sine"),
+                        freq_hz=float(freq_hz or 1.0),
+                        cycle_count=1.0,
+                    )
+                    result = build_continuous_actual_drive_review_case(
+                        review_frame,
+                        waveform_type=str(waveform_type or "sine"),
+                        freq_hz=float(freq_hz or 1.0),
+                        purpose="second_modeling",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Continuous 1차 실구동 안정 1cycle 추출 실패: {exc}")
+                else:
+                    st.session_state["continuous_first_drive_actual_result"] = {
+                        "review_frame": review_frame,
+                        "metadata": review_metadata,
+                    }
+                    st.session_state["continuous_first_drive_steady_window_frame"] = result["steady_state_one_cycle_frame"]
+                    st.session_state["continuous_first_drive_steady_metadata"] = result["metadata"]
+                    st.success("Continuous 1차 실구동 결과에서 안정 1cycle 추출 완료")
 
     if st.button("Continuous 2차 보정 command 생성", key="continuous_second_command_button"):
         first = st.session_state.get("quick_lut_first_model_result_continuous")
@@ -284,15 +284,18 @@ def render_continuous_actual_drive_runtime_panel(
 
 
 def _render_continuous_validation_section(*, waveform_type: str | None, freq_hz: float | None) -> None:
-    st.markdown("#### Continuous 2차 구동 결과 평가")
-    st.caption("평가는 안정화된 1cycle 기준입니다.")
-    st.caption("초반 transient cycle은 평가에서 제외되었습니다.")
-    uploaded = st.file_uploader(
-        "Continuous 2차 구동 결과 CSV",
-        type=["csv"],
-        key="continuous_second_drive_validation_upload",
-    )
-    if not st.button("Continuous 2차 구동 결과 평가 실행", key="continuous_second_validation_button"):
+    with st.expander("Legacy / 수동 continuous 2차 구동 결과 평가", expanded=False):
+        st.markdown("#### Continuous 2차 구동 결과 평가")
+        st.caption("기본 workflow에서는 2nd 폴더 / upload memory source scan을 사용합니다.")
+        st.caption("평가는 안정화된 1cycle 기준입니다.")
+        st.caption("초반 transient cycle은 평가에서 제외되었습니다.")
+        uploaded = st.file_uploader(
+            "Continuous 2차 구동 결과 CSV",
+            type=["csv"],
+            key="continuous_second_drive_validation_upload",
+        )
+        run_validation = st.button("Continuous 2차 구동 결과 평가 실행", key="continuous_second_validation_button")
+    if not run_validation:
         return
     if uploaded is None:
         st.warning("Continuous 2차 구동 결과 CSV를 먼저 업로드하십시오.")
