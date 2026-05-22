@@ -7,6 +7,7 @@ import pandas as pd
 
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
+from .finite_phase_sync_support import native_measured_support_source
 
 
 def apply_finite_first_phase_sync_modeling(
@@ -85,7 +86,7 @@ def apply_finite_first_phase_sync_modeling(
         }
     target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
     measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
-    native_time_s, native_measured_raw, measured_alignment_source = _native_measured_support_source(
+    native_time_s, native_measured_raw, measured_alignment_source = native_measured_support_source(
         frame,
         fallback_time_s=time_s,
         fallback_measured=measured_raw,
@@ -95,23 +96,31 @@ def apply_finite_first_phase_sync_modeling(
         & (native_time_s >= float(np.nanmin(time_s[active_mask])) - 1e-12 if np.any(active_mask) else True)
         & (native_time_s <= active_end_s + 1e-12)
     )
-    measured, measured_source_type, raw_hallbz_available, measured_norm_meta = _coerce_measured_field(
+    measured_centered, measured_source_type, raw_hallbz_available, measured_center_meta = _coerce_measured_field_centered(
         native_measured_raw,
         measured_column,
         native_active_mask,
     )
     base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
-    native_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
+    native_smoothed_unscaled, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
-        measured,
+        measured_centered,
         native_time_s,
         native_active_mask,
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
     )
+    scale, measured_norm_meta = _normalization_from_smoothed_field(
+        native_measured_raw,
+        native_smoothed_unscaled,
+        native_active_mask,
+        measured_center_meta,
+    )
+    native_smoothed = native_smoothed_unscaled * scale
+    peak_detection_signal, peak_detection_meta = _phase_peak_detection_signal(native_smoothed, native_active_mask)
     measured_peak_time, measured_peak_polarity, measured_peak_value = _dominant_peak_time(
         native_time_s,
-        native_smoothed,
+        peak_detection_signal,
         native_active_mask,
     )
     voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _dominant_peak_time(
@@ -146,6 +155,7 @@ def apply_finite_first_phase_sync_modeling(
         frame["finite_first_measured_source_is_actual_measured"] = True
         return frame.loc[active_mask].copy().reset_index(drop=True), {
             **smoothing_meta,
+            **peak_detection_meta,
             "finite_first_modeling_status": "insufficient_phase_sync_support",
             "finite_first_modeling_mode": "phase_synced",
             "finite_first_modeling_phase_sync_enabled": False,
@@ -187,7 +197,7 @@ def apply_finite_first_phase_sync_modeling(
     active_residual_valid = np.asarray(active_mask, dtype=bool) & np.isfinite(residual)
     active_count = int(np.asarray(active_mask, dtype=bool).sum())
     active_residual_finite_ratio = float(active_residual_valid.sum() / active_count) if active_count else 0.0
-    measured_on_output = _interp(native_time_s, measured, time_s)
+    measured_on_output = _interp(native_time_s, native_smoothed, time_s)
     identity_meta = _merge_identity_metadata(
         _measured_target_identity_metadata(target, measured_on_output, active_mask),
         _measured_target_identity_metadata(target, aligned, finite_active),
@@ -236,6 +246,7 @@ def apply_finite_first_phase_sync_modeling(
     output_frame = frame.loc[active_mask].copy().reset_index(drop=True)
     metadata = {
         **smoothing_meta,
+        **peak_detection_meta,
         **gain_meta,
         **stabilization_meta,
         **identity_meta,
@@ -346,7 +357,7 @@ def _has_reference_like_field(frame: pd.DataFrame) -> bool:
     )
 
 
-def _coerce_measured_field(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool, dict[str, Any]]:
+def _coerce_measured_field_centered(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool, dict[str, Any]]:
     raw = np.asarray(values, dtype=float)
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
     if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
@@ -354,28 +365,50 @@ def _coerce_measured_field(values: np.ndarray, column: str, active_mask: np.ndar
         active_effective = np.asarray(active_mask, dtype=bool) & np.isfinite(effective)
         baseline = float(np.nanmedian(effective[active_effective])) if np.any(active_effective) else 0.0
         centered = effective - baseline
-        centered_active = np.asarray(active_mask, dtype=bool) & np.isfinite(centered)
-        peak = float(np.nanmax(np.abs(centered[centered_active]))) if np.any(centered_active) else 0.0
-        scale = 50.0 / peak if peak > 1e-12 else 1.0
-        normalized = centered * scale
-        return normalized, "raw_hallbz_effective_normalized", True, _measured_normalization_metadata(
-            raw_peak=_peak_abs(raw[active]) if np.any(active) else 0.0,
-            effective_peak=peak,
-            scale=scale,
-            status="ok" if peak > 1e-12 else "zero_peak",
-        )
+        return centered, "raw_hallbz_effective_centered", True, {
+            "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
+        }
     baseline = float(np.nanmedian(raw[active])) if np.any(active) else 0.0
     centered = raw - baseline
-    centered_active = np.asarray(active_mask, dtype=bool) & np.isfinite(centered)
-    peak = float(np.nanmax(np.abs(centered[centered_active]))) if np.any(centered_active) else 0.0
+    return centered, "actual_measured_field_centered", False, {
+        "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
+    }
+
+
+def _normalization_from_smoothed_field(
+    raw_values: np.ndarray,
+    smoothed_centered: np.ndarray,
+    active_mask: np.ndarray,
+    center_meta: dict[str, Any],
+) -> tuple[float, dict[str, Any]]:
+    smoothed = np.asarray(smoothed_centered, dtype=float)
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(smoothed)
+    peak = float(np.nanmax(np.abs(smoothed[active]))) if np.any(active) else 0.0
     scale = 50.0 / peak if peak > 1e-12 else 1.0
-    normalized = centered * scale
-    return normalized, "actual_measured_field_normalized", False, _measured_normalization_metadata(
-        raw_peak=_peak_abs(raw[active]) if np.any(active) else 0.0,
+    return scale, _measured_normalization_metadata(
+        raw_peak=float(center_meta.get("measured_abs_peak_raw_mT", _peak_abs(np.asarray(raw_values, dtype=float)[np.asarray(active_mask, dtype=bool)]))),
         effective_peak=peak,
         scale=scale,
         status="ok" if peak > 1e-12 else "zero_peak",
     )
+
+
+def _phase_peak_detection_signal(values: np.ndarray, active_mask: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+    active_count = int(np.asarray(active_mask, dtype=bool).sum())
+    window = _odd_window(min(max(7, active_count // 8), 101), max(active_count, 1))
+    signal = pd.Series(np.asarray(values, dtype=float)).rolling(window=window, center=True, min_periods=1).median()
+    signal = signal.rolling(window=window, center=True, min_periods=1).mean().to_numpy(dtype=float)
+    return signal, {
+        "phase_peak_detection_signal": "smoothed_normalized_measured_field",
+        "phase_peak_detection_window_samples": int(window),
+    }
+
+
+def _odd_window(value: int, max_size: int) -> int:
+    size = max(1, min(int(value), int(max_size)))
+    if size % 2 == 0:
+        size -= 1
+    return max(size, 1)
 
 
 def _measured_normalization_metadata(*, raw_peak: float, effective_peak: float, scale: float, status: str) -> dict[str, Any]:
@@ -425,83 +458,6 @@ def _first_text_value(frame: pd.DataFrame, column: str) -> str | None:
     if series.empty:
         return None
     return str(series.iloc[0])
-
-
-def _native_measured_support_source(
-    frame: pd.DataFrame,
-    *,
-    fallback_time_s: np.ndarray,
-    fallback_measured: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, str]:
-    attr_time = frame.attrs.get("selected_support_source_time_s")
-    attr_measured = frame.attrs.get("selected_support_source_mT")
-    native_from_attrs = _validate_native_support_arrays(attr_time, attr_measured)
-    if native_from_attrs is not None:
-        return (*native_from_attrs, "selected_support_source_native_attrs")
-    source_time = _first_sequence_value(frame, "selected_support_source_time_s")
-    source_measured = _first_sequence_value(frame, "selected_support_source_mT")
-    native_from_columns = _validate_native_support_arrays(source_time, source_measured)
-    if native_from_columns is not None:
-        return (*native_from_columns, "selected_support_source_native")
-    column_time = _numeric_column_sequence(frame, "selected_support_source_time_s")
-    column_measured = _numeric_column_sequence(frame, "selected_support_source_mT")
-    native_from_numeric_columns = _validate_native_support_arrays(column_time, column_measured)
-    if native_from_numeric_columns is not None:
-        return (*native_from_numeric_columns, "selected_support_source_native_columns")
-    return np.asarray(fallback_time_s, dtype=float), np.asarray(fallback_measured, dtype=float), "output_command_grid_fallback"
-
-
-def _validate_native_support_arrays(
-    source_time: Any,
-    source_measured: Any,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    if source_time is None or source_measured is None:
-        return None
-    source_time_arr = np.asarray(source_time, dtype=float)
-    source_measured_arr = np.asarray(source_measured, dtype=float)
-    if source_time_arr.size != source_measured_arr.size or source_time_arr.size < 3:
-        return None
-    finite = np.isfinite(source_time_arr) & np.isfinite(source_measured_arr)
-    if finite.sum() < 3:
-        return None
-    return source_time_arr, source_measured_arr
-
-
-def _numeric_column_sequence(frame: pd.DataFrame, column: str) -> np.ndarray | None:
-    if column not in frame.columns or frame.empty:
-        return None
-    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
-    return values if np.isfinite(values).sum() >= 3 else None
-
-
-def _first_sequence_value(frame: pd.DataFrame, column: str) -> list[float] | tuple[float, ...] | np.ndarray | None:
-    if column not in frame.columns or frame.empty:
-        return None
-    for value in frame[column]:
-        if isinstance(value, np.ndarray):
-            return value
-        if isinstance(value, (list, tuple)):
-            return value
-        if isinstance(value, str):
-            parsed = _parse_sequence_string(value)
-            if parsed is not None:
-                return parsed
-    return None
-
-
-def _parse_sequence_string(value: str) -> list[float] | None:
-    text = value.strip()
-    if not text or text.lower() in {"none", "nan"}:
-        return None
-    if text.startswith("[") and text.endswith("]"):
-        text = text[1:-1]
-    parts = [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
-    if len(parts) < 3:
-        return None
-    try:
-        return [float(part) for part in parts]
-    except ValueError:
-        return None
 
 
 def _dominant_peak_time(

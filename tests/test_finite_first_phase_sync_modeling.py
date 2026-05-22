@@ -212,6 +212,32 @@ def test_finite_first_phase_sync_uses_native_support_from_dataframe_attrs() -> N
     assert result["residual_for_modeling_mT"].notna().all()
 
 
+def test_finite_first_phase_sync_normalizes_after_smoothing_not_raw_spike() -> None:
+    active_duration = 1.0
+    delay_s = 0.09
+    support_time = np.linspace(0.0, active_duration + delay_s + 0.05, 520, endpoint=False)
+    phase = 2.0 * np.pi * support_time
+    measured = 10.0 * np.sin(2.0 * np.pi * (support_time - delay_s))
+    measured += 150.0 * np.exp(-((support_time - 0.41) / 0.004) ** 2)
+    profile = pd.DataFrame(
+        {
+            "time_s": support_time,
+            "limited_voltage_v": 2.5 * np.sin(phase),
+            "recommended_voltage_v": 2.5 * np.sin(phase),
+            "physical_target_output_mT": 50.0 * np.sin(phase),
+            "finite_first_actual_measured_field_mT": measured,
+        }
+    )
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["phase_peak_detection_signal"] == "smoothed_normalized_measured_field"
+    assert metadata["measured_abs_peak_effective_mT"] < metadata["measured_abs_peak_raw_mT"]
+    assert result["measured_field_smoothed_mT"].abs().max() > 40.0
+    assert result["measured_field_aligned_mT"].abs().max() > 40.0
+
+
 def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support_missing() -> None:
     active_duration = 1.0
     delay_s = 0.09
