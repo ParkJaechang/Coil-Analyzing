@@ -11,7 +11,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
     if not isinstance(command_profile, pd.DataFrame) or command_profile.empty:
         return
     st.markdown("#### Finite 1차 phase sync 확인")
-    st.caption("Finite 1차 모델링은 전압 피크와 자기장 피크를 맞춘 뒤 residual을 계산합니다.")
+    st.caption("전압 피크와 실측 자기장 피크를 맞춘 뒤, ±50mT 정규화 기준으로 residual을 계산합니다.")
     summary = {
         "source file": metadata.get("finite_first_measured_source_file"),
         "source label": metadata.get("finite_first_measured_source_label"),
@@ -23,11 +23,19 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "finite_first_modeling_mode": metadata.get("finite_first_modeling_mode", "phase_synced"),
         "phase_delay_s": metadata.get("phase_delay_s"),
         "phase_delay_cycles": metadata.get("phase_delay_cycles"),
-        "measured peak mT": metadata.get("measured_abs_peak_effective_mT"),
-        "scale to ±50mT": metadata.get("measured_field_scale_to_50mT"),
+        "실측 field peak (mT)": metadata.get("measured_abs_peak_effective_mT"),
+        "±50mT 정규화 scale": metadata.get("measured_field_scale_to_50mT"),
+        "정규화 후 peak (mT)": metadata.get("measured_aligned_normalized_peak_mT"),
         "correction_gain": metadata.get("correction_gain_used"),
         "voltage_headroom_v": metadata.get("voltage_headroom_v"),
         "clipping_fraction": metadata.get("clipping_fraction"),
+        "active residual finite ratio": metadata.get("active_residual_finite_ratio"),
+        "phase support status": metadata.get("phase_support_status"),
+        "required source end": metadata.get("required_phase_aligned_source_end_s"),
+        "actual source end": metadata.get("actual_source_time_end_s"),
+        "active_end_kink_detected": metadata.get("active_end_kink_detected"),
+        "target ripple check": metadata.get("target_template_ripple_check_passed"),
+        "target linear deviation mT": metadata.get("target_linear_segment_deviation_max_mT"),
     }
     st.dataframe(pd.DataFrame([summary]), use_container_width=True, hide_index=True)
     if "measured_field_aligned_mT" not in command_profile.columns:
@@ -35,6 +43,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         return
     st.plotly_chart(_finite_first_phase_sync_plot(command_profile, metadata), use_container_width=True)
     st.plotly_chart(_finite_first_residual_plot(command_profile), use_container_width=True)
+    st.caption("다운로드 voltage_v source: limited_voltage_v")
     st.plotly_chart(_finite_first_command_plot(command_profile), use_container_width=True)
     with st.expander("1차 command diagnostic traces", expanded=False):
         st.plotly_chart(_finite_first_command_plot(command_profile, diagnostics=True), use_container_width=True)

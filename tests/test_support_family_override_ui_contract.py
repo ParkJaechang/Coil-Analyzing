@@ -14,12 +14,13 @@ def _source() -> str:
 def test_support_family_override_markers_exist() -> None:
     source = _source()
 
-    assert "Support Family Selection" in source
-    assert "Requested support family:" in source
-    assert "Selected support family:" in source
-    assert "Override applied:" in source
-    assert "Reason:" in source
-    assert "Family sensitivity:" in source
+    assert "데이터 선택 기준 / Debug" in source
+    assert "요청 support family:" in source
+    assert "선택 support family:" in source
+    assert "override 적용:" in source
+    assert "사유:" in source
+    assert "family sensitivity:" in source
+    assert "Support Family Selection" not in source
 
 
 def test_support_family_override_payload_keys_are_used() -> None:
@@ -36,5 +37,5 @@ def test_support_family_override_payload_keys_are_used() -> None:
 def test_support_family_override_summary_explains_requested_vs_selected_split() -> None:
     source = _source()
 
-    assert "The support/input waveform family does not change the physical target." in source
-    assert "selected support family differs from the requested support/input" in source
+    assert "support/input waveform family는 목표 자기장 개형을 바꾸지 않습니다." in source
+    assert "support family override가 적용되었습니다." in source

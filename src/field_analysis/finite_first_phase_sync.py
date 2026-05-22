@@ -110,9 +110,15 @@ def apply_finite_first_phase_sync_modeling(
     aligned = _interp(time_s, smoothed, time_s + phase_delay_s)
     active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
     if not support_ok or not active_aligned_ok:
+        invalid_residual = target - aligned
+        invalid_active = np.asarray(active_mask, dtype=bool)
+        invalid_count = int(invalid_active.sum())
+        invalid_ratio = (
+            float(np.isfinite(invalid_residual[invalid_active]).sum() / invalid_count) if invalid_count else 0.0
+        )
         frame["measured_field_smoothed_mT"] = smoothed
         frame["measured_field_aligned_mT"] = aligned
-        frame["residual_for_modeling_mT"] = target - aligned
+        frame["residual_for_modeling_mT"] = invalid_residual
         frame["finite_first_measured_source_column"] = measured_column
         frame["finite_first_measured_source_is_actual_measured"] = True
         return frame.loc[active_mask].copy().reset_index(drop=True), {
@@ -130,12 +136,22 @@ def apply_finite_first_phase_sync_modeling(
             "phase_sync_required_source_end_s": required_end,
             "phase_sync_actual_source_end_s": source_end,
             "phase_sync_support_status": "insufficient",
+            "required_phase_aligned_source_end_s": required_end,
+            "actual_source_time_end_s": source_end,
+            "phase_support_status": "insufficient",
+            "active_residual_finite_through_end": False,
+            "active_residual_finite_ratio": invalid_ratio,
+            "active_end_kink_detected": True,
+            "nonfinite_active_residual_policy": "block_or_warning",
             "phase_kernel_source_data_origin": "finite_lut_measured",
             "phase_kernel_source_validation_status": "insufficient_phase_sync_support",
             "phase_kernel_reference_as_measured_allowed": False,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
+    active_residual_valid = np.asarray(active_mask, dtype=bool) & np.isfinite(residual)
+    active_count = int(np.asarray(active_mask, dtype=bool).sum())
+    active_residual_finite_ratio = float(active_residual_valid.sum() / active_count) if active_count else 0.0
     identity_meta = _merge_identity_metadata(
         _measured_target_identity_metadata(target, measured, active_mask),
         _measured_target_identity_metadata(target, aligned, finite_active),
@@ -225,7 +241,9 @@ def apply_finite_first_phase_sync_modeling(
         "measured_alignment_source": "native_smoothed_source",
         "phase_sync_support_margin_s": 0.0,
         **measured_norm_meta,
+        "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
         "residual_gain_field_scale_applied": True,
+        "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
@@ -234,9 +252,30 @@ def apply_finite_first_phase_sync_modeling(
         "correction_delta_peak_v": _peak_abs(correction_delta),
         "clipping_fraction": float(np.mean(np.abs(modeled) > float(voltage_limit_v) + 1e-12)) if len(modeled) else 0.0,
         "clipping_status": "warning" if np.any(np.abs(modeled) > float(voltage_limit_v) + 1e-12) else "ok",
+        "phase_alignment_support_window_s": max(required_end - float(np.nanmin(time_s[np.isfinite(time_s)])), 0.0)
+        if np.isfinite(time_s).any()
+        else float("nan"),
+        "required_phase_aligned_source_end_s": required_end,
+        "actual_source_time_end_s": source_end,
+        "phase_support_status": "ok" if support_ok and active_residual_finite_ratio >= 0.999 else "insufficient",
         "active_residual_finite_through_end": bool(np.isfinite(residual[active_mask]).all()) if np.any(active_mask) else False,
+        "active_residual_finite_ratio": active_residual_finite_ratio,
+        "active_end_kink_detected": _active_end_kink_detected(limited, residual, active_mask),
         "nonfinite_active_residual_policy": "block_or_warning",
+        "command_voltage_scaling_mode": "normalized_modeling_with_field_scale",
+        "absolute_voltage_calibration_available": False,
+        "calibration_gain_available": False,
+        "normalized_modeling_voltage_v": _peak_abs(limited),
     }
+    for key in (
+        "target_template_type",
+        "target_template_ripple_check_passed",
+        "target_linear_segment_deviation_max_mT",
+        "target_peak_positive_mT",
+        "target_peak_negative_mT",
+    ):
+        if key in frame.columns:
+            metadata[key] = _first_text_value(frame, key) if key == "target_template_type" else first_numeric(frame[key])
     return output_frame, metadata
 
 
@@ -382,3 +421,20 @@ def _peak_abs(values: np.ndarray) -> float:
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
     return float(np.nanmax(np.abs(finite))) if finite.size else 0.0
+
+
+def first_numeric(values: pd.Series) -> float | bool | None:
+    if values.dtype == bool:
+        return bool(values.dropna().iloc[0]) if not values.dropna().empty else None
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    return float(numeric.iloc[0]) if not numeric.empty else None
+
+
+def _active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_mask: np.ndarray) -> bool:
+    active_indices = np.flatnonzero(np.asarray(active_mask, dtype=bool) & np.isfinite(voltage) & np.isfinite(residual))
+    if active_indices.size < 4:
+        return False
+    tail = active_indices[-4:]
+    voltage_step = float(np.nanmax(np.abs(np.diff(np.asarray(voltage, dtype=float)[tail]))))
+    residual_step = float(np.nanmax(np.abs(np.diff(np.asarray(residual, dtype=float)[tail]))))
+    return bool(voltage_step > 1.0 and residual_step > 5.0)

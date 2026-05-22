@@ -1120,8 +1120,9 @@ def _render_quick_lut_tab(
             main_field_axis,
         )[0]
         st.caption(
-            f"Target metric fixed to `{target_metric_label(target_metric)}`. "
-            "Current, gain, hardware, and LCR are debug/reference only."
+            "목표 자기장 개형은 fixed rounded triangle입니다. "
+            f"내부 비교 metric: `{target_metric_label(target_metric)}`. "
+            "전류/gain/hardware/LCR 값은 Debug 참조용입니다."
         )
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
     with right:
@@ -1595,12 +1596,14 @@ def _prepare_semantic_compensation_plot_profile(command_profile: pd.DataFrame) -
 def _retitle_compensation_semantics_figure(figure: object) -> object:
     for trace in getattr(figure, "data", []):
         if trace.name == "Target Output":
-            trace.name = "Physical Target"
+            trace.name = "목표 자기장"
         elif trace.name == "Lag-Compensated Target":
             trace.name = "Internal Reference (debug, hidden by default)"
             trace.visible = "legendonly"
         elif trace.name == "Support-Blended Output":
-            trace.name = "Support-Blended Preview"
+            trace.name = "support field preview"
+        elif trace.name == "Predicted Output":
+            trace.name = "phase/model predicted field"
     for annotation in getattr(getattr(figure, "layout", None), "annotations", []) or []:
         if getattr(annotation, "text", None) == "target end":
             annotation.text = "target_end"
@@ -1685,25 +1688,7 @@ def _render_end_marker_summary(compensation: dict[str, object], command_profile:
 
 def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFrame | None = None) -> object:
     for trace in getattr(figure, "data", []):
-        trace.name = "1차 전압 제한 후 command"
-    if command_profile is not None and "time_s" in command_profile.columns:
-        recommended_column = (
-            "recommended_voltage_v"
-            if "recommended_voltage_v" in command_profile.columns
-            else "baseline_recommended_voltage_v"
-            if "baseline_recommended_voltage_v" in command_profile.columns
-            else None
-        )
-        if recommended_column is not None:
-            figure.add_trace(
-                go.Scatter(
-                    x=pd.to_numeric(command_profile["time_s"], errors="coerce"),
-                    y=pd.to_numeric(command_profile[recommended_column], errors="coerce"),
-                    mode="lines",
-                    name="1차 추천 전압 command",
-                    line={"dash": "dash"},
-                )
-            )
+        trace.name = "1차 모델링 command"
     figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
     return figure
 
@@ -1809,23 +1794,21 @@ def _render_support_family_selection_marker(
     if family_sensitivity_level is None:
         family_sensitivity_level = _normalize_optional_text(compensation.get("support_family_sensitivity_level"))
 
-    st.markdown("#### Support Family Selection")
+    st.markdown("#### 데이터 선택 기준 / Debug")
     st.caption(
-        "The support/input waveform family does not change the physical target. "
-        "Requested support family and selected support family are shown separately because the backend may choose "
-        "a more stable support reference."
+        "support/input waveform family는 목표 자기장 개형을 바꾸지 않습니다. "
+        "요청 family와 실제 선택 family는 데이터 안정성 판단 때문에 다를 수 있습니다."
     )
-    st.write(f"- Requested support family: `{payload_requested or 'n/a'}`")
-    st.write(f"- Selected support family: `{selected_support_family or 'n/a'}`")
+    st.write(f"- 요청 support family: `{payload_requested or 'n/a'}`")
+    st.write(f"- 선택 support family: `{selected_support_family or 'n/a'}`")
     override_label = "n/a" if override_applied is None else ("yes" if override_applied else "no")
-    st.write(f"- Override applied: `{override_label}`")
-    st.write(f"- Reason: `{override_reason or 'n/a'}`")
-    st.write(f"- Family sensitivity: `{family_sensitivity_level or 'n/a'}`")
+    st.write(f"- override 적용: `{override_label}`")
+    st.write(f"- 사유: `{override_reason or 'n/a'}`")
+    st.write(f"- family sensitivity: `{family_sensitivity_level or 'n/a'}`")
 
     if override_applied is True:
         st.warning(
-            "Support family override applied: selected support family differs from the requested support/input "
-            "waveform family because the cross-family candidate scored better."
+            "support family override가 적용되었습니다. 요청 family와 다른 후보가 더 안정적이라고 판단되었습니다."
         )
 
 
@@ -1857,16 +1840,15 @@ def _render_support_reference_provenance_panel(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
-    st.markdown("#### Support Reference Provenance")
+    st.markdown("#### 참조 데이터 출처 / Debug")
     st.caption(
-        "Raw selected support is the original uploaded/support record. "
-        "Target-aligned support reference is the plotted support trace aligned to the target timebase. "
-        "The support reference is not the physical target."
+        "raw selected support는 업로드/라이브러리 원본 record입니다. "
+        "target-aligned support reference는 target timebase에 맞춘 비교 trace이며, 물리 목표 자기장이 아닙니다."
     )
 
     raw_left, raw_right = st.columns(2)
     with raw_left:
-        st.markdown("**Raw Selected Support Source**")
+        st.markdown("**원본 선택 support source**")
         st.write(f"- selected_support_id: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_id', 'support_reference_selected_support_id', 'nearest_test_id'))}`")
         st.write(f"- selected_support_family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
         st.write(f"- source file: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_source_file'))}`")
@@ -1875,22 +1857,22 @@ def _render_support_reference_provenance_panel(
         st.write(f"- original duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_duration_s'), 's')}`")
         st.write(f"- original PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_pp_mT'), 'mT')}`")
     with raw_right:
-        st.markdown("**Target-aligned Support Reference**")
+        st.markdown("**Target timebase 정렬 support reference**")
         st.write(f"- plotted column: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_plotted_column'))}`")
         st.write(f"- target-aligned status: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_alignment_status', 'support_reference_trace_status'))}`")
         st.write(f"- plotted PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_pp'), 'mT')}`")
         st.write(f"- plotted duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_duration_s'), 's')}`")
         st.write(f"- support_reference_timebase: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_timebase'))}`")
 
-    st.markdown("**Override / Match Reason**")
-    st.write(f"- Requested support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'requested_support_family', 'support_family_requested', 'user_requested_support_family'))}`")
-    st.write(f"- Selected support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
-    st.write(f"- Override applied: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_family_override_applied'))}`")
-    st.write(f"- Override reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_family_override_reason'))}`")
-    st.write(f"- Requested cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'requested_cycle_count', 'target_cycle_count'), 'cycle')}`")
-    st.write(f"- Selected support cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
-    st.write(f"- Cycle match type: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_type'))}`")
-    st.write(f"- Cycle match reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
+    st.markdown("**Override / matching 사유**")
+    st.write(f"- 요청 support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'requested_support_family', 'support_family_requested', 'user_requested_support_family'))}`")
+    st.write(f"- 선택 support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
+    st.write(f"- override 적용: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_family_override_applied'))}`")
+    st.write(f"- override 사유: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_family_override_reason'))}`")
+    st.write(f"- 요청 cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'requested_cycle_count', 'target_cycle_count'), 'cycle')}`")
+    st.write(f"- 선택 support cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
+    st.write(f"- cycle match type: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_type'))}`")
+    st.write(f"- cycle match 사유: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
 
 
 def _render_command_prediction_consistency_card(
@@ -1914,11 +1896,11 @@ def _render_command_prediction_consistency_card(
     )
     has_metadata = any(_support_provenance_value(compensation, command_profile, key) is not None for key in metadata_keys)
 
-    st.markdown("#### Command Prediction Consistency")
+    st.markdown("#### 전압 예측 일관성 / Debug")
     st.caption(
-        "Support Reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다. "
-        "추천 전압은 Physical Target을 기준으로 계산됩니다. "
-        "Predicted Output은 표시된 추천 전압 command 기준 forward prediction입니다."
+        "support reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다. "
+        "추천 전압은 fixed rounded triangle target 기준으로 계산됩니다. "
+        "predicted field는 표시된 command 기준 forward prediction입니다."
     )
     if not has_metadata:
         st.info("Command/prediction consistency metadata unavailable")
@@ -1946,21 +1928,21 @@ def _render_command_prediction_consistency_card(
         _support_provenance_value(compensation, command_profile, "support_reference_shape_mismatch")
     )
 
-    st.write(f"- Command target: Physical Target (`{generation_target}`)")
-    st.write(f"- Support Reference role: Diagnostic only (`{support_role}`)")
-    st.write(f"- Support Reference used for command: `{used_for_command}`")
-    st.write(f"- Predicted output source: `{prediction_source}`")
-    st.write(f"- Predicted from plotted command: `{predicted_from_command}`")
-    st.write(f"- Command prediction consistency: `{consistency_status}`")
-    st.write(f"- Support Reference shape mismatch: `{_format_optional_bool(shape_mismatch)}`")
+    st.write(f"- command 기준 target: fixed rounded triangle (`{generation_target}`)")
+    st.write(f"- support reference 역할: 진단용 (`{support_role}`)")
+    st.write(f"- support reference가 command에 사용됨: `{used_for_command}`")
+    st.write(f"- 예측 field source: `{prediction_source}`")
+    st.write(f"- 표시 command 기준 예측 여부: `{predicted_from_command}`")
+    st.write(f"- 전압 예측 일관성: `{consistency_status}`")
+    st.write(f"- support reference shape mismatch: `{_format_optional_bool(shape_mismatch)}`")
     st.write(
-        f"- Support/target corr: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_corr'))}`"
+        f"- support/target 상관: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_corr'))}`"
     )
     st.write(
-        f"- Support/target NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_nrmse'))}`"
+        f"- support/target NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_nrmse'))}`"
     )
     st.caption(
-        "Command coverage: "
+        "command coverage: "
         f"command_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'command_nonzero_start_s'), 's')} | "
         f"target_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'target_nonzero_start_s'), 's')} | "
         f"command_covers_target_active_start={_format_optional_bool(_support_provenance_value(compensation, command_profile, 'command_covers_target_active_start'))} | "
@@ -1969,8 +1951,7 @@ def _render_command_prediction_consistency_card(
 
     if shape_mismatch is True:
         st.warning(
-            "Support Reference shape mismatch: treat this trace as Support Reference (diagnostic), not as the command "
-            "target or command objective."
+            "support reference shape mismatch: 이 trace는 command target이 아니라 진단용 support reference입니다."
         )
 
 
@@ -2040,13 +2021,13 @@ def _render_finite_route_marker(compensation: dict[str, object]) -> None:
 
 
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
-    with st.expander("Equipment / Debug", expanded=False):
+    with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
         st.write(
-            f"- modeling focus output: `{recommendation['primary_output_label']}` = "
+            f"- modeling focus metric: `{recommendation['primary_output_label']}` = "
             f"`{_format_optional_metric(recommendation['primary_output_pp'], str(recommendation['primary_output_unit']))}`"
         )
         st.write(
-            f"- selected target output: `{recommendation['target_output_label']}` = "
+            f"- legacy target metric: `{recommendation['target_output_label']}` = "
             f"`{_format_optional_metric(recommendation['target_output_pp'], str(recommendation['target_output_unit']))}`"
         )
         st.write(f"- estimated current pp: `{_format_optional_metric(recommendation['estimated_current_pp'], 'A')}`")
@@ -2283,8 +2264,8 @@ def _render_quick_lut_tab_v2(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**목표 자기장 / fixed rounded triangle**")
-        st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
+        st.markdown("**목표 자기장 개형 / fixed rounded triangle**")
+        st.caption("목표 자기장 개형은 고정 rounded triangle입니다. PP 고정값이 아니라 사용자가 설정한 목표 피크와 내부 정규화 기준을 분리합니다.")
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
         compensation_target_type = "field"
         compensation_target_current_pp = float(FIELD_ONLY_FIXED_TARGET_PP)
@@ -2292,11 +2273,11 @@ def _render_quick_lut_tab_v2(
             "목표 자기장 개형은 canonical fixed rounded triangle입니다. 모델링 내부 field normalization은 ±50 mT 기준이며, "
             "목표 피크 자기장 설정은 command voltage scaling 의미와 분리해서 관리합니다."
         )
-        st.caption(
-            "Finite target semantics: Physical Target = fixed rounded triangle. "
-            "Support Reference는 support-conditioned preview이며 물리 목표 자기장이 아닙니다. "
-            "`Predicted Output`은 1차 모델링 command에 대한 forward prediction입니다."
-        )
+        with st.expander("데이터/예측 의미 상세", expanded=False):
+            st.caption(
+                "목표 자기장, support preview, forward prediction은 서로 다른 진단 정보입니다. "
+                "메인 command 생성 기준은 fixed rounded triangle 목표 개형과 phase-aligned residual입니다."
+            )
         modeling_input_mode_label = st.radio(
             "모델링 입력 방식",
             options=["Finite startup-aware", "Continuous steady-state"],
@@ -2618,16 +2599,17 @@ def _render_quick_lut_tab_v2(
                     "현재 조합에는 실험점이 1개뿐이라 단일 실험의 harmonic transfer로만 역보정했습니다."
                 )
             elif not compensation["target_output_pp"] >= compensation["available_output_pp_min"] or not compensation["target_output_pp"] <= compensation["available_output_pp_max"]:
-                if compensation["allow_output_extrapolation"]:
-                    st.warning(
-                        "목표 출력이 실험 support 범위를 벗어나 외삽으로 계산했습니다. "
-                        f"support={compensation['available_output_pp_min']:.3f} ~ {compensation['available_output_pp_max']:.3f} {compensation['target_output_unit']}"
-                    )
-                else:
-                    st.warning(
-                        f"{clamp_label}가 지원 범위를 벗어나 "
-                        f"harmonic transfer가 clamp되었습니다. ratio={compensation['phase_clamp_fraction']:.1%}"
-                    )
+                with st.expander("Advanced / Legacy support range diagnostics", expanded=False):
+                    if compensation["allow_output_extrapolation"]:
+                        st.warning(
+                            "Legacy diagnostic: requested normalized field level is outside support range and was extrapolated. "
+                            f"support={compensation['available_output_pp_min']:.3f} ~ {compensation['available_output_pp_max']:.3f} {compensation['target_output_unit']}"
+                        )
+                    else:
+                        st.warning(
+                            f"Legacy diagnostic: {clamp_label} is outside support range; "
+                            f"harmonic transfer was clamped. ratio={compensation['phase_clamp_fraction']:.1%}"
+                        )
             elif compensation["phase_clamp_fraction"] > 0:
                 st.warning(
                     f"{clamp_label} 일부가 지원 범위를 벗어나 "
@@ -2745,13 +2727,18 @@ def _render_quick_lut_tab_v2(
             available_gain_pct = float(command_profile["available_amp_gain_pct"].iloc[0])
             amp_output_pp = float(command_profile["amp_output_pp_at_required"].iloc[0])
             output_unit = compensation["target_output_unit"]
-            summary_cols = st.columns(3)
-            summary_cols[0].metric(
-                f"목표 {compensation['target_output_label']}",
-                f"{compensation['target_output_pp']:.3f} {output_unit}",
+            configured_target_peak = float(
+                target_config_for_result.get(
+                    "user_target_peak_field_mT",
+                    st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0),
+                )
+                or 50.0
             )
-            summary_cols[1].metric("지원 실험점 수", f"{compensation['support_point_count']}")
+            summary_cols = st.columns(3)
+            summary_cols[0].metric("목표 피크 자기장", f"±{configured_target_peak:g} mT")
+            summary_cols[1].metric("내부 정규화 기준", "±50 mT")
             summary_cols[2].metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
+            st.caption("목표 자기장 개형: fixed rounded triangle. 목표 피크값과 내부 정규화 기준은 분리되어 표시됩니다.")
             with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("DAQ Voltage PP", f"{limited_voltage_pp:.3f} V")
@@ -2780,9 +2767,9 @@ def _render_quick_lut_tab_v2(
                     title=(
                         "Current Waveform Compensation"
                         if compensation_target_type == "current"
-                        else f"Field Waveform Compensation: {main_field_axis}"
+                        else "정규화 field 기반 1차 모델링 입력 검토"
                     ),
-                    yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
+                    yaxis_title=("Current (A)" if compensation_target_type == "current" else "field (mT, normalized)"),
                     reference_label=reference_label,
                 )
                 compensation_figure = _retitle_compensation_semantics_figure(compensation_figure)
@@ -2792,6 +2779,7 @@ def _render_quick_lut_tab_v2(
                     compensation_figure,
                     use_container_width=True,
                 )
+                st.caption("이 plot은 목표 field, 선택된 support field preview, phase/model prediction의 관계를 검토합니다. 전압 command 자체는 오른쪽 1차 모델링 command plot과 export source를 기준으로 합니다.")
                 _render_support_trace_marker(
                     compensation,
                     command_profile,
@@ -2811,19 +2799,15 @@ def _render_quick_lut_tab_v2(
                 )
             if finite_cycle_mode:
                 render_finite_first_phase_sync_review(first_command_profile, finite_first_phase_meta)
-                st.caption(
-                    "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬된 목표이고, "
-                    "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
-                )
                 _render_finite_route_marker(compensation)
-                st.caption(
-                    "Plot semantics: `Physical Target`은 요청한 field waveform이고, `Support Reference`는 target이 아닙니다. "
-                    "`Predicted Output`은 1차 모델링 command의 model response이며 command plot은 별도로 표시됩니다."
-                )
+                st.caption("데이터 선택 요약: 선택된 support/input family와 목표 주파수/cycle 조건으로 1차 command를 계산했습니다.")
                 with st.expander("Advanced / Debug plot references", expanded=False):
                     st.caption(
                         "`Internal Reference (debug, hidden by default)`는 backend가 내부 lag/support-conditioned "
                         "reference를 제공할 때 legend-only trace로만 표시됩니다. 이것은 physical target이 아닙니다."
+                    )
+                    st.caption(
+                        "Legacy provenance labels such as Physical Target / Support Reference / Predicted Output are kept here only for debugging."
                     )
                 with st.expander("데이터 선택 상세 / Debug", expanded=False):
                     _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
@@ -2848,7 +2832,8 @@ def _render_quick_lut_tab_v2(
                 )
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
-                render_startup_compensation_review(compensation, command_profile)
+                with st.expander("Advanced / Legacy startup compensation review", expanded=False):
+                    render_startup_compensation_review(compensation, command_profile)
 
             with st.expander("데이터 선택 상세 / Debug", expanded=False):
                 st.write(f"- mode: `{compensation['mode']}`")
@@ -3067,16 +3052,17 @@ def _render_quick_lut_tab_v2(
         elif recommendation["in_range"]:
             st.success("선택한 목표값이 실험 데이터 범위 안에 있어 보간으로 계산했습니다.")
         else:
-            if recommendation["allow_target_extrapolation"]:
-                st.warning(
-                    "목표값이 실험 데이터 범위를 벗어나 외삽으로 계산했습니다. "
-                    f"support={recommendation['available_target_min']:.3f} ~ {recommendation['available_target_max']:.3f}"
-                )
-            else:
-                st.warning(
-                    "목표값이 실험 데이터 범위를 벗어나 nearest clamp로 계산했습니다. "
-                    f"사용값={recommendation['used_target_value']:.3f}"
-                )
+            with st.expander("Advanced / Legacy support range diagnostics", expanded=False):
+                if recommendation["allow_target_extrapolation"]:
+                    st.warning(
+                        "legacy scalar LUT target value is outside support range and was extrapolated. "
+                        f"support={recommendation['available_target_min']:.3f} ~ {recommendation['available_target_max']:.3f}"
+                    )
+                else:
+                    st.warning(
+                        "legacy scalar LUT target value is outside support range and was nearest-clamped. "
+                        f"used={recommendation['used_target_value']:.3f}"
+                    )
         if recommendation["frequency_mode"] == "frequency_interpolated":
             st.info(
                 f"주파수 trend 보간 사용: 요청 {recommendation['requested_freq_hz']:.3f} Hz, "

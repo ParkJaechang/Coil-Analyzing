@@ -146,6 +146,6 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
     assert "피크 싱크 기반, 기본" in source
     assert "기존 delay 포함 방식, review only" in source
     assert "finite_first_modeling_mode_default" in source
-    assert "scale to ±50mT" in source
+    assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source

@@ -18,6 +18,7 @@ from .lut import _theoretical_template
 from .models import DatasetAnalysis, ParsedMeasurement, PreprocessResult
 from .parser import infer_dataset_filename_metadata
 from .recommendation_lcr_runtime import resolve_lcr_runtime_policy
+from .target_templates import analytic_fixed_rounded_triangle_normalized, target_template_quality
 from .utils import canonicalize_waveform_type
 
 FIELD_ROUTE_NORMALIZED_TARGET_PP = 100.0
@@ -39,15 +40,7 @@ def _default_harmonic_count(waveform_type: str, points_per_cycle: int) -> int:
 
 
 def _rounded_triangle_normalized(phase: np.ndarray) -> np.ndarray:
-    phase_values = np.asarray(phase, dtype=float)
-    signal = np.zeros_like(phase_values, dtype=float)
-    for harmonic in (1, 3, 5):
-        sign = 1.0 if harmonic % 4 == 1 else -1.0
-        signal += sign * np.sin(2.0 * np.pi * harmonic * phase_values) / float(harmonic * harmonic)
-    peak = float(np.nanmax(np.abs(signal))) if len(signal) else float("nan")
-    if not np.isfinite(peak) or peak <= 1e-12:
-        return signal
-    return signal / peak
+    return analytic_fixed_rounded_triangle_normalized(phase)
 
 
 def _build_target_template(
@@ -2002,6 +1995,12 @@ def _build_finite_modeled_profile(
         target_output_pp=float(target_output_pp),
         force_rounded_triangle=target_output_type == "field",
     )
+    target_quality = target_template_quality(
+        modeled["target_output"].to_numpy(dtype=float),
+        target_peak_mT=float(target_output_pp) / 2.0,
+    )
+    for key, value in target_quality.items():
+        modeled[key] = value
     if target_output_type == "current":
         modeled["target_current_a"] = modeled["target_output"]
         modeled["used_target_current_a"] = modeled["target_output"]

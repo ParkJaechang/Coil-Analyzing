@@ -14,10 +14,10 @@ def _source() -> str:
 def test_target_support_predicted_semantics_markers_exist() -> None:
     source = _source()
 
-    assert "Physical Target" in source
-    assert "Predicted Output" in source
-    assert "Support Reference" in source
-    assert "Support-Blended Preview" in source
+    assert "목표 자기장 개형 / fixed rounded triangle" in source
+    assert "목표 피크 자기장 (mT)" in source
+    assert "내부 정규화 기준" in source
+    assert "데이터/예측 의미 상세" in source
     assert "1차 모델링 command" in source
     assert "Internal Reference (debug, hidden by default)" in source
 
@@ -25,12 +25,13 @@ def test_target_support_predicted_semantics_markers_exist() -> None:
 def test_plot_semantics_explanation_separates_target_from_support() -> None:
     source = _source()
 
-    assert "Finite target semantics: Physical Target = fixed rounded triangle." in source
-    assert "Support Reference는 support-conditioned preview이며 물리 목표 자기장이 아닙니다." in source
+    assert "목표 자기장 개형은 canonical fixed rounded triangle입니다." in source
+    assert "목표 자기장, support preview, forward prediction은 서로 다른 진단 정보입니다." in source
     assert "fixed rounded triangle at 100pp" not in source
-    assert "Plot semantics: `Physical Target`은 요청한 field waveform이고" in source
-    assert "`Support Reference`는 target이 아닙니다." in source
-    assert "`Predicted Output`은 1차 모델링 command의 model response" in source
+    assert "100mT pp fixed" not in source
+    assert "100pp fixed" not in source
+    assert "목표 bz_mT PP" not in source
+    assert "Target metric fixed" not in source
     assert "Advanced / Debug plot references" in source
     assert "이것은 physical target이 아닙니다." in source
 
