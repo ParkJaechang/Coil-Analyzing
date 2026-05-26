@@ -69,22 +69,27 @@ def render_continuous_steady_state_runtime_panel(
         target_freq_hz=target_freq,
         source_waveform_filter=source_waveform_filter,
     )
-    st.markdown("##### Continuous 후보 scan 결과")
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {"source": key, "candidate_count": value}
-                for key, value in dict(scan.get("continuous_candidate_source_counts") or {}).items()
-            ]
-            + [{"source": "schema_rejected", "candidate_count": int(scan.get("continuous_candidate_rejected_count") or 0)}]
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
     details = list(scan.get("continuous_candidate_details") or [])
     details_by_name = {str(detail.get("name")): detail for detail in details}
-    if details:
-        st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+    match_count = int(scan.get("continuous_candidate_matching_count") or 0)
+    rejected_count = int(scan.get("continuous_candidate_rejected_count") or 0)
+    st.caption(
+        f"Continuous 후보: 전체 {len(candidate_names)}개 / target match {match_count}개 / schema rejected {rejected_count}개"
+    )
+    with st.expander("Continuous 후보 상세 / Debug", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"source": key, "candidate_count": value}
+                    for key, value in dict(scan.get("continuous_candidate_source_counts") or {}).items()
+                ]
+                + [{"source": "schema_rejected", "candidate_count": rejected_count}]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        if details:
+            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
     selected_name = None
     if candidate_names:
         previous_target = st.session_state.get("continuous_steady_state_target_freq_hz")
@@ -126,7 +131,6 @@ def render_continuous_steady_state_runtime_panel(
         st.session_state["continuous_steady_state_pending_signature"] = signature
         st.session_state["continuous_steady_state_candidate_scan"] = scan
     else:
-        rejected_count = int(scan.get("continuous_candidate_rejected_count") or 0)
         if rejected_count:
             st.warning("Continuous 파일은 찾았지만 schema 인식에 실패했습니다.")
             st.caption("Continuous source 파일은 발견되었지만 time/voltage/field 컬럼 매핑에 실패했습니다.")
@@ -136,8 +140,8 @@ def render_continuous_steady_state_runtime_panel(
         st.session_state["continuous_steady_state_candidate_scan"] = scan
     rejected_reasons = list(scan.get("continuous_candidate_rejection_reasons") or [])
     if rejected_reasons:
-        st.markdown("##### schema rejected")
-        st.dataframe(pd.DataFrame({"reason": rejected_reasons}), use_container_width=True, hide_index=True)
+        with st.expander("Continuous schema rejected 상세 / Debug", expanded=False):
+            st.dataframe(pd.DataFrame({"reason": rejected_reasons}), use_container_width=True, hide_index=True)
 
     if st.button("Steady-state 1cycle 추출", key="continuous_steady_state_extract_button"):
         if selected_name is None:

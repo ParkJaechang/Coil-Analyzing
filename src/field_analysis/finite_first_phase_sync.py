@@ -93,6 +93,9 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_modeling_missing_voltage": voltage_column is None,
         }
     target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
+    target_peak_reference_mT = _peak_abs(target[active_mask])
+    if not np.isfinite(target_peak_reference_mT) or target_peak_reference_mT <= 1e-12:
+        target_peak_reference_mT = 50.0
     measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
     native_time_s, native_measured_raw, measured_alignment_source = native_measured_support_source(
         frame,
@@ -133,6 +136,7 @@ def apply_finite_first_phase_sync_modeling(
         native_smoothed_unscaled,
         native_active_mask,
         measured_center_meta,
+        target_peak_mT=target_peak_reference_mT,
     )
     peak_detection_signal, peak_detection_meta = _phase_peak_detection_signal(native_smoothed_unscaled, native_active_mask)
     measured_peak_time, measured_peak_polarity, measured_peak_value = _dominant_peak_time(
@@ -247,7 +251,7 @@ def apply_finite_first_phase_sync_modeling(
         _measured_target_identity_metadata(target, measured_on_output, active_mask),
         _measured_target_identity_metadata(target, aligned, finite_active),
     )
-    unit_delta = residual / 50.0 * float(voltage_limit_v)
+    unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
     unit_delta[~finite_active] = np.nan
     gain, gain_meta = compute_second_modeling_gain(
         unit_delta,
@@ -349,6 +353,7 @@ def apply_finite_first_phase_sync_modeling(
         **measured_norm_meta,
         "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
         "residual_gain_field_scale_applied": True,
+        "field_modeling_normalization_reference_mT": target_peak_reference_mT,
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),

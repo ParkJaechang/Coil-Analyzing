@@ -156,7 +156,8 @@ def _finite_first_command_plot(command_profile: pd.DataFrame, *, diagnostics: bo
         title = "Finite 1차 command diagnostics"
     else:
         _add_profile_trace(fig, command_profile, "limited_voltage_v", "1차 모델링 command")
-        _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_normalized_v", "기존 입력 전압")
+        _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_normalized_v", "모델링 입력 전압")
+        _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_v", "원본 입력 전압")
         title = "1차 모델링 command"
     fig.update_layout(template="plotly_white", height=320, title=title, xaxis_title="time_s")
     return fig

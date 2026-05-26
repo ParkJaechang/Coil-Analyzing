@@ -37,6 +37,9 @@ def build_continuous_phase_aligned_command_profile(
     source_voltage = _continuous_first_voltage(frame).to_numpy(dtype=float)
     first_voltage, voltage_norm_meta = _normalize_base_voltage(source_voltage, base_peak_v=float(base_voltage_peak_v), final_limit_v=float(voltage_limit_v))
     active_mask = np.isfinite(time_s) & np.isfinite(measured) & np.isfinite(target)
+    target_peak_reference_mT = _peak_abs(target[active_mask])
+    if not np.isfinite(target_peak_reference_mT) or target_peak_reference_mT <= 1e-12:
+        target_peak_reference_mT = 50.0
     support_time = pd.to_numeric(support["time_s"], errors="coerce").to_numpy(dtype=float) - time_origin
     support_measured = _first_numeric_column(support, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
     support_voltage_source = _continuous_first_voltage(support).to_numpy(dtype=float)
@@ -105,7 +108,7 @@ def build_continuous_phase_aligned_command_profile(
         }
     measured_for_modeling = measured_aligned
     residual = target - measured_for_modeling
-    unit_delta = residual / 50.0 * float(voltage_limit_v)
+    unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
     gain, gain_meta = compute_second_modeling_gain(
         unit_delta,
         first_voltage,
@@ -177,6 +180,8 @@ def build_continuous_phase_aligned_command_profile(
         "continuous_modeling_kernel_source": "finite_second_modeling_shared_kernel",
         "continuous_target_shape": "fixed_rounded_triangle",
         "continuous_target_cycle_count": 1.0,
+        "field_modeling_normalization_reference_mT": target_peak_reference_mT,
+        "continuous_residual_unit_delta_reference_mT": target_peak_reference_mT,
         "continuous_export_cycle_count": 1.0,
         "continuous_final_voltage_limit_v": float(voltage_limit_v),
         "loop_endpoint_policy": "period_exclusive",
@@ -198,6 +203,12 @@ def _continuous_first_voltage(frame: pd.DataFrame) -> pd.Series:
         if column in frame.columns:
             return pd.to_numeric(frame[column], errors="coerce")
     return pd.Series(np.zeros(len(frame), dtype=float))
+
+
+def _peak_abs(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    return float(np.nanmax(np.abs(finite))) if finite.size else 0.0
 
 
 def _normalize_base_voltage(values: np.ndarray, *, base_peak_v: float, final_limit_v: float) -> tuple[np.ndarray, dict[str, Any]]:

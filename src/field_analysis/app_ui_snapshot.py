@@ -2171,7 +2171,7 @@ def _render_field_only_quick_lut_banner() -> None:
         "목표 자기장 개형은 source waveform과 별개로 fixed rounded triangle을 사용합니다."
     )
     st.caption(
-        "Field review/modeling은 ±50mT 기준으로 정규화합니다. Command voltage는 ±5V 기준으로 정규화/제한합니다. "
+        "Field review/modeling은 사용자가 설정한 목표 피크 자기장 기준으로 scale-only 정규화합니다. Command voltage는 ±5V 기준으로 제한합니다. "
         "HallBz convention: effective field = -HallBz raw."
     )
     st.caption(
@@ -2841,7 +2841,7 @@ def _render_quick_lut_tab_v2(
             )
             summary_cols = st.columns(3)
             summary_cols[0].metric("목표 피크 자기장", f"±{configured_target_peak:g} mT")
-            summary_cols[1].metric("내부 정규화 기준", "±50 mT")
+            summary_cols[1].metric("모델링 정규화 기준", f"±{configured_target_peak:g} mT")
             summary_cols[2].metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
             st.caption("목표 자기장 개형: fixed rounded triangle. 목표 피크값과 내부 정규화 기준은 분리되어 표시됩니다.")
             with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):

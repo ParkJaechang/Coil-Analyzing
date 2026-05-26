@@ -29,7 +29,7 @@ def build_quick_lut_target_config(
         "target_peak_mT": float(user_target_peak_field_mT),
         "user_target_peak_field_mT": float(user_target_peak_field_mT),
         "target_peak_field_source": "ui_user_selection",
-        "field_modeling_normalization_reference_mT": 50.0,
+        "field_modeling_normalization_reference_mT": float(user_target_peak_field_mT),
         "target_pp_fixed_removed": True,
         "use_frequency_trend": bool(use_frequency_trend),
         "finite_cycle_mode": bool(finite_cycle_mode and mode != "continuous_steady_state"),

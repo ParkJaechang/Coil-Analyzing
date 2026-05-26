@@ -5,6 +5,7 @@ import sys
 
 import pandas as pd
 import numpy as np
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -26,6 +27,7 @@ from field_analysis.ui_continuous_steady_state import (
     run_continuous_steady_state_extraction,
 )
 from field_analysis.continuous_candidate_frequency import attach_continuous_frequency_attrs
+from field_analysis.continuous_first_modeling import build_continuous_phase_aligned_command_profile
 
 APP_UI = SRC_ROOT / "field_analysis" / "app_ui_snapshot.py"
 CONT_UI = SRC_ROOT / "field_analysis" / "ui_continuous_steady_state.py"
@@ -74,6 +76,38 @@ def test_quick_lut_continuous_runtime_path_calls_extractor_and_is_button_gated()
     assert "Continuous 1차 모델링 command" in source
     assert "1cycle 반복 출력용 voltage LUT" in source
     assert "quick_lut_modeling_input_mode" in source
+
+
+def test_continuous_first_modeling_uses_target_peak_reference_for_residual_delta() -> None:
+    time_s = np.linspace(0.0, 1.1, 220, endpoint=False)
+    active = time_s < 1.0
+    phase = 2.0 * np.pi * time_s
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s[active],
+            "measured_field_normalized_mT": 40.0 * np.sin(phase[active]),
+            "normalized_physical_target_output_mT": 80.0 * np.sin(phase[active]),
+            "voltage_normalized_v": 5.0 * np.sin(phase[active]),
+        }
+    )
+    support = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "measured_field_normalized_mT": 40.0 * np.sin(phase),
+            "voltage_normalized_v": 5.0 * np.sin(phase),
+        }
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        frame,
+        support_frame=support,
+        freq_hz=1.0,
+        base_voltage_peak_v=2.5,
+    )
+
+    assert not command.empty
+    assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.02)
+    assert metadata["continuous_residual_unit_delta_reference_mT"] == pytest.approx(80.0, rel=0.02)
 
 
 def test_quick_lut_continuous_actual_drive_and_validation_runtime_markers_exist() -> None:

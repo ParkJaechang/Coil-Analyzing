@@ -70,7 +70,7 @@ def test_finite_first_phase_sync_scales_smoothed_measured_without_offset_shift()
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["measured_field_normalization_mode"] == "scale_only_abs_peak_to_50mT"
+    assert metadata["measured_field_normalization_mode"] == "scale_only_abs_peak_to_target_peak"
     assert float(metadata["measured_field_total_offset_removed_mT"]) == pytest.approx(0.0)
     expected_peak = 42.0 + 18.0
     assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / expected_peak, rel=0.04)
@@ -415,16 +415,40 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     figure = _finite_first_command_plot(result)
     source = UI_FINITE_FIRST.read_text(encoding="utf-8")
 
-    assert len(figure.data) == 2
+    assert len(figure.data) == 3
     assert figure.data[0].name == "1차 모델링 command"
-    assert figure.data[1].name == "기존 입력 전압"
+    assert figure.data[1].name == "모델링 입력 전압"
+    assert figure.data[2].name == "원본 입력 전압"
     assert np.allclose(
         np.asarray(figure.data[1].y, dtype=float),
         result["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
     )
+    assert np.allclose(
+        np.asarray(figure.data[2].y, dtype=float),
+        result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float),
+    )
     assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source
+
+
+def test_finite_first_normalization_uses_target_peak_not_fixed_50mT() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    profile["physical_target_output_mT"] = profile["physical_target_output_mT"] / 50.0 * 80.0
+    support_time = profile["time_s"].to_numpy(dtype=float)
+    source_lut_voltage = 5.0 * np.sin(2.0 * np.pi * support_time)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    expected_scale = 80.0 / 42.0
+    assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.01)
+    assert metadata["measured_field_scale_to_target_peak_mT"] == pytest.approx(expected_scale, rel=0.02)
+    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(expected_scale, rel=0.02)
+    assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(5.0 * expected_scale, rel=0.05)
+    assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.05)
 
 
 def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() -> None:

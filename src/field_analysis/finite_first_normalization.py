@@ -29,6 +29,8 @@ def normalize_smoothed_field_to_pm50(
     smoothed_centered: np.ndarray,
     active_mask: np.ndarray,
     center_meta: dict[str, Any],
+    *,
+    target_peak_mT: float = 50.0,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     smoothed = np.asarray(smoothed_centered, dtype=float)
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(smoothed)
@@ -39,7 +41,10 @@ def normalize_smoothed_field_to_pm50(
         peak = float(np.nanmax(np.abs(active_values)))
     else:
         active_min = active_max = peak = 0.0
-    scale = 50.0 / peak if peak > 1e-12 else 1.0
+    target_peak = abs(float(target_peak_mT)) if np.isfinite(float(target_peak_mT)) else 50.0
+    if target_peak <= 1e-12:
+        target_peak = 50.0
+    scale = target_peak / peak if peak > 1e-12 else 1.0
     normalized = smoothed * scale
     raw_peak = float(
         center_meta.get(
@@ -58,6 +63,7 @@ def normalize_smoothed_field_to_pm50(
         active_min=active_min,
         active_max=active_max,
         peak=peak,
+        target_peak=target_peak,
     )
 
 
@@ -72,13 +78,16 @@ def measured_normalization_metadata(
     active_min: float,
     active_max: float,
     peak: float,
+    target_peak: float = 50.0,
 ) -> dict[str, Any]:
     return {
         "measured_abs_peak_raw_mT": float(raw_peak),
         "measured_abs_peak_effective_mT": float(effective_peak),
         "measured_field_scale_to_50mT": float(scale),
+        "measured_field_scale_to_target_peak_mT": float(scale),
+        "field_modeling_normalization_reference_mT": float(target_peak),
         "measured_field_normalization_status": status,
-        "measured_field_normalization_mode": "scale_only_abs_peak_to_50mT",
+        "measured_field_normalization_mode": "scale_only_abs_peak_to_target_peak",
         "measured_field_normalization_center_mT": float(center),
         "measured_field_pre_normalization_baseline_mT": float(baseline),
         "measured_field_total_offset_removed_mT": float(baseline + center),
