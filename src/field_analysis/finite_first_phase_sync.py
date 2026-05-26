@@ -128,11 +128,18 @@ def apply_finite_first_phase_sync_modeling(
         peak_detection_signal,
         native_active_mask,
     )
-    voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _dominant_peak_time(
+    measured_peak_rel_for_voltage = (
+        float(measured_peak_time - source_active_start_s)
+        if measured_peak_time is not None and np.isfinite(source_active_start_s)
+        else None
+    )
+    voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _reference_voltage_peak_for_measured_peak(
         time_s,
         base_voltage,
         active_mask,
         preferred_polarity=measured_peak_polarity,
+        measured_peak_rel_s=measured_peak_rel_for_voltage,
+        output_start_s=output_start_s,
     )
     phase_delay_s = 0.0
     measured_peak_plot_time = measured_peak_time
@@ -187,6 +194,7 @@ def apply_finite_first_phase_sync_modeling(
             "actual_source_time_end_s": source_end,
             "phase_support_status": "insufficient",
             "phase_sync_peak_reference": "dominant_absolute_peak",
+            "phase_sync_voltage_reference": "nearest_previous_same_polarity_peak",
             "phase_sync_peak_polarity": measured_peak_polarity,
             "voltage_first_peak_time_s": voltage_peak_time,
             "measured_first_peak_time_s": measured_peak_plot_time,
@@ -291,6 +299,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_enabled": True,
         "phase_sync_method": "field_peak_to_voltage_peak",
         "phase_sync_peak_reference": "dominant_absolute_peak",
+        "phase_sync_voltage_reference": "nearest_previous_same_polarity_peak",
         "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,
         "measured_first_peak_time_s": measured_peak_plot_time,
@@ -439,30 +448,70 @@ def _dominant_peak_time(
     *,
     preferred_polarity: str | None = None,
 ) -> tuple[float | None, str | None, float | None]:
-    active = np.asarray(active_mask, dtype=bool) & np.isfinite(time_s) & np.isfinite(values)
-    if active.sum() < 3:
+    peaks = _peak_candidates(time_s, values, active_mask)
+    if not peaks:
         return None, None, None
+    if preferred_polarity in {"positive", "negative"}:
+        preferred_sign = 1.0 if preferred_polarity == "positive" else -1.0
+        same_polarity = [peak for peak in peaks if np.sign(peak[1]) == preferred_sign]
+        if same_polarity:
+            peaks = same_polarity
+    peak_time, selected_value = max(peaks, key=lambda item: abs(float(item[1])))
+    polarity = "positive" if float(selected_value) >= 0.0 else "negative"
+    return float(peak_time), polarity, float(selected_value)
+
+
+def _reference_voltage_peak_for_measured_peak(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    preferred_polarity: str | None,
+    measured_peak_rel_s: float | None,
+    output_start_s: float,
+) -> tuple[float | None, str | None, float | None]:
+    peaks = _peak_candidates(time_s, values, active_mask)
+    if not peaks:
+        return None, None, None
+    if preferred_polarity in {"positive", "negative"}:
+        preferred_sign = 1.0 if preferred_polarity == "positive" else -1.0
+        same_polarity = [peak for peak in peaks if np.sign(peak[1]) == preferred_sign]
+        if same_polarity:
+            peaks = same_polarity
+    if measured_peak_rel_s is not None and np.isfinite(measured_peak_rel_s):
+        measured_peak_plot_time = float(output_start_s) + float(measured_peak_rel_s)
+        previous = [peak for peak in peaks if float(peak[0]) <= measured_peak_plot_time + 1e-12]
+        if previous:
+            selected_time, selected_value = max(previous, key=lambda item: float(item[0]))
+        else:
+            selected_time, selected_value = min(peaks, key=lambda item: abs(float(item[0]) - measured_peak_plot_time))
+    else:
+        selected_time, selected_value = min(peaks, key=lambda item: float(item[0]))
+    polarity = "positive" if float(selected_value) >= 0.0 else "negative"
+    return float(selected_time), polarity, float(selected_value)
+
+
+def _peak_candidates(time_s: np.ndarray, values: np.ndarray, active_mask: np.ndarray) -> list[tuple[float, float]]:
+    time_arr = np.asarray(time_s, dtype=float)
+    value_arr = np.asarray(values, dtype=float)
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(time_arr) & np.isfinite(value_arr)
+    if active.sum() < 3:
+        return []
     indices = np.flatnonzero(active)
-    local = np.asarray(values, dtype=float)[indices]
-    peak_candidates: list[tuple[int, float]] = []
+    local = value_arr[indices]
+    peaks: list[tuple[float, float]] = []
     for local_index in range(1, len(local) - 1):
         value = float(local[local_index])
         is_max = value >= float(local[local_index - 1]) and value >= float(local[local_index + 1])
         is_min = value <= float(local[local_index - 1]) and value <= float(local[local_index + 1])
         if is_max or is_min:
-            peak_candidates.append((local_index, value))
-    if not peak_candidates:
+            source_index = int(indices[int(local_index)])
+            peaks.append((float(time_arr[source_index]), value))
+    if not peaks:
         selected = int(np.nanargmax(np.abs(local)))
-        peak_candidates = [(selected, float(local[selected]))]
-    if preferred_polarity in {"positive", "negative"}:
-        preferred_sign = 1.0 if preferred_polarity == "positive" else -1.0
-        same_polarity = [(idx, value) for idx, value in peak_candidates if np.sign(value) == preferred_sign]
-        if same_polarity:
-            peak_candidates = same_polarity
-    selected_index, selected_value = max(peak_candidates, key=lambda item: abs(float(item[1])))
-    peak_index = int(indices[int(selected_index)])
-    polarity = "positive" if float(selected_value) >= 0.0 else "negative"
-    return float(np.asarray(time_s, dtype=float)[peak_index]), polarity, float(selected_value)
+        source_index = int(indices[selected])
+        peaks = [(float(time_arr[source_index]), float(local[selected]))]
+    return peaks
 
 
 def _phase_support_margin_s(time_s: np.ndarray) -> float:
