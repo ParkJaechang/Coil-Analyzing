@@ -166,6 +166,9 @@ def test_ui_support_reference_preview_uses_native_source_beyond_target_end() -> 
     assert float(reference_profile["time_s"].min()) == pytest.approx(0.0)
     assert float(reference_profile["time_s"].max()) > float(result["target_active_end_s"])
     assert float(reference_profile["time_s"].max()) >= original_end - original_start - 1e-9
+    assert reference_profile.attrs["support_reference_native_normalization_mode"] == "scale_only_abs_peak_to_50mT_after_motion_start"
+    assert reference_profile.attrs["support_reference_native_offset_removed_mT"] == pytest.approx(0.0)
+    assert float(reference_profile["support_reference_native_mT"].iloc[0]) >= -1e-9
 
 
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:

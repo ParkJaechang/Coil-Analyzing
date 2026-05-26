@@ -1492,11 +1492,12 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     time_values = time_values[keep]
     field_values = field_values[keep]
 
-    baseline = float(np.nanmedian(field_values)) if np.isfinite(field_values).any() else 0.0
-    centered = field_values - baseline
-    window = max(3, min(51, int(len(centered) // 20) * 2 + 1))
+    # Do not recenter the support preview: this trace is the measured support
+    # source used for phase inspection, so only smoothing and scale-to-50mT are
+    # applied after the detected motion start.
+    window = max(3, min(51, int(len(field_values) // 20) * 2 + 1))
     smoothed = (
-        pd.Series(centered)
+        pd.Series(field_values)
         .rolling(window=window, center=True, min_periods=1)
         .median()
         .rolling(window=window, center=True, min_periods=1)
@@ -1515,6 +1516,8 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     frame.attrs["support_reference_native_start_s"] = plot_start
     frame.attrs["support_reference_native_end_s"] = plot_end
     frame.attrs["support_reference_native_scale_to_50mT"] = scale
+    frame.attrs["support_reference_native_normalization_mode"] = "scale_only_abs_peak_to_50mT_after_motion_start"
+    frame.attrs["support_reference_native_offset_removed_mT"] = 0.0
     return frame
 
 
