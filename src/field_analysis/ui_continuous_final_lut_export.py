@@ -110,6 +110,7 @@ def build_continuous_final_lut_frame(
     if "loop_endpoint_policy" not in source.columns:
         source["loop_endpoint_policy"] = "period_exclusive"
     exported = build_final_voltage_lut_frame(source, voltage_source_column=voltage_source_column)
+    exported = _drop_continuous_endpoint_duplicate(exported, freq_hz=freq_hz)
     _validate_continuous_lut_frame(exported, freq_hz=freq_hz)
     metadata = {
         "continuous_final_lut_export_selected_stage": stage,
@@ -254,6 +255,23 @@ def _validate_continuous_lut_frame(frame: pd.DataFrame, *, freq_hz: float | None
         period_s = 1.0 / freq
         if np.nanmax(time_s) >= period_s - max(period_s * 1e-9, 1e-12):
             raise ValueError("continuous_endpoint_not_period_exclusive")
+
+
+def _drop_continuous_endpoint_duplicate(frame: pd.DataFrame, *, freq_hz: float | None) -> pd.DataFrame:
+    try:
+        freq = float(freq_hz) if freq_hz is not None else float("nan")
+    except (TypeError, ValueError):
+        freq = float("nan")
+    if not np.isfinite(freq) or freq <= 0.0 or frame.empty or "time_s" not in frame.columns:
+        return frame
+    period_s = 1.0 / freq
+    time_s = pd.to_numeric(frame["time_s"], errors="coerce")
+    keep = time_s < period_s - max(period_s * 1e-9, 1e-12)
+    if bool(keep.all()):
+        return frame
+    trimmed = frame.loc[keep].copy().reset_index(drop=True)
+    trimmed["sample_index"] = range(len(trimmed))
+    return trimmed
 
 
 def _safe_name_part(value: object | None) -> str:

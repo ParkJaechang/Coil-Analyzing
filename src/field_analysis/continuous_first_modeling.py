@@ -20,7 +20,7 @@ def build_continuous_phase_aligned_command_profile(
     correction_gain: float = 0.25,
     correction_gain_mode: str = "auto",
     voltage_limit_v: float = 5.0,
-    base_voltage_peak_v: float = 2.5,
+    base_voltage_peak_v: float | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     frame = steady_state_one_cycle_frame.copy()
     if frame.empty:
@@ -35,7 +35,16 @@ def build_continuous_phase_aligned_command_profile(
     measured = _first_numeric_column(frame, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
     target = _first_numeric_column(frame, ("normalized_physical_target_output_mT", "physical_target_output_mT")).to_numpy(dtype=float)
     source_voltage = _continuous_first_voltage(frame).to_numpy(dtype=float)
-    first_voltage, voltage_norm_meta = _normalize_base_voltage(source_voltage, base_peak_v=float(base_voltage_peak_v), final_limit_v=float(voltage_limit_v))
+    first_voltage = source_voltage.copy()
+    voltage_norm_meta: dict[str, Any] = {
+        "continuous_base_voltage_peak_v": _peak_abs(first_voltage),
+        "continuous_final_voltage_limit_v": float(voltage_limit_v),
+        "source_voltage_raw_peak_v": _peak_abs(source_voltage),
+        "source_voltage_base_normalized_peak_v": _peak_abs(first_voltage),
+        "source_voltage_base_normalization_scale": 1.0,
+        "continuous_base_voltage_headroom_v": float(max(abs(voltage_limit_v) - _peak_abs(first_voltage), 0.0)),
+        "continuous_voltage_normalization_mode": "raw_source_voltage_field_scale_pending",
+    }
     active_mask = np.isfinite(time_s) & np.isfinite(measured) & np.isfinite(target)
     target_peak_reference_mT = _peak_abs(target[active_mask])
     if not np.isfinite(target_peak_reference_mT) or target_peak_reference_mT <= 1e-12:
@@ -43,7 +52,7 @@ def build_continuous_phase_aligned_command_profile(
     support_time = pd.to_numeric(support["time_s"], errors="coerce").to_numpy(dtype=float) - time_origin
     support_measured = _first_numeric_column(support, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
     support_voltage_source = _continuous_first_voltage(support).to_numpy(dtype=float)
-    support_voltage, _support_voltage_meta = _normalize_base_voltage(support_voltage_source, base_peak_v=float(base_voltage_peak_v), final_limit_v=float(voltage_limit_v))
+    support_voltage = support_voltage_source.copy()
     support_mask = np.isfinite(support_time) & np.isfinite(support_measured)
     support_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
         support_time,
@@ -108,6 +117,19 @@ def build_continuous_phase_aligned_command_profile(
         }
     measured_for_modeling = measured_aligned
     residual = target - measured_for_modeling
+    measured_peak = _peak_abs(measured_for_modeling[active_mask])
+    field_scale = target_peak_reference_mT / measured_peak if measured_peak > 1e-12 else 1.0
+    first_voltage = source_voltage * field_scale
+    voltage_norm_meta.update(
+        {
+            "continuous_base_voltage_peak_v": _peak_abs(first_voltage),
+            "source_voltage_base_normalized_peak_v": _peak_abs(first_voltage),
+            "source_voltage_base_normalization_scale": float(field_scale),
+            "continuous_base_voltage_headroom_v": float(max(abs(voltage_limit_v) - _peak_abs(first_voltage), 0.0)),
+            "continuous_input_voltage_field_scale": float(field_scale),
+            "continuous_voltage_normalization_mode": "raw_source_voltage_scaled_by_target_field_peak",
+        }
+    )
     unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
     gain, gain_meta = compute_second_modeling_gain(
         unit_delta,

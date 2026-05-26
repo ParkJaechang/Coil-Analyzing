@@ -121,7 +121,10 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_voltage=base_voltage,
     )
-    input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
+    if str(input_voltage_source).startswith("selected_support_source_voltage_v"):
+        input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
+    else:
+        input_lut_voltage = base_voltage.copy()
     voltage_for_peak_reference = np.where(np.isfinite(input_lut_voltage), input_lut_voltage, base_voltage)
     native_smoothed_unscaled, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
@@ -139,17 +142,21 @@ def apply_finite_first_phase_sync_modeling(
         target_peak_mT=target_peak_reference_mT,
     )
     peak_detection_signal, peak_detection_meta = _phase_peak_detection_signal(native_smoothed_unscaled, native_active_mask)
+    preferred_peak_polarity = "positive" if float(cycle_count) <= 1.0 + 1e-9 else "negative"
+    peak_reference_label = "first_positive_peak" if preferred_peak_polarity == "positive" else "dominant_negative_peak"
     measured_peak_time, measured_peak_polarity, measured_peak_value = _dominant_peak_time(
         native_time_s,
         peak_detection_signal,
         native_active_mask,
-        preferred_polarity="negative",
+        preferred_polarity=preferred_peak_polarity,
     )
     measured_peak_rel_for_voltage = (
         float(measured_peak_time - source_active_start_s)
         if measured_peak_time is not None and np.isfinite(source_active_start_s)
         else None
     )
+    if preferred_peak_polarity == "positive":
+        measured_peak_rel_for_voltage = None
     voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _reference_voltage_peak_for_measured_peak(
         time_s,
         voltage_for_peak_reference,
@@ -215,7 +222,7 @@ def apply_finite_first_phase_sync_modeling(
             "required_phase_aligned_source_end_s": required_end,
             "actual_source_time_end_s": source_end,
             "phase_support_status": "insufficient",
-            "phase_sync_peak_reference": "dominant_negative_peak",
+            "phase_sync_peak_reference": peak_reference_label,
             "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
             "phase_sync_peak_polarity": measured_peak_polarity,
             "voltage_first_peak_time_s": voltage_peak_time,
@@ -327,7 +334,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_kernel_reference_as_measured_allowed": False,
         "phase_sync_enabled": True,
         "phase_sync_method": "field_peak_to_voltage_peak",
-        "phase_sync_peak_reference": "dominant_negative_peak",
+        "phase_sync_peak_reference": peak_reference_label,
         "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
         "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,

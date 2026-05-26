@@ -133,7 +133,7 @@ def test_finite_first_phase_sync_blocks_when_active_end_support_missing() -> Non
     assert result["residual_for_modeling_mT"].isna().any()
 
 
-def test_finite_first_phase_sync_uses_dominant_negative_peak_and_requires_tail_support() -> None:
+def test_finite_first_one_cycle_uses_first_positive_peak() -> None:
     active_duration = 1.0
     delay_s = 0.09
     time_s = np.linspace(0.0, active_duration + delay_s + 0.05, 520, endpoint=False)
@@ -154,10 +154,10 @@ def test_finite_first_phase_sync_uses_dominant_negative_peak_and_requires_tail_s
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
-    assert metadata["phase_sync_peak_polarity"] == "negative"
-    assert float(metadata["measured_first_peak_time_s"]) > 0.75
-    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.75, abs=0.02)
+    assert metadata["phase_sync_peak_reference"] == "first_positive_peak"
+    assert metadata["phase_sync_peak_polarity"] == "positive"
+    assert float(metadata["measured_first_peak_time_s"]) == pytest.approx(0.25 + delay_s, abs=0.03)
+    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.25, abs=0.02)
     assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
     assert metadata["active_residual_finite_through_end"] is True
     assert metadata["active_residual_finite_ratio"] == pytest.approx(1.0)
@@ -191,7 +191,8 @@ def test_finite_first_phase_sync_uses_native_support_beyond_active_output_grid()
     assert metadata["measurement_support_grid_separate_from_output_grid"] is True
     assert metadata["measured_alignment_source"] == "native_smoothed_source"
     assert metadata["measurement_support_source"] == "selected_support_source_native"
-    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert metadata["phase_sync_peak_reference"] == "first_positive_peak"
+    assert metadata["phase_sync_peak_polarity"] == "positive"
     assert metadata["active_residual_finite_ratio"] == pytest.approx(1.0)
     assert result["time_s"].max() < active_duration
     assert result["measured_field_aligned_mT"].notna().all()
@@ -263,6 +264,37 @@ def test_finite_first_phase_sync_pairs_measured_dominant_peak_with_nearest_same_
     assert result["residual_for_modeling_mT"].notna().all()
 
 
+def test_finite_first_one_point_five_cycle_uses_negative_peak_reference() -> None:
+    freq_hz = 1.0
+    cycle_count = 1.5
+    delay_s = 0.08
+    active_duration = cycle_count / freq_hz
+    time_s = np.linspace(0.0, active_duration + delay_s + 0.05, 620, endpoint=False)
+    phase = 2.0 * np.pi * freq_hz * time_s
+    voltage = 2.5 * np.sin(phase)
+    measured = 36.0 * np.sin(2.0 * np.pi * freq_hz * (time_s - delay_s))
+    measured += -18.0 * np.exp(-((time_s - (0.75 + delay_s)) / 0.035) ** 2)
+    profile = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "limited_voltage_v": voltage,
+            "recommended_voltage_v": voltage,
+            "physical_target_output_mT": 50.0 * np.sin(phase),
+            "finite_first_actual_measured_field_mT": measured,
+        }
+    )
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=freq_hz, cycle_count=cycle_count)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
+    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.75, abs=0.03)
+    assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
+    assert result["measured_field_aligned_mT"].notna().all()
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
 def test_finite_first_phase_sync_maps_target_relative_grid_to_native_source_start() -> None:
     active_duration = 1.0
     source_start = 0.4
@@ -324,7 +356,7 @@ def test_finite_first_phase_sync_normalizes_after_smoothing_not_raw_spike() -> N
     assert result["measured_field_aligned_mT"].abs().max() > 40.0
 
 
-def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support_missing() -> None:
+def test_finite_first_phase_sync_blocks_when_tail_support_missing() -> None:
     active_duration = 1.0
     delay_s = 0.09
     time_s = np.linspace(0.0, active_duration, 420, endpoint=False)
@@ -344,8 +376,8 @@ def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
-    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert metadata["phase_sync_peak_reference"] == "first_positive_peak"
+    assert metadata["phase_sync_peak_polarity"] == "positive"
     assert metadata["finite_first_modeling_status"] == "insufficient_phase_sync_support"
     assert metadata["phase_support_status"] == "insufficient"
     assert metadata["active_residual_finite_through_end"] is False
@@ -389,7 +421,7 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
 
     profile = _finite_profile()
     support_time = profile["time_s"].to_numpy(dtype=float)
-    source_lut_voltage = np.where(support_time < 0.5, 1.25, -0.75)
+    source_lut_voltage = 5.0 * np.sin(2.0 * np.pi * support_time)
     profile.attrs["selected_support_source_time_s"] = support_time.tolist()
     profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
     profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
@@ -454,7 +486,8 @@ def test_finite_first_normalization_uses_target_peak_not_fixed_50mT() -> None:
 def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() -> None:
     profile = _finite_profile(delay_s=0.0)
     support_time = profile["time_s"].to_numpy(dtype=float) + 10.0
-    source_lut_voltage = np.where(support_time < 10.5, 1.25, -0.75)
+    source_rel_time = support_time - 10.0
+    source_lut_voltage = 5.0 * np.sin(2.0 * np.pi * source_rel_time)
     profile.attrs["selected_support_source_time_s"] = support_time.tolist()
     profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
     profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
@@ -466,8 +499,9 @@ def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() 
     scale = float(metadata["measured_field_scale_to_50mT"])
     assert metadata["finite_first_modeling_status"] == "ok"
     assert metadata["phase_sync_source_active_start_s"] == pytest.approx(10.0)
-    assert result["finite_first_input_lut_voltage_v"].iloc[0] == pytest.approx(1.25)
-    assert result["finite_first_input_lut_voltage_normalized_v"].iloc[0] == pytest.approx(1.25 * scale)
+    assert result["finite_first_input_lut_voltage_v"].iloc[0] == pytest.approx(0.0, abs=0.05)
+    assert result["finite_first_input_lut_voltage_normalized_v"].iloc[0] == pytest.approx(0.0, abs=0.05)
+    assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.03)
 
 
 def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -> None:

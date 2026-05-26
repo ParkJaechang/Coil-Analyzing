@@ -2460,10 +2460,12 @@ def _render_quick_lut_tab_v2(
                 value=float(st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0)),
                 step=5.0,
                 key="quick_lut_user_target_peak_field_mT",
-                help="목표 개형은 fixed rounded triangle이며, 내부 비교는 ±50mT 정규화 기준으로 수행합니다.",
+                help="목표 개형은 fixed rounded triangle이며, 모델링 정규화 기준은 이 목표 피크 자기장 값을 사용합니다.",
             )
         )
-        st.caption("모델링 내부 정규화 기준: ±50 mT. 목표 피크 자기장은 target config metadata에 저장됩니다.")
+        st.caption("모델링 정규화 기준은 목표 피크 자기장과 동일하게 적용합니다. 목표 피크를 바꾸면 target field와 residual voltage 기준도 같이 바뀝니다.")
+        target_value = float(user_target_peak_field_mT) * 2.0
+        compensation_target_current_pp = float(user_target_peak_field_mT) * 2.0
         quick_target_config = build_quick_lut_target_config(
             modeling_input_mode=modeling_input_mode,
             target_waveform_family=str(target_waveform) if target_waveform is not None else None,

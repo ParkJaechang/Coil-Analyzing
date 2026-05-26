@@ -54,7 +54,8 @@ def run_continuous_first_modeling(
     extraction_result: dict[str, Any] | None,
     waveform_type: str | None,
     freq_hz: float | None,
-    base_voltage_peak_v: float = 2.5,
+    base_voltage_peak_v: float | None = None,
+    target_peak_field_mT: float | None = None,
 ) -> dict[str, Any]:
     if not isinstance(extraction_result, dict):
         return {"status": "error", "error_reason": "missing_extraction_result"}
@@ -67,13 +68,18 @@ def run_continuous_first_modeling(
     support = extraction_result.get("steady_state_support_frame")
     if not isinstance(window, pd.DataFrame) or window.empty:
         return {"status": "error", "error_reason": "extraction_result_empty"}
+    if target_peak_field_mT is None:
+        target_peak_field_mT = metadata.get("user_target_peak_field_mT") or metadata.get("target_peak_mT") or 50.0
+    window = _scale_continuous_target_fields(window, target_peak_mT=float(target_peak_field_mT))
+    if isinstance(support, pd.DataFrame) and not support.empty:
+        support = _scale_continuous_target_fields(support, target_peak_mT=float(target_peak_field_mT))
     try:
         command_profile, model_metadata = build_continuous_phase_aligned_command_profile(
             window,
             support_frame=support if isinstance(support, pd.DataFrame) else None,
             freq_hz=float(freq_hz or 1.0),
             waveform_type=str(waveform_type) if waveform_type is not None else None,
-            base_voltage_peak_v=float(base_voltage_peak_v),
+            base_voltage_peak_v=base_voltage_peak_v,
         )
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "error_reason": f"modeling_kernel_failed:{exc}"}
@@ -98,3 +104,19 @@ def run_continuous_first_modeling(
         "command_profile": command_profile,
         "first_model_metadata": model_metadata,
     }
+
+
+def _scale_continuous_target_fields(frame: pd.DataFrame, *, target_peak_mT: float) -> pd.DataFrame:
+    out = frame.copy(deep=True)
+    peak = abs(float(target_peak_mT)) if pd.notna(target_peak_mT) else 50.0
+    if peak <= 1e-12:
+        peak = 50.0
+    for column in ("normalized_physical_target_output_mT", "physical_target_output_mT", "target_field_mT"):
+        if column in out.columns:
+            values = pd.to_numeric(out[column], errors="coerce")
+            source_peak = float(values.abs().max()) if values.notna().any() else 0.0
+            if source_peak > 1e-12:
+                out[column] = values * (peak / source_peak)
+    out["user_target_peak_field_mT"] = peak
+    out["field_modeling_normalization_reference_mT"] = peak
+    return out

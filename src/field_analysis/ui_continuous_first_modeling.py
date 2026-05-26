@@ -15,17 +15,11 @@ from .ui_continuous_final_lut_export import (
 
 
 def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq_hz: float | None) -> None:
-    base_voltage_peak = float(
-        st.number_input(
-            "Continuous base voltage 정규화 피크",
-            min_value=0.5,
-            max_value=5.0,
-            value=2.5,
-            step=0.1,
-            key="continuous_base_voltage_peak_v",
-        )
+    target_config = st.session_state.get("quick_lut_target_config") or {}
+    target_peak_field_mT = float(target_config.get("user_target_peak_field_mT") or 50.0)
+    st.caption(
+        f"Continuous도 finite와 동일하게 목표 피크 ±{target_peak_field_mT:g} mT 기준으로 field와 입력 전압 scale을 계산합니다."
     )
-    st.caption("Continuous base voltage는 correction headroom을 확보하기 위해 설정된 피크값으로 정규화합니다. 최종 command만 ±5V로 제한됩니다.")
     if st.button("Continuous 1차 모델링 실행", key="continuous_first_modeling_button"):
         case = st.session_state.get("continuous_steady_state_extraction_result")
         if not isinstance(case, dict) or st.session_state.get("continuous_steady_state_dirty"):
@@ -35,7 +29,7 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
             extraction_result=case,
             waveform_type=waveform_type,
             freq_hz=freq_hz,
-            base_voltage_peak_v=base_voltage_peak,
+            target_peak_field_mT=target_peak_field_mT,
         )
         if result.get("status") != "ok":
             st.warning(f"Continuous 1차 모델링 command 생성에 실패했습니다: {result.get('error_reason')}")
@@ -101,15 +95,17 @@ def _target_residual_plot(command: pd.DataFrame) -> go.Figure:
 
 def _command_plot(command: pd.DataFrame, metadata: dict[str, Any]) -> go.Figure:
     fig = go.Figure()
-    _add_trace(fig, command, "base_voltage_v", "source/base voltage")
+    _add_trace(fig, command, "source_voltage_v", "원본 입력 전압")
+    _add_trace(fig, command, "base_voltage_v", "모델링 입력 전압")
     _add_trace(fig, command, "correction_delta_v", "correction_delta_v")
     _add_trace(fig, command, "limited_voltage_v", "limited_voltage_v")
     limit_v = float(metadata.get("continuous_final_voltage_limit_v") or 5.0)
-    base_peak_v = float(metadata.get("continuous_base_voltage_peak_v") or 2.5)
+    base_peak_v = float(metadata.get("continuous_base_voltage_peak_v") or 0.0)
     fig.add_hline(y=limit_v, line_dash="dash", line_color="red", annotation_text=f"+{limit_v:g}V limit")
     fig.add_hline(y=-limit_v, line_dash="dash", line_color="red", annotation_text=f"-{limit_v:g}V limit")
-    fig.add_hline(y=base_peak_v, line_dash="dot", line_color="gray", annotation_text=f"base peak target {base_peak_v:g}V")
-    fig.add_hline(y=-base_peak_v, line_dash="dot", line_color="gray")
+    if base_peak_v > 0.0:
+        fig.add_hline(y=base_peak_v, line_dash="dot", line_color="gray", annotation_text=f"modeling input peak {base_peak_v:g}V")
+        fig.add_hline(y=-base_peak_v, line_dash="dot", line_color="gray")
     fig.update_layout(template="plotly_white", height=320, title="Continuous 1차 modeling command")
     return fig
 
