@@ -57,11 +57,19 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     assert "correction_delta_v" in result.columns
     assert metadata["measured_abs_peak_effective_mT"] == pytest.approx(42.0, rel=0.01)
     assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / 42.0, rel=0.01)
-    assert metadata["residual_gain_field_scale_applied"] is True
+    assert metadata["residual_uses_scaled_measured_field"] is True
+    assert metadata["residual_gain_field_scale_applied"] is False
+    assert metadata["residual_extra_gain_applied"] is False
+    assert metadata["correction_gain_used"] == pytest.approx(1.0)
     assert metadata["active_residual_finite_through_end"] is True
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
     assert np.nanmax(np.abs(result["measured_field_aligned_mT"])) <= 50.0 + 1e-6
+    np.testing.assert_allclose(
+        result["raw_correction_delta_v"],
+        result["residual_for_modeling_mT"] / 50.0 * 5.0,
+        equal_nan=True,
+    )
 
 
 def test_finite_first_phase_sync_scales_smoothed_measured_without_offset_shift() -> None:
@@ -77,7 +85,9 @@ def test_finite_first_phase_sync_scales_smoothed_measured_without_offset_shift()
     active = result["measured_field_smoothed_mT"].dropna()
     assert active.max() == pytest.approx(50.0, abs=1.5)
     assert active.min() > -25.0
-    assert metadata["residual_gain_field_scale_applied"] is True
+    assert metadata["residual_uses_scaled_measured_field"] is True
+    assert metadata["residual_gain_field_scale_applied"] is False
+    assert metadata["residual_extra_gain_applied"] is False
     assert result["residual_for_modeling_mT"].notna().all()
 
 
