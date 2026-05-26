@@ -218,7 +218,7 @@ def apply_finite_first_phase_sync_modeling(
     )
     unit_delta = residual / 50.0 * float(voltage_limit_v)
     unit_delta[~finite_active] = np.nan
-    _computed_gain, gain_meta = compute_second_modeling_gain(
+    gain, gain_meta = compute_second_modeling_gain(
         unit_delta,
         base_voltage,
         finite_active,
@@ -227,20 +227,7 @@ def apply_finite_first_phase_sync_modeling(
         voltage_limit_v=float(voltage_limit_v),
         tail_mask=np.zeros_like(finite_active, dtype=bool),
     )
-    gain = 1.0
-    gain_meta.update(
-        {
-            "correction_gain_mode": "disabled_for_finite_first_phase_sync",
-            "correction_gain_auto": float(_computed_gain),
-            "correction_gain_manual": 1.0,
-            "correction_gain_used": 1.0,
-            "correction_gain": 1.0,
-            "residual_extra_gain_applied": False,
-            "residual_extra_gain_reason": "finite_first_phase_sync_uses_normalized_residual_directly",
-            "tail_gain_used": 1.0,
-        }
-    )
-    raw_delta = unit_delta
+    raw_delta = unit_delta * float(gain)
     correction_delta, stabilization_meta, arrays = stabilize_correction_delta(
         raw_delta,
         base_voltage,
@@ -327,9 +314,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_support_margin_s": support_margin_s,
         **measured_norm_meta,
         "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
-        "residual_uses_scaled_measured_field": True,
-        "residual_gain_field_scale_applied": False,
-        "residual_extra_gain_applied": False,
+        "residual_gain_field_scale_applied": True,
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),

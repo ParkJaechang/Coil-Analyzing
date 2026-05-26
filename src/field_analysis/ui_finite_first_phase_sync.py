@@ -32,7 +32,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "정규화 offset 제거 (mT)": metadata.get("measured_field_total_offset_removed_mT"),
         "정규화 mode": metadata.get("measured_field_normalization_mode"),
         "정규화 후 peak (mT)": metadata.get("measured_aligned_normalized_peak_mT"),
-        "residual extra gain": metadata.get("correction_gain_used"),
+        "correction_gain": metadata.get("correction_gain_used"),
         "voltage_headroom_v": metadata.get("voltage_headroom_v"),
         "clipping_fraction": metadata.get("clipping_fraction"),
         "active residual finite ratio": metadata.get("active_residual_finite_ratio"),
@@ -77,17 +77,17 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
     st.markdown("##### Phase sync residual -> 1차 command 반영 기준")
     st.caption(
         "phase-aligned measured field를 ±50mT 기준으로 정규화한 뒤 residual을 계산하고, "
-        "residual을 ±5V 전압 기준의 unit delta로 변환한 다음 추가 gain 없이 smoothing/stabilization만 적용합니다."
+        "residual을 ±5V 전압 기준의 unit delta로 변환한 다음 auto gain과 smoothing/stabilization을 적용합니다."
     )
     rows = [
         {"항목": "residual 계산", "계산/의미": "target_normalized_mT - measured_aligned_normalized_mT", "현재값": ""},
         {"항목": "unit delta 변환", "계산/의미": "residual_mT / 50mT * 5V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
         {
-            "항목": "auto gain",
-            "계산/의미": "finite 1차 phase sync에서는 적용하지 않음, 진단값만 표시",
+            "항목": "auto gain 기준",
+            "계산/의미": "unit_delta 95% peak, base voltage peak, headroom 20% percentile",
             "현재값": metadata.get("correction_gain_auto"),
         },
-        {"항목": "gain clamp", "계산/의미": "finite 1차 phase sync에서는 사용하지 않음", "현재값": metadata.get("auto_gain_clamped")},
+        {"항목": "gain clamp", "계산/의미": "0.05 ~ 0.50", "현재값": metadata.get("auto_gain_clamped")},
         {"항목": "최종 command", "계산/의미": "clip(base_voltage + correction_delta, ±5V)", "현재값": metadata.get("clipping_fraction")},
         {"항목": "실측 min/max", "계산/의미": "smoothing 후 active 구간 min/max, offset 재정렬 없음", "현재값": f"{metadata.get('measured_field_smoothed_active_min_mT')} / {metadata.get('measured_field_smoothed_active_max_mT')}"},
         {"항목": "실측 abs peak", "계산/의미": "max(abs(smoothed measured field))", "현재값": metadata.get("measured_field_smoothed_abs_peak_mT")},
@@ -96,7 +96,7 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
         {"항목": "base voltage peak", "계산/의미": "현재 1차/base command peak", "현재값": metadata.get("auto_gain_first_voltage_peak_v")},
         {"항목": "safe headroom", "계산/의미": "±5V limit 대비 headroom의 20% percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
         {"항목": "target delta peak", "계산/의미": "min(0.35*base_peak, 0.70*safe_headroom, 1.0V)", "현재값": metadata.get("auto_gain_target_delta_peak_v")},
-        {"항목": "used gain", "계산/의미": "1.0 fixed, residual에는 추가 gain을 곱하지 않음", "현재값": metadata.get("correction_gain_used")},
+        {"항목": "used gain", "계산/의미": "auto gain 또는 manual gain 중 실제 적용값", "현재값": metadata.get("correction_gain_used")},
     ]
     st.dataframe(
         pd.DataFrame(rows),
