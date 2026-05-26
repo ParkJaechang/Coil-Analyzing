@@ -34,7 +34,8 @@ def build_continuous_phase_aligned_command_profile(
     support = support_frame.copy() if isinstance(support_frame, pd.DataFrame) and not support_frame.empty else frame.copy()
     measured = _first_numeric_column(frame, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
     target = _first_numeric_column(frame, ("normalized_physical_target_output_mT", "physical_target_output_mT")).to_numpy(dtype=float)
-    source_voltage = _continuous_first_voltage(frame).to_numpy(dtype=float)
+    source_voltage_series, source_voltage_column = _continuous_first_voltage(frame)
+    source_voltage = source_voltage_series.to_numpy(dtype=float)
     first_voltage = source_voltage.copy()
     voltage_norm_meta: dict[str, Any] = {
         "continuous_base_voltage_peak_v": _peak_abs(first_voltage),
@@ -51,7 +52,8 @@ def build_continuous_phase_aligned_command_profile(
         target_peak_reference_mT = 50.0
     support_time = pd.to_numeric(support["time_s"], errors="coerce").to_numpy(dtype=float) - time_origin
     support_measured = _first_numeric_column(support, ("measured_field_normalized_mT", "normalized_measured_field_mT")).to_numpy(dtype=float)
-    support_voltage_source = _continuous_first_voltage(support).to_numpy(dtype=float)
+    support_voltage_series, support_voltage_column = _continuous_first_voltage(support)
+    support_voltage_source = support_voltage_series.to_numpy(dtype=float)
     support_voltage = support_voltage_source.copy()
     support_mask = np.isfinite(support_time) & np.isfinite(support_measured)
     support_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
@@ -128,6 +130,9 @@ def build_continuous_phase_aligned_command_profile(
             "continuous_base_voltage_headroom_v": float(max(abs(voltage_limit_v) - _peak_abs(first_voltage), 0.0)),
             "continuous_input_voltage_field_scale": float(field_scale),
             "continuous_voltage_normalization_mode": "raw_source_voltage_scaled_by_target_field_peak",
+            "continuous_source_voltage_column": source_voltage_column,
+            "continuous_support_voltage_column": support_voltage_column,
+            "continuous_base_voltage_source": "raw_input_voltage_scaled_by_field_peak",
         }
     )
     unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
@@ -220,11 +225,21 @@ def _first_numeric_column(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.S
     raise ValueError(f"missing one of required columns: {columns}")
 
 
-def _continuous_first_voltage(frame: pd.DataFrame) -> pd.Series:
-    for column in ("limited_voltage_v", "voltage_normalized_v", "raw_voltage_v", "Voltage1_V"):
+def _continuous_first_voltage(frame: pd.DataFrame) -> tuple[pd.Series, str]:
+    # Continuous first modeling must start from the actual source input voltage.
+    # Normalized/limited columns are fallbacks only for legacy frames that no
+    # longer carry raw upload voltage.
+    for column in (
+        "raw_voltage_v",
+        "Voltage1_V",
+        "command_voltage_v",
+        "actual_drive_voltage_v",
+        "voltage_normalized_v",
+        "limited_voltage_v",
+    ):
         if column in frame.columns:
-            return pd.to_numeric(frame[column], errors="coerce")
-    return pd.Series(np.zeros(len(frame), dtype=float))
+            return pd.to_numeric(frame[column], errors="coerce"), column
+    return pd.Series(np.zeros(len(frame), dtype=float)), "missing_voltage_fallback_zero"
 
 
 def _peak_abs(values: np.ndarray) -> float:

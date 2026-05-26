@@ -110,6 +110,45 @@ def test_continuous_first_modeling_uses_target_peak_reference_for_residual_delta
     assert metadata["continuous_residual_unit_delta_reference_mT"] == pytest.approx(80.0, rel=0.02)
 
 
+def test_continuous_first_modeling_scales_raw_input_voltage_by_field_peak() -> None:
+    time_s = np.linspace(0.0, 1.1, 220, endpoint=False)
+    active = time_s < 1.0
+    phase = 2.0 * np.pi * time_s
+    raw_voltage = 3.0 * np.sin(phase)
+    normalized_voltage = 5.0 * np.sin(phase)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s[active],
+            "measured_field_normalized_mT": 40.0 * np.sin(phase[active]),
+            "normalized_physical_target_output_mT": 80.0 * np.sin(phase[active]),
+            "raw_voltage_v": raw_voltage[active],
+            "voltage_normalized_v": normalized_voltage[active],
+        }
+    )
+    support = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "measured_field_normalized_mT": 40.0 * np.sin(phase),
+            "raw_voltage_v": raw_voltage,
+            "voltage_normalized_v": normalized_voltage,
+        }
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        frame,
+        support_frame=support,
+        freq_hz=1.0,
+    )
+
+    assert not command.empty
+    assert metadata["continuous_source_voltage_column"] == "raw_voltage_v"
+    assert metadata["continuous_support_voltage_column"] == "raw_voltage_v"
+    assert metadata["source_voltage_raw_peak_v"] == pytest.approx(3.0, rel=0.02)
+    assert metadata["source_voltage_base_normalization_scale"] == pytest.approx(2.0, rel=0.02)
+    assert command["source_voltage_v"].abs().max() == pytest.approx(3.0, rel=0.02)
+    assert command["base_voltage_v"].abs().max() == pytest.approx(6.0, rel=0.02)
+
+
 def test_quick_lut_continuous_actual_drive_and_validation_runtime_markers_exist() -> None:
     app_source = APP_UI.read_text(encoding="utf-8")
     source = app_source + CONT_UI.read_text(encoding="utf-8")
