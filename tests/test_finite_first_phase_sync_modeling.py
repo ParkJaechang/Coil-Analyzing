@@ -387,9 +387,18 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
 def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     from field_analysis.ui_finite_first_phase_sync import _finite_first_command_plot
 
-    result, metadata = apply_finite_first_phase_sync_modeling(_finite_profile(), freq_hz=1.0, cycle_count=1.0)
+    profile = _finite_profile()
+    support_time = profile["time_s"].to_numpy(dtype=float)
+    source_lut_voltage = np.where(support_time < 0.5, 1.25, -0.75)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
     assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["finite_first_input_voltage_source"] == "selected_support_source_voltage_v"
+    assert "finite_first_input_lut_voltage_v" in result.columns
     figure = _finite_first_command_plot(result)
     source = UI_FINITE_FIRST.read_text(encoding="utf-8")
 
@@ -398,8 +407,15 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     assert figure.data[1].name == "기존 입력 전압"
     assert np.allclose(
         np.asarray(figure.data[1].y, dtype=float),
-        result["finite_first_base_voltage_v"].to_numpy(dtype=float),
+        result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float),
     )
     assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source
+
+
+def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -> None:
+    source = APP_UI.read_text(encoding="utf-8")
+
+    assert "render_quick_lut_feedback_input_section" not in source
+    assert "2차 보정 입력 source" not in source

@@ -94,7 +94,6 @@ from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
 from .ui_quick_lut_feedback import render_feedback_correction_review
 from .ui_quick_lut_feedback import render_actual_drive_review_from_selection
-from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
 from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
@@ -1768,7 +1767,7 @@ def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFra
         trace.name = "1차 모델링 command"
     figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
     if command_profile is not None and "time_s" in command_profile.columns:
-        for source_column in ("finite_first_base_voltage_v", "baseline_limited_voltage_v"):
+        for source_column in ("finite_first_input_lut_voltage_v", "finite_first_base_voltage_v", "baseline_limited_voltage_v"):
             if source_column in command_profile.columns:
                 figure.add_trace(
                     go.Scatter(
@@ -2560,12 +2559,7 @@ def _render_quick_lut_tab_v2(
             freq_hz=float(target_freq) if target_freq is not None else None,
         )
 
-    feedback_selection = render_quick_lut_feedback_input_section(
-        finite_cycle_mode=bool(finite_cycle_mode),
-        waveform_type=str(target_waveform) if target_waveform is not None else None,
-        freq_hz=float(target_freq) if target_freq is not None else None,
-        cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
-    )
+    feedback_selection = None
 
     if not estimate_clicked and not compensation_clicked:
         cached_first_model = st.session_state.get("quick_lut_first_model_result")
@@ -2735,9 +2729,12 @@ def _render_quick_lut_tab_v2(
             if isinstance(compensation, dict):
                 support_time = compensation.get("selected_support_source_time_s")
                 support_field = compensation.get("selected_support_source_mT")
+                support_voltage = compensation.get("selected_support_source_voltage_v")
                 if support_time is not None and support_field is not None:
                     first_command_profile.attrs["selected_support_source_time_s"] = support_time
                     first_command_profile.attrs["selected_support_source_mT"] = support_field
+                    if support_voltage is not None:
+                        first_command_profile.attrs["selected_support_source_voltage_v"] = support_voltage
                     first_command_profile.attrs["selected_support_source_file"] = compensation.get("selected_support_source_file")
             finite_first_phase_meta: dict[str, object] = {}
             if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:

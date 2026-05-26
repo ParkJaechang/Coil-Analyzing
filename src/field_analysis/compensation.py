@@ -4167,6 +4167,7 @@ def _build_selected_support_source_contract(
             "selected_support_original_nonzero_end_s": float("nan"),
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
+            "selected_support_source_voltage_v": None,
         }
     frame = _prepare_finite_time_frame(entry.get("frame"))
     if frame.empty or "time_s" not in frame.columns or field_channel not in frame.columns:
@@ -4184,9 +4185,11 @@ def _build_selected_support_source_contract(
             "selected_support_original_nonzero_end_s": float("nan"),
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
+            "selected_support_source_voltage_v": None,
         }
     time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
     field_values = pd.to_numeric(frame[field_channel], errors="coerce").to_numpy(dtype=float)
+    voltage_values = pd.to_numeric(frame["daq_input_v"], errors="coerce").to_numpy(dtype=float) if "daq_input_v" in frame.columns else np.full_like(time_values, np.nan)
     finite_mask = np.isfinite(time_values) & np.isfinite(field_values)
     finite_time = time_values[finite_mask]
     finite_field = field_values[finite_mask]
@@ -4215,6 +4218,7 @@ def _build_selected_support_source_contract(
         "selected_support_original_nonzero_end_s": nonzero_end_s,
         "selected_support_source_time_s": time_values.tolist(),
         "selected_support_source_mT": field_values.tolist(),
+        "selected_support_source_voltage_v": voltage_values.tolist(),
     }
 
 

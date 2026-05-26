@@ -8,7 +8,7 @@ import pandas as pd
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
 from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
-from .finite_phase_sync_support import native_measured_support_source
+from .finite_phase_sync_support import native_measured_support_source, native_voltage_support_source
 
 
 def apply_finite_first_phase_sync_modeling(
@@ -108,6 +108,11 @@ def apply_finite_first_phase_sync_modeling(
         native_active_mask,
     )
     base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
+    native_voltage_time_s, native_input_voltage, input_voltage_source = native_voltage_support_source(
+        frame,
+        fallback_time_s=time_s,
+        fallback_voltage=base_voltage,
+    )
     native_smoothed_unscaled, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
         measured_centered,
@@ -159,6 +164,7 @@ def apply_finite_first_phase_sync_modeling(
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     smoothed = _interp(native_time_s, native_smoothed, source_time_for_output)
     aligned = _interp(native_time_s, native_smoothed, source_time_for_output + phase_delay_s)
+    input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
     active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
     if not support_ok or not active_aligned_ok:
         invalid_residual = target - aligned
@@ -169,6 +175,7 @@ def apply_finite_first_phase_sync_modeling(
         )
         frame["measured_field_smoothed_mT"] = smoothed
         frame["measured_field_aligned_mT"] = aligned
+        frame["finite_first_input_lut_voltage_v"] = input_lut_voltage
         frame["residual_for_modeling_mT"] = invalid_residual
         frame["finite_first_measured_source_column"] = measured_column
         frame["finite_first_measured_source_is_actual_measured"] = True
@@ -214,6 +221,7 @@ def apply_finite_first_phase_sync_modeling(
             "phase_kernel_reference_as_measured_allowed": False,
             "phase_sync_source_active_start_s": source_active_start_s,
             "phase_sync_source_active_end_s": source_active_end_s,
+            "finite_first_input_voltage_source": input_voltage_source,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
@@ -250,6 +258,7 @@ def apply_finite_first_phase_sync_modeling(
     modeled = base_voltage + correction_delta
     limited = np.clip(modeled, -float(voltage_limit_v), float(voltage_limit_v))
     frame["finite_first_base_voltage_v"] = base_voltage
+    frame["finite_first_input_lut_voltage_v"] = input_lut_voltage
     frame["first_modeled_voltage_v"] = modeled
     frame["limited_voltage_v"] = limited
     frame["correction_delta_v"] = correction_delta
@@ -329,6 +338,8 @@ def apply_finite_first_phase_sync_modeling(
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
+        "finite_first_input_voltage_source": input_voltage_source,
+        "finite_first_input_lut_voltage_peak_v": _peak_abs(input_lut_voltage),
         "final_voltage_limit_v": float(voltage_limit_v),
         "voltage_headroom_v": max(float(voltage_limit_v) - _peak_abs(base_voltage), 0.0),
         "correction_delta_peak_v": _peak_abs(correction_delta),

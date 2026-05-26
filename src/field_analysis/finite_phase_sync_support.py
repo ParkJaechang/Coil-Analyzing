@@ -33,6 +33,33 @@ def native_measured_support_source(
     return np.asarray(fallback_time_s, dtype=float), np.asarray(fallback_measured, dtype=float), "output_command_grid_fallback"
 
 
+def native_voltage_support_source(
+    frame: pd.DataFrame,
+    *,
+    fallback_time_s: np.ndarray,
+    fallback_voltage: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    attr_time = frame.attrs.get("selected_support_source_time_s")
+    attr_voltage = frame.attrs.get("selected_support_source_voltage_v")
+    native_from_attrs = _validate_native_support_arrays(attr_time, attr_voltage)
+    if native_from_attrs is not None:
+        return (*native_from_attrs, "selected_support_source_voltage_v")
+
+    source_time = _first_sequence_value(frame, "selected_support_source_time_s")
+    source_voltage = _first_sequence_value(frame, "selected_support_source_voltage_v")
+    native_from_columns = _validate_native_support_arrays(source_time, source_voltage)
+    if native_from_columns is not None:
+        return (*native_from_columns, "selected_support_source_voltage_v")
+
+    column_time = _numeric_column_sequence(frame, "selected_support_source_time_s")
+    column_voltage = _numeric_column_sequence(frame, "selected_support_source_voltage_v")
+    native_from_numeric_columns = _validate_native_support_arrays(column_time, column_voltage)
+    if native_from_numeric_columns is not None:
+        return (*native_from_numeric_columns, "selected_support_source_voltage_v")
+
+    return np.asarray(fallback_time_s, dtype=float), np.asarray(fallback_voltage, dtype=float), "finite_first_base_voltage_v"
+
+
 def _validate_native_support_arrays(
     source_time: Any,
     source_measured: Any,
