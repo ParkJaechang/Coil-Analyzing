@@ -154,7 +154,7 @@ def test_finite_first_phase_sync_uses_dominant_negative_peak_and_requires_tail_s
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["phase_sync_peak_reference"] == "dominant_absolute_peak"
+    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
     assert metadata["phase_sync_peak_polarity"] == "negative"
     assert float(metadata["measured_first_peak_time_s"]) > 0.75
     assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.75, abs=0.02)
@@ -344,7 +344,7 @@ def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["phase_sync_peak_reference"] == "dominant_absolute_peak"
+    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
     assert metadata["phase_sync_peak_polarity"] == "negative"
     assert metadata["finite_first_modeling_status"] == "insufficient_phase_sync_support"
     assert metadata["phase_support_status"] == "insufficient"
