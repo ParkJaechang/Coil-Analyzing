@@ -8,7 +8,7 @@ import pandas as pd
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
 from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
-from .finite_phase_sync_support import native_measured_support_source, native_voltage_support_source
+from .finite_phase_sync_support import active_end_kink_detected, native_measured_support_source, native_voltage_support_source
 
 
 def apply_finite_first_phase_sync_modeling(
@@ -113,6 +113,8 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_voltage=base_voltage,
     )
+    input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
+    voltage_for_peak_reference = np.where(np.isfinite(input_lut_voltage), input_lut_voltage, base_voltage)
     native_smoothed_unscaled, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
         measured_centered,
@@ -141,7 +143,7 @@ def apply_finite_first_phase_sync_modeling(
     )
     voltage_peak_time, voltage_peak_polarity, voltage_peak_value = _reference_voltage_peak_for_measured_peak(
         time_s,
-        base_voltage,
+        voltage_for_peak_reference,
         active_mask,
         preferred_polarity=measured_peak_polarity,
         measured_peak_rel_s=measured_peak_rel_for_voltage,
@@ -164,7 +166,9 @@ def apply_finite_first_phase_sync_modeling(
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     smoothed = _interp(native_time_s, native_smoothed, source_time_for_output)
     aligned = _interp(native_time_s, native_smoothed, source_time_for_output + phase_delay_s)
-    input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
+    field_scale_to_50mT = float(measured_norm_meta.get("measured_field_scale_to_50mT") or 1.0)
+    input_lut_voltage_normalized = input_lut_voltage * field_scale_to_50mT
+    base_voltage = np.where(np.isfinite(input_lut_voltage_normalized), input_lut_voltage_normalized, base_voltage)
     active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
     if not support_ok or not active_aligned_ok:
         invalid_residual = target - aligned
@@ -176,6 +180,7 @@ def apply_finite_first_phase_sync_modeling(
         frame["measured_field_smoothed_mT"] = smoothed
         frame["measured_field_aligned_mT"] = aligned
         frame["finite_first_input_lut_voltage_v"] = input_lut_voltage
+        frame["finite_first_input_lut_voltage_normalized_v"] = input_lut_voltage_normalized
         frame["residual_for_modeling_mT"] = invalid_residual
         frame["finite_first_measured_source_column"] = measured_column
         frame["finite_first_measured_source_is_actual_measured"] = True
@@ -222,6 +227,10 @@ def apply_finite_first_phase_sync_modeling(
             "phase_sync_source_active_start_s": source_active_start_s,
             "phase_sync_source_active_end_s": source_active_end_s,
             "finite_first_input_voltage_source": input_voltage_source,
+            "finite_first_input_voltage_normalization_scale": field_scale_to_50mT,
+            "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
+            if input_voltage_source == "selected_support_source_voltage_v"
+            else input_voltage_source,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
@@ -259,6 +268,7 @@ def apply_finite_first_phase_sync_modeling(
     limited = np.clip(modeled, -float(voltage_limit_v), float(voltage_limit_v))
     frame["finite_first_base_voltage_v"] = base_voltage
     frame["finite_first_input_lut_voltage_v"] = input_lut_voltage
+    frame["finite_first_input_lut_voltage_normalized_v"] = input_lut_voltage_normalized
     frame["first_modeled_voltage_v"] = modeled
     frame["limited_voltage_v"] = limited
     frame["correction_delta_v"] = correction_delta
@@ -339,7 +349,12 @@ def apply_finite_first_phase_sync_modeling(
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
         "finite_first_input_voltage_source": input_voltage_source,
+        "finite_first_input_voltage_normalization_scale": field_scale_to_50mT,
+        "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
+        if input_voltage_source == "selected_support_source_voltage_v"
+        else input_voltage_source,
         "finite_first_input_lut_voltage_peak_v": _peak_abs(input_lut_voltage),
+        "finite_first_input_lut_voltage_normalized_peak_v": _peak_abs(input_lut_voltage_normalized),
         "final_voltage_limit_v": float(voltage_limit_v),
         "voltage_headroom_v": max(float(voltage_limit_v) - _peak_abs(base_voltage), 0.0),
         "correction_delta_peak_v": _peak_abs(correction_delta),
@@ -353,7 +368,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_support_status": "ok" if support_ok and active_residual_finite_ratio >= 0.999 else "insufficient",
         "active_residual_finite_through_end": bool(np.isfinite(residual[active_mask]).all()) if np.any(active_mask) else False,
         "active_residual_finite_ratio": active_residual_finite_ratio,
-        "active_end_kink_detected": _active_end_kink_detected(limited, residual, active_mask),
+        "active_end_kink_detected": active_end_kink_detected(limited, residual, active_mask),
         "nonfinite_active_residual_policy": "block_or_warning",
         "command_voltage_scaling_mode": "normalized_modeling_with_field_scale",
         "absolute_voltage_calibration_available": False,
@@ -579,11 +594,3 @@ def _source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, outpu
     return float(output_start_s)
 
 
-def _active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_mask: np.ndarray) -> bool:
-    active_indices = np.flatnonzero(np.asarray(active_mask, dtype=bool) & np.isfinite(voltage) & np.isfinite(residual))
-    if active_indices.size < 4:
-        return False
-    tail = active_indices[-4:]
-    voltage_step = float(np.nanmax(np.abs(np.diff(np.asarray(voltage, dtype=float)[tail]))))
-    residual_step = float(np.nanmax(np.abs(np.diff(np.asarray(residual, dtype=float)[tail]))))
-    return bool(voltage_step > 1.0 and residual_step > 5.0)

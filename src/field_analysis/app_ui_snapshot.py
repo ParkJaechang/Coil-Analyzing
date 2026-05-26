@@ -1767,7 +1767,12 @@ def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFra
         trace.name = "1차 모델링 command"
     figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
     if command_profile is not None and "time_s" in command_profile.columns:
-        for source_column in ("finite_first_input_lut_voltage_v", "finite_first_base_voltage_v", "baseline_limited_voltage_v"):
+        for source_column in (
+            "finite_first_input_lut_voltage_normalized_v",
+            "finite_first_input_lut_voltage_v",
+            "finite_first_base_voltage_v",
+            "baseline_limited_voltage_v",
+        ):
             if source_column in command_profile.columns:
                 figure.add_trace(
                     go.Scatter(

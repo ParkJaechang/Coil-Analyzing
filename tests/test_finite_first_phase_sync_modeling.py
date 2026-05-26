@@ -398,7 +398,20 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
 
     assert metadata["finite_first_modeling_status"] == "ok"
     assert metadata["finite_first_input_voltage_source"] == "selected_support_source_voltage_v"
+    scale = float(metadata["measured_field_scale_to_50mT"])
+    expected_normalized_input = result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float) * scale
     assert "finite_first_input_lut_voltage_v" in result.columns
+    assert "finite_first_input_lut_voltage_normalized_v" in result.columns
+    assert metadata["finite_first_input_voltage_normalization_scale"] == pytest.approx(scale)
+    assert metadata["finite_first_base_voltage_source"] == "field_scale_normalized_input_lut_voltage"
+    assert np.allclose(
+        result["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
+        expected_normalized_input,
+    )
+    assert np.allclose(
+        result["finite_first_base_voltage_v"].to_numpy(dtype=float),
+        expected_normalized_input,
+    )
     figure = _finite_first_command_plot(result)
     source = UI_FINITE_FIRST.read_text(encoding="utf-8")
 
@@ -407,7 +420,7 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     assert figure.data[1].name == "기존 입력 전압"
     assert np.allclose(
         np.asarray(figure.data[1].y, dtype=float),
-        result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float),
+        result["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
     )
     assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source

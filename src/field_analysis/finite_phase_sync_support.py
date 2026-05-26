@@ -60,6 +60,16 @@ def native_voltage_support_source(
     return np.asarray(fallback_time_s, dtype=float), np.asarray(fallback_voltage, dtype=float), "finite_first_base_voltage_v"
 
 
+def active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_mask: np.ndarray) -> bool:
+    active_indices = np.flatnonzero(np.asarray(active_mask, dtype=bool) & np.isfinite(voltage) & np.isfinite(residual))
+    if active_indices.size < 4:
+        return False
+    tail = active_indices[-4:]
+    voltage_step = float(np.nanmax(np.abs(np.diff(np.asarray(voltage, dtype=float)[tail]))))
+    residual_step = float(np.nanmax(np.abs(np.diff(np.asarray(residual, dtype=float)[tail]))))
+    return bool(voltage_step > 1.0 and residual_step > 5.0)
+
+
 def _validate_native_support_arrays(
     source_time: Any,
     source_measured: Any,
