@@ -194,7 +194,7 @@ def apply_finite_first_phase_sync_modeling(
             "actual_source_time_end_s": source_end,
             "phase_support_status": "insufficient",
             "phase_sync_peak_reference": "dominant_absolute_peak",
-            "phase_sync_voltage_reference": "nearest_previous_same_polarity_peak",
+            "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
             "phase_sync_peak_polarity": measured_peak_polarity,
             "voltage_first_peak_time_s": voltage_peak_time,
             "measured_first_peak_time_s": measured_peak_plot_time,
@@ -299,7 +299,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_enabled": True,
         "phase_sync_method": "field_peak_to_voltage_peak",
         "phase_sync_peak_reference": "dominant_absolute_peak",
-        "phase_sync_voltage_reference": "nearest_previous_same_polarity_peak",
+        "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
         "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,
         "measured_first_peak_time_s": measured_peak_plot_time,
@@ -480,11 +480,7 @@ def _reference_voltage_peak_for_measured_peak(
             peaks = same_polarity
     if measured_peak_rel_s is not None and np.isfinite(measured_peak_rel_s):
         measured_peak_plot_time = float(output_start_s) + float(measured_peak_rel_s)
-        previous = [peak for peak in peaks if float(peak[0]) <= measured_peak_plot_time + 1e-12]
-        if previous:
-            selected_time, selected_value = max(previous, key=lambda item: float(item[0]))
-        else:
-            selected_time, selected_value = min(peaks, key=lambda item: abs(float(item[0]) - measured_peak_plot_time))
+        selected_time, selected_value = min(peaks, key=lambda item: abs(float(item[0]) - measured_peak_plot_time))
     else:
         selected_time, selected_value = min(peaks, key=lambda item: float(item[0]))
     polarity = "positive" if float(selected_value) >= 0.0 else "negative"

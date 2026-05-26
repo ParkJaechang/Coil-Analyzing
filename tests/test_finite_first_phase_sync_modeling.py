@@ -229,17 +229,18 @@ def test_finite_first_phase_sync_uses_native_support_from_dataframe_attrs() -> N
     assert result["residual_for_modeling_mT"].notna().all()
 
 
-def test_finite_first_phase_sync_pairs_measured_peak_with_previous_voltage_peak_not_later_dominant_voltage() -> None:
+def test_finite_first_phase_sync_pairs_measured_dominant_peak_with_nearest_same_polarity_voltage_peak() -> None:
     freq_hz = 2.0
-    cycle_count = 1.5
+    cycle_count = 2.0
     delay_s = 0.045
     active_duration = cycle_count / freq_hz
     time_s = np.linspace(0.0, active_duration + delay_s + 0.05, 620, endpoint=False)
     phase = 2.0 * np.pi * freq_hz * time_s
     voltage = 2.0 * np.sin(phase)
-    voltage += 0.8 * np.exp(-((time_s - 0.625) / 0.02) ** 2)
+    second_negative_voltage_peak_s = 0.875
     measured = 40.0 * np.sin(2.0 * np.pi * freq_hz * (time_s - delay_s))
-    measured *= np.where(time_s < 0.38, 1.0, 0.65)
+    measured *= np.where(time_s < 0.55, 0.65, 1.0)
+    measured += -18.0 * np.exp(-((time_s - (second_negative_voltage_peak_s + delay_s)) / 0.025) ** 2)
     profile = pd.DataFrame(
         {
             "time_s": time_s,
@@ -253,9 +254,10 @@ def test_finite_first_phase_sync_pairs_measured_peak_with_previous_voltage_peak_
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=freq_hz, cycle_count=cycle_count)
 
     assert metadata["finite_first_modeling_status"] == "ok"
-    assert metadata["phase_sync_voltage_reference"] == "nearest_previous_same_polarity_peak"
-    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.125, abs=0.02)
-    assert float(metadata["measured_first_peak_time_s"]) == pytest.approx(0.125 + delay_s, abs=0.03)
+    assert metadata["phase_sync_voltage_reference"] == "nearest_same_polarity_peak_to_measured_peak"
+    assert metadata["phase_sync_peak_polarity"] == "negative"
+    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(second_negative_voltage_peak_s, abs=0.02)
+    assert float(metadata["measured_first_peak_time_s"]) == pytest.approx(second_negative_voltage_peak_s + delay_s, abs=0.03)
     assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
