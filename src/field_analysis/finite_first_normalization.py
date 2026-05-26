@@ -14,17 +14,17 @@ def coerce_measured_field_centered(
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
     if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
         effective = -raw
-        return effective, "raw_hallbz_effective_scale_only", True, {
+        return effective, "raw_hallbz_effective_no_scaling", True, {
             "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
             "measured_field_pre_normalization_baseline_mT": 0.0,
         }
-    return raw, "actual_measured_field_scale_only", False, {
+    return raw, "actual_measured_field_no_scaling", False, {
         "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
         "measured_field_pre_normalization_baseline_mT": 0.0,
     }
 
 
-def normalize_smoothed_field_to_pm50(
+def keep_smoothed_field_as_measured(
     raw_values: np.ndarray,
     smoothed_centered: np.ndarray,
     active_mask: np.ndarray,
@@ -39,8 +39,6 @@ def normalize_smoothed_field_to_pm50(
         peak = float(np.nanmax(np.abs(active_values)))
     else:
         active_min = active_max = peak = 0.0
-    scale = 50.0 / peak if peak > 1e-12 else 1.0
-    normalized = smoothed * scale
     raw_peak = float(
         center_meta.get(
             "measured_abs_peak_raw_mT",
@@ -48,10 +46,10 @@ def normalize_smoothed_field_to_pm50(
         )
     )
     baseline = float(center_meta.get("measured_field_pre_normalization_baseline_mT", 0.0))
-    return normalized, measured_normalization_metadata(
+    metadata = measured_normalization_metadata(
         raw_peak=raw_peak,
         effective_peak=peak,
-        scale=scale,
+        scale=1.0,
         status="ok" if peak > 1e-12 else "zero_peak",
         center=0.0,
         baseline=baseline,
@@ -59,6 +57,7 @@ def normalize_smoothed_field_to_pm50(
         active_max=active_max,
         peak=peak,
     )
+    return smoothed, metadata
 
 
 def measured_normalization_metadata(
@@ -77,8 +76,9 @@ def measured_normalization_metadata(
         "measured_abs_peak_raw_mT": float(raw_peak),
         "measured_abs_peak_effective_mT": float(effective_peak),
         "measured_field_scale_to_50mT": float(scale),
+        "measured_field_scale_applied": float(scale),
         "measured_field_normalization_status": status,
-        "measured_field_normalization_mode": "scale_only_abs_peak_to_50mT",
+        "measured_field_normalization_mode": "actual_measured_mT_no_scaling",
         "measured_field_normalization_center_mT": float(center),
         "measured_field_pre_normalization_baseline_mT": float(baseline),
         "measured_field_total_offset_removed_mT": float(baseline + center),
