@@ -14,18 +14,13 @@ def coerce_measured_field_centered(
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
     if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
         effective = -raw
-        active_effective = np.asarray(active_mask, dtype=bool) & np.isfinite(effective)
-        baseline = float(np.nanmedian(effective[active_effective])) if np.any(active_effective) else 0.0
-        centered = effective - baseline
-        return centered, "raw_hallbz_effective_centered", True, {
+        return effective, "raw_hallbz_effective_scale_only", True, {
             "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
-            "measured_field_pre_normalization_baseline_mT": baseline,
+            "measured_field_pre_normalization_baseline_mT": 0.0,
         }
-    baseline = float(np.nanmedian(raw[active])) if np.any(active) else 0.0
-    centered = raw - baseline
-    return centered, "actual_measured_field_centered", False, {
+    return raw, "actual_measured_field_scale_only", False, {
         "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
-        "measured_field_pre_normalization_baseline_mT": baseline,
+        "measured_field_pre_normalization_baseline_mT": 0.0,
     }
 
 
@@ -41,13 +36,11 @@ def normalize_smoothed_field_to_pm50(
         active_values = smoothed[active]
         active_min = float(np.nanmin(active_values))
         active_max = float(np.nanmax(active_values))
-        normalization_center = 0.5 * (active_max + active_min)
-        half_range = 0.5 * (active_max - active_min)
+        peak = float(np.nanmax(np.abs(active_values)))
     else:
-        active_min = active_max = normalization_center = 0.0
-        half_range = 0.0
-    scale = 50.0 / half_range if half_range > 1e-12 else 1.0
-    normalized = (smoothed - normalization_center) * scale
+        active_min = active_max = peak = 0.0
+    scale = 50.0 / peak if peak > 1e-12 else 1.0
+    normalized = smoothed * scale
     raw_peak = float(
         center_meta.get(
             "measured_abs_peak_raw_mT",
@@ -57,14 +50,14 @@ def normalize_smoothed_field_to_pm50(
     baseline = float(center_meta.get("measured_field_pre_normalization_baseline_mT", 0.0))
     return normalized, measured_normalization_metadata(
         raw_peak=raw_peak,
-        effective_peak=half_range,
+        effective_peak=peak,
         scale=scale,
-        status="ok" if half_range > 1e-12 else "zero_range",
-        center=normalization_center,
+        status="ok" if peak > 1e-12 else "zero_peak",
+        center=0.0,
         baseline=baseline,
         active_min=active_min,
         active_max=active_max,
-        half_range=half_range,
+        peak=peak,
     )
 
 
@@ -78,20 +71,20 @@ def measured_normalization_metadata(
     baseline: float,
     active_min: float,
     active_max: float,
-    half_range: float,
+    peak: float,
 ) -> dict[str, Any]:
     return {
         "measured_abs_peak_raw_mT": float(raw_peak),
         "measured_abs_peak_effective_mT": float(effective_peak),
         "measured_field_scale_to_50mT": float(scale),
         "measured_field_normalization_status": status,
-        "measured_field_normalization_mode": "smoothed_midrange_to_pm50mT",
+        "measured_field_normalization_mode": "scale_only_abs_peak_to_50mT",
         "measured_field_normalization_center_mT": float(center),
         "measured_field_pre_normalization_baseline_mT": float(baseline),
         "measured_field_total_offset_removed_mT": float(baseline + center),
         "measured_field_smoothed_active_min_mT": float(active_min),
         "measured_field_smoothed_active_max_mT": float(active_max),
-        "measured_field_smoothed_half_range_mT": float(half_range),
+        "measured_field_smoothed_abs_peak_mT": float(peak),
     }
 
 
