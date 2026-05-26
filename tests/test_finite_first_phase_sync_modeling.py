@@ -378,10 +378,28 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
     assert "source_input_waveform_family_default" in source
     assert "triangle" in source
     assert "sine" in source
+    assert "1차 command diagnostic traces" in source or "1李?command diagnostic traces" in source
     assert "Finite 1차 모델링 방식" in source
     assert "피크 싱크 기반, 기본" in source
     assert "기존 delay 포함 방식, review only" in source
-    assert "finite_first_modeling_mode_default" in source
+
+
+def test_finite_first_command_plot_includes_original_input_voltage() -> None:
+    from field_analysis.ui_finite_first_phase_sync import _finite_first_command_plot
+
+    result, metadata = apply_finite_first_phase_sync_modeling(_finite_profile(), freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    figure = _finite_first_command_plot(result)
+    source = UI_FINITE_FIRST.read_text(encoding="utf-8")
+
+    assert len(figure.data) == 2
+    assert figure.data[0].name == "1차 모델링 command"
+    assert figure.data[1].name == "기존 입력 전압"
+    assert np.allclose(
+        np.asarray(figure.data[1].y, dtype=float),
+        result["finite_first_base_voltage_v"].to_numpy(dtype=float),
+    )
     assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source

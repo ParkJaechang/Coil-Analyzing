@@ -1763,9 +1763,23 @@ def _render_end_marker_summary(compensation: dict[str, object], command_profile:
 
 
 def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFrame | None = None) -> object:
+    """Retitle the first command plot and overlay the original input voltage."""
     for trace in getattr(figure, "data", []):
         trace.name = "1차 모델링 command"
     figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
+    if command_profile is not None and "time_s" in command_profile.columns:
+        for source_column in ("finite_first_base_voltage_v", "baseline_limited_voltage_v"):
+            if source_column in command_profile.columns:
+                figure.add_trace(
+                    go.Scatter(
+                        x=pd.to_numeric(command_profile["time_s"], errors="coerce"),
+                        y=pd.to_numeric(command_profile[source_column], errors="coerce"),
+                        mode="lines",
+                        name="기존 입력 전압",
+                        line={"dash": "dash"},
+                    )
+                )
+                break
     return figure
 
 
