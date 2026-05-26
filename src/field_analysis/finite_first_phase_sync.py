@@ -8,7 +8,12 @@ import pandas as pd
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
 from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
-from .finite_phase_sync_support import active_end_kink_detected, native_measured_support_source, native_voltage_support_source
+from .finite_phase_sync_support import (
+    active_end_kink_detected,
+    native_measured_support_source,
+    native_voltage_support_source,
+    source_active_start_s as resolve_source_active_start_s,
+)
 
 
 def apply_finite_first_phase_sync_modeling(
@@ -94,7 +99,7 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_measured=measured_raw,
     )
-    source_active_start_s = _source_active_start_s(frame, native_time_s, output_start_s)
+    source_active_start_s = resolve_source_active_start_s(frame, native_time_s, output_start_s)
     source_time_for_output = source_active_start_s + (time_s - output_start_s)
     source_active_end_s = source_active_start_s + active_duration_s
     native_active_mask = (
@@ -577,20 +582,5 @@ def first_numeric(values: pd.Series) -> float | bool | None:
     return float(numeric.iloc[0]) if not numeric.empty else None
 
 
-def _source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output_start_s: float) -> float:
-    for column in (
-        "selected_support_original_nonzero_start_s",
-        "support_reference_source_window_start_s",
-        "selected_support_source_window_start_s",
-    ):
-        if column in frame.columns:
-            value = first_numeric(frame[column])
-            if isinstance(value, (int, float)) and np.isfinite(float(value)):
-                return float(value)
-    finite = np.asarray(native_time_s, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    if finite.size:
-        return float(np.nanmin(finite))
-    return float(output_start_s)
 
 

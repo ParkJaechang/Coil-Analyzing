@@ -427,6 +427,25 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     assert '"1차 모델링 command"' in source
 
 
+def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    support_time = profile["time_s"].to_numpy(dtype=float) + 10.0
+    source_lut_voltage = np.where(support_time < 10.5, 1.25, -0.75)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+    profile["selected_support_original_nonzero_start_s"] = 10.2
+    profile["selected_support_voltage_nonzero_start_s"] = 10.0
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    scale = float(metadata["measured_field_scale_to_50mT"])
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["phase_sync_source_active_start_s"] == pytest.approx(10.0)
+    assert result["finite_first_input_lut_voltage_v"].iloc[0] == pytest.approx(1.25)
+    assert result["finite_first_input_lut_voltage_normalized_v"].iloc[0] == pytest.approx(1.25 * scale)
+
+
 def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -> None:
     source = APP_UI.read_text(encoding="utf-8")
 

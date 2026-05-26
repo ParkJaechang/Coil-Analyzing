@@ -2735,11 +2735,17 @@ def _render_quick_lut_tab_v2(
                 support_time = compensation.get("selected_support_source_time_s")
                 support_field = compensation.get("selected_support_source_mT")
                 support_voltage = compensation.get("selected_support_source_voltage_v")
+                support_voltage_start = compensation.get("selected_support_voltage_nonzero_start_s")
+                support_voltage_end = compensation.get("selected_support_voltage_nonzero_end_s")
                 if support_time is not None and support_field is not None:
                     first_command_profile.attrs["selected_support_source_time_s"] = support_time
                     first_command_profile.attrs["selected_support_source_mT"] = support_field
                     if support_voltage is not None:
                         first_command_profile.attrs["selected_support_source_voltage_v"] = support_voltage
+                    if support_voltage_start is not None:
+                        first_command_profile.attrs["selected_support_voltage_nonzero_start_s"] = support_voltage_start
+                    if support_voltage_end is not None:
+                        first_command_profile.attrs["selected_support_voltage_nonzero_end_s"] = support_voltage_end
                     first_command_profile.attrs["selected_support_source_file"] = compensation.get("selected_support_source_file")
             finite_first_phase_meta: dict[str, object] = {}
             if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:

@@ -703,6 +703,12 @@ def synthesize_current_waveform_compensation(
     selected_support_original_nonzero_end_s = (
         finite_empirical_model.get("selected_support_original_nonzero_end_s") if use_finite_empirical_route else None
     )
+    selected_support_voltage_nonzero_start_s = (
+        finite_empirical_model.get("selected_support_voltage_nonzero_start_s") if use_finite_empirical_route else None
+    )
+    selected_support_voltage_nonzero_end_s = (
+        finite_empirical_model.get("selected_support_voltage_nonzero_end_s") if use_finite_empirical_route else None
+    )
     selected_support_declared_cycle_count = (
         finite_empirical_model.get("selected_support_declared_cycle_count") if use_finite_empirical_route else support_cycle_count
     )
@@ -719,6 +725,7 @@ def synthesize_current_waveform_compensation(
     )
     selected_support_source_time_s = finite_empirical_model.get("selected_support_source_time_s") if use_finite_empirical_route else None
     selected_support_source_mT = finite_empirical_model.get("selected_support_source_mT") if use_finite_empirical_route else None
+    selected_support_source_voltage_v = finite_empirical_model.get("selected_support_source_voltage_v") if use_finite_empirical_route else None
     requested_support_family = finite_empirical_model.get("requested_support_family") if use_finite_empirical_route else user_requested_support_family
     requested_support_family_normalized = canonicalize_waveform_type(requested_support_family) or "unknown"
     selected_support_id_for_provenance = str(finite_empirical_model.get("selected_support_id") or "") if use_finite_empirical_route else ""
@@ -980,10 +987,18 @@ def synthesize_current_waveform_compensation(
         command_profile["selected_support_original_pp_mT"] = selected_support_original_pp_mT
         command_profile["selected_support_original_nonzero_start_s"] = selected_support_original_nonzero_start_s
         command_profile["selected_support_original_nonzero_end_s"] = selected_support_original_nonzero_end_s
+        command_profile["selected_support_voltage_nonzero_start_s"] = selected_support_voltage_nonzero_start_s
+        command_profile["selected_support_voltage_nonzero_end_s"] = selected_support_voltage_nonzero_end_s
         command_profile["selected_support_source_available"] = bool(selected_support_source_available)
         if selected_support_source_time_s is not None and selected_support_source_mT is not None:
             command_profile.attrs["selected_support_source_time_s"] = selected_support_source_time_s
             command_profile.attrs["selected_support_source_mT"] = selected_support_source_mT
+            if selected_support_source_voltage_v is not None:
+                command_profile.attrs["selected_support_source_voltage_v"] = selected_support_source_voltage_v
+            if selected_support_voltage_nonzero_start_s is not None:
+                command_profile.attrs["selected_support_voltage_nonzero_start_s"] = selected_support_voltage_nonzero_start_s
+            if selected_support_voltage_nonzero_end_s is not None:
+                command_profile.attrs["selected_support_voltage_nonzero_end_s"] = selected_support_voltage_nonzero_end_s
             command_profile.attrs["selected_support_source_file"] = selected_support_source_file
         command_profile["exact_cycle_support_used"] = bool(
             use_finite_empirical_route and support_cycle_count is not None and np.isfinite(float(support_cycle_count))
@@ -1252,9 +1267,12 @@ def synthesize_current_waveform_compensation(
         "selected_support_original_pp_mT": selected_support_original_pp_mT,
         "selected_support_original_nonzero_start_s": selected_support_original_nonzero_start_s,
         "selected_support_original_nonzero_end_s": selected_support_original_nonzero_end_s,
+        "selected_support_voltage_nonzero_start_s": selected_support_voltage_nonzero_start_s,
+        "selected_support_voltage_nonzero_end_s": selected_support_voltage_nonzero_end_s,
         "selected_support_source_available": bool(selected_support_source_available),
         "selected_support_source_time_s": selected_support_source_time_s,
         "selected_support_source_mT": selected_support_source_mT,
+        "selected_support_source_voltage_v": selected_support_source_voltage_v,
         "support_selection_reason": support_selection_meta.get("support_selection_reason"),
         "support_family_metric": support_selection_meta.get("support_family_metric"),
         "support_family_value": support_selection_meta.get("support_family_value"),
@@ -4168,6 +4186,8 @@ def _build_selected_support_source_contract(
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
             "selected_support_source_voltage_v": None,
+            "selected_support_voltage_nonzero_start_s": float("nan"),
+            "selected_support_voltage_nonzero_end_s": float("nan"),
         }
     frame = _prepare_finite_time_frame(entry.get("frame"))
     if frame.empty or "time_s" not in frame.columns or field_channel not in frame.columns:
@@ -4186,6 +4206,8 @@ def _build_selected_support_source_contract(
             "selected_support_source_time_s": None,
             "selected_support_source_mT": None,
             "selected_support_source_voltage_v": None,
+            "selected_support_voltage_nonzero_start_s": float("nan"),
+            "selected_support_voltage_nonzero_end_s": float("nan"),
         }
     time_values = pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)
     field_values = pd.to_numeric(frame[field_channel], errors="coerce").to_numpy(dtype=float)
@@ -4196,9 +4218,15 @@ def _build_selected_support_source_contract(
     pp = float(np.nanmax(finite_field) - np.nanmin(finite_field)) if finite_field.size else float("nan")
     threshold = max(abs(pp) * 0.01, 1e-6) if np.isfinite(pp) else 1e-6
     nonzero_time = time_values[finite_mask & (np.abs(field_values) > threshold)]
+    finite_voltage = voltage_values[np.isfinite(time_values) & np.isfinite(voltage_values)]
+    voltage_peak = float(np.nanmax(np.abs(finite_voltage))) if finite_voltage.size else float("nan")
+    voltage_threshold = max(abs(voltage_peak) * 0.02, 0.05) if np.isfinite(voltage_peak) else 0.05
+    voltage_nonzero_time = time_values[np.isfinite(time_values) & np.isfinite(voltage_values) & (np.abs(voltage_values) > voltage_threshold)]
     duration_s = float(np.nanmax(finite_time) - np.nanmin(finite_time)) if finite_time.size else float("nan")
     nonzero_start_s = float(np.nanmin(nonzero_time)) if nonzero_time.size else float("nan")
     nonzero_end_s = float(np.nanmax(nonzero_time)) if nonzero_time.size else float("nan")
+    voltage_nonzero_start_s = float(np.nanmin(voltage_nonzero_time)) if voltage_nonzero_time.size else float("nan")
+    voltage_nonzero_end_s = float(np.nanmax(voltage_nonzero_time)) if voltage_nonzero_time.size else float("nan")
     measured_cycle_count = _selected_support_measured_active_cycle_count(
         entry,
         original_nonzero_end_s=nonzero_end_s,
@@ -4219,6 +4247,8 @@ def _build_selected_support_source_contract(
         "selected_support_source_time_s": time_values.tolist(),
         "selected_support_source_mT": field_values.tolist(),
         "selected_support_source_voltage_v": voltage_values.tolist(),
+        "selected_support_voltage_nonzero_start_s": voltage_nonzero_start_s,
+        "selected_support_voltage_nonzero_end_s": voltage_nonzero_end_s,
     }
 
 

@@ -70,6 +70,32 @@ def active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_m
     return bool(voltage_step > 1.0 and residual_step > 5.0)
 
 
+def source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output_start_s: float) -> float:
+    for key in (
+        "selected_support_voltage_nonzero_start_s",
+        "selected_support_command_nonzero_start_s",
+    ):
+        value = frame.attrs.get(key)
+        if isinstance(value, (int, float)) and np.isfinite(float(value)):
+            return float(value)
+    for column in (
+        "selected_support_voltage_nonzero_start_s",
+        "selected_support_command_nonzero_start_s",
+        "selected_support_original_nonzero_start_s",
+        "support_reference_source_window_start_s",
+        "selected_support_source_window_start_s",
+    ):
+        if column in frame.columns:
+            value = _first_numeric(frame[column])
+            if isinstance(value, (int, float)) and np.isfinite(float(value)):
+                return float(value)
+    finite = np.asarray(native_time_s, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size:
+        return float(np.nanmin(finite))
+    return float(output_start_s)
+
+
 def _validate_native_support_arrays(
     source_time: Any,
     source_measured: Any,
@@ -106,6 +132,13 @@ def _first_sequence_value(frame: pd.DataFrame, column: str) -> list[float] | tup
             if parsed is not None:
                 return parsed
     return None
+
+
+def _first_numeric(values: pd.Series) -> float | bool | None:
+    if values.dtype == bool:
+        return bool(values.dropna().iloc[0]) if not values.dropna().empty else None
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    return float(numeric.iloc[0]) if not numeric.empty else None
 
 
 def _parse_sequence_string(value: str) -> list[float] | None:
