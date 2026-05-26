@@ -7,7 +7,7 @@ import pandas as pd
 
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
-from .finite_first_normalization import coerce_measured_field_centered, keep_smoothed_field_as_measured
+from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
 from .finite_phase_sync_support import native_measured_support_source
 
 
@@ -116,7 +116,7 @@ def apply_finite_first_phase_sync_modeling(
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
     )
-    native_smoothed, measured_norm_meta = keep_smoothed_field_as_measured(
+    native_smoothed, measured_norm_meta = normalize_smoothed_field_to_pm50(
         native_measured_raw,
         native_smoothed_unscaled,
         native_active_mask,
@@ -327,8 +327,7 @@ def apply_finite_first_phase_sync_modeling(
         "phase_sync_support_margin_s": support_margin_s,
         **measured_norm_meta,
         "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
-        "residual_uses_actual_measured_field": True,
-        "residual_uses_scaled_measured_field": False,
+        "residual_uses_scaled_measured_field": True,
         "residual_gain_field_scale_applied": False,
         "residual_extra_gain_applied": False,
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
@@ -396,7 +395,7 @@ def _phase_peak_detection_signal(values: np.ndarray, active_mask: np.ndarray) ->
     signal = pd.Series(np.asarray(values, dtype=float)).rolling(window=window, center=True, min_periods=1).median()
     signal = signal.rolling(window=window, center=True, min_periods=1).mean().to_numpy(dtype=float)
     return signal, {
-        "phase_peak_detection_signal": "smoothed_actual_measured_field",
+        "phase_peak_detection_signal": "smoothed_normalized_measured_field",
         "phase_peak_detection_window_samples": int(window),
     }
 

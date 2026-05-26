@@ -56,17 +56,15 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     assert "residual_for_modeling_mT" in result.columns
     assert "correction_delta_v" in result.columns
     assert metadata["measured_abs_peak_effective_mT"] == pytest.approx(42.0, rel=0.01)
-    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(1.0)
-    assert metadata["measured_field_normalization_mode"] == "actual_measured_mT_no_scaling"
-    assert metadata["residual_uses_actual_measured_field"] is True
-    assert metadata["residual_uses_scaled_measured_field"] is False
+    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / 42.0, rel=0.01)
+    assert metadata["residual_uses_scaled_measured_field"] is True
     assert metadata["residual_gain_field_scale_applied"] is False
     assert metadata["residual_extra_gain_applied"] is False
     assert metadata["correction_gain_used"] == pytest.approx(1.0)
     assert metadata["active_residual_finite_through_end"] is True
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
-    assert np.nanmax(np.abs(result["measured_field_aligned_mT"])) <= 42.0 + 1.0
+    assert np.nanmax(np.abs(result["measured_field_aligned_mT"])) <= 50.0 + 1e-6
     np.testing.assert_allclose(
         result["raw_correction_delta_v"],
         result["residual_for_modeling_mT"] / 50.0 * 5.0,
@@ -74,20 +72,20 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     )
 
 
-def test_finite_first_phase_sync_uses_smoothed_measured_without_offset_or_scale_shift() -> None:
+def test_finite_first_phase_sync_scales_smoothed_measured_without_offset_shift() -> None:
     profile = _finite_profile(delay_s=0.0)
     profile["finite_first_actual_measured_field_mT"] = profile["finite_first_actual_measured_field_mT"] + 18.0
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    assert metadata["measured_field_normalization_mode"] == "actual_measured_mT_no_scaling"
+    assert metadata["measured_field_normalization_mode"] == "scale_only_abs_peak_to_50mT"
     assert float(metadata["measured_field_total_offset_removed_mT"]) == pytest.approx(0.0)
-    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(1.0)
+    expected_peak = 42.0 + 18.0
+    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / expected_peak, rel=0.04)
     active = result["measured_field_smoothed_mT"].dropna()
-    assert active.max() == pytest.approx(60.0, abs=1.5)
-    assert active.min() == pytest.approx(-24.0, abs=1.5)
-    assert metadata["residual_uses_actual_measured_field"] is True
-    assert metadata["residual_uses_scaled_measured_field"] is False
+    assert active.max() == pytest.approx(50.0, abs=1.5)
+    assert active.min() > -25.0
+    assert metadata["residual_uses_scaled_measured_field"] is True
     assert metadata["residual_gain_field_scale_applied"] is False
     assert metadata["residual_extra_gain_applied"] is False
     assert result["residual_for_modeling_mT"].notna().all()
@@ -276,7 +274,7 @@ def test_finite_first_phase_sync_maps_target_relative_grid_to_native_source_star
     assert result["residual_for_modeling_mT"].notna().all()
 
 
-def test_finite_first_phase_sync_uses_smoothed_measured_without_raw_spike_scaling() -> None:
+def test_finite_first_phase_sync_normalizes_after_smoothing_not_raw_spike() -> None:
     active_duration = 1.0
     delay_s = 0.09
     support_time = np.linspace(0.0, active_duration + delay_s + 0.05, 520, endpoint=False)
@@ -296,11 +294,10 @@ def test_finite_first_phase_sync_uses_smoothed_measured_without_raw_spike_scalin
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
     assert metadata["finite_first_modeling_status"] == "ok"
-    assert metadata["phase_peak_detection_signal"] == "smoothed_actual_measured_field"
+    assert metadata["phase_peak_detection_signal"] == "smoothed_normalized_measured_field"
     assert metadata["measured_abs_peak_effective_mT"] < metadata["measured_abs_peak_raw_mT"]
-    assert metadata["measured_field_scale_applied"] == pytest.approx(1.0)
-    assert result["measured_field_smoothed_mT"].abs().max() < 25.0
-    assert result["measured_field_aligned_mT"].abs().max() < 25.0
+    assert result["measured_field_smoothed_mT"].abs().max() > 40.0
+    assert result["measured_field_aligned_mT"].abs().max() > 40.0
 
 
 def test_finite_first_phase_sync_blocks_dominant_negative_peak_when_tail_support_missing() -> None:
@@ -361,6 +358,6 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
     assert "피크 싱크 기반, 기본" in source
     assert "기존 delay 포함 방식, review only" in source
     assert "finite_first_modeling_mode_default" in source
-    assert "실측 field scale" in source
+    assert "±50mT 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source
