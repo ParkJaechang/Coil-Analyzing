@@ -64,6 +64,22 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     assert np.nanmax(np.abs(result["measured_field_aligned_mT"])) <= 50.0 + 1e-6
 
 
+def test_finite_first_phase_sync_normalizes_smoothed_midrange_not_target_peak_offset() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    profile["finite_first_actual_measured_field_mT"] = profile["finite_first_actual_measured_field_mT"] + 18.0
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["measured_field_normalization_mode"] == "smoothed_midrange_to_pm50mT"
+    assert abs(float(metadata["measured_field_total_offset_removed_mT"])) > 10.0
+    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / 42.0, rel=0.04)
+    active = result["measured_field_smoothed_mT"].dropna()
+    assert active.max() == pytest.approx(50.0, abs=1.5)
+    assert active.min() == pytest.approx(-50.0, abs=1.5)
+    assert metadata["residual_gain_field_scale_applied"] is True
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
 def test_finite_first_phase_sync_rejects_reference_or_predicted_field_as_measured() -> None:
     profile = _finite_profile().drop(columns=["finite_first_actual_measured_field_mT"])
     profile["support_reference_output_mT"] = profile["physical_target_output_mT"] * 0.9

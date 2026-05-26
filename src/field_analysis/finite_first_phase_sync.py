@@ -7,6 +7,7 @@ import pandas as pd
 
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
+from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
 from .finite_phase_sync_support import native_measured_support_source
 
 
@@ -101,7 +102,7 @@ def apply_finite_first_phase_sync_modeling(
         & (native_time_s >= source_active_start_s - 1e-12 if np.any(active_mask) else True)
         & (native_time_s <= source_active_end_s + 1e-12)
     )
-    measured_centered, measured_source_type, raw_hallbz_available, measured_center_meta = _coerce_measured_field_centered(
+    measured_centered, measured_source_type, raw_hallbz_available, measured_center_meta = coerce_measured_field_centered(
         native_measured_raw,
         measured_column,
         native_active_mask,
@@ -115,14 +116,13 @@ def apply_finite_first_phase_sync_modeling(
         freq_hz=float(freq_hz),
         cycle_count=float(cycle_count),
     )
-    scale, measured_norm_meta = _normalization_from_smoothed_field(
+    native_smoothed, measured_norm_meta = normalize_smoothed_field_to_pm50(
         native_measured_raw,
         native_smoothed_unscaled,
         native_active_mask,
         measured_center_meta,
     )
-    native_smoothed = native_smoothed_unscaled * scale
-    peak_detection_signal, peak_detection_meta = _phase_peak_detection_signal(native_smoothed, native_active_mask)
+    peak_detection_signal, peak_detection_meta = _phase_peak_detection_signal(native_smoothed_unscaled, native_active_mask)
     measured_peak_time, measured_peak_polarity, measured_peak_value = _dominant_peak_time(
         native_time_s,
         peak_detection_signal,
@@ -374,42 +374,6 @@ def _has_reference_like_field(frame: pd.DataFrame) -> bool:
     )
 
 
-def _coerce_measured_field_centered(values: np.ndarray, column: str, active_mask: np.ndarray) -> tuple[np.ndarray, str, bool, dict[str, Any]]:
-    raw = np.asarray(values, dtype=float)
-    active = np.asarray(active_mask, dtype=bool) & np.isfinite(raw)
-    if column in {"HallBz", "HallZ", "raw_hallbz_mT"}:
-        effective = -raw
-        active_effective = np.asarray(active_mask, dtype=bool) & np.isfinite(effective)
-        baseline = float(np.nanmedian(effective[active_effective])) if np.any(active_effective) else 0.0
-        centered = effective - baseline
-        return centered, "raw_hallbz_effective_centered", True, {
-            "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
-        }
-    baseline = float(np.nanmedian(raw[active])) if np.any(active) else 0.0
-    centered = raw - baseline
-    return centered, "actual_measured_field_centered", False, {
-        "measured_abs_peak_raw_mT": _peak_abs(raw[active]) if np.any(active) else 0.0,
-    }
-
-
-def _normalization_from_smoothed_field(
-    raw_values: np.ndarray,
-    smoothed_centered: np.ndarray,
-    active_mask: np.ndarray,
-    center_meta: dict[str, Any],
-) -> tuple[float, dict[str, Any]]:
-    smoothed = np.asarray(smoothed_centered, dtype=float)
-    active = np.asarray(active_mask, dtype=bool) & np.isfinite(smoothed)
-    peak = float(np.nanmax(np.abs(smoothed[active]))) if np.any(active) else 0.0
-    scale = 50.0 / peak if peak > 1e-12 else 1.0
-    return scale, _measured_normalization_metadata(
-        raw_peak=float(center_meta.get("measured_abs_peak_raw_mT", _peak_abs(np.asarray(raw_values, dtype=float)[np.asarray(active_mask, dtype=bool)]))),
-        effective_peak=peak,
-        scale=scale,
-        status="ok" if peak > 1e-12 else "zero_peak",
-    )
-
-
 def _phase_peak_detection_signal(values: np.ndarray, active_mask: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
     active_count = int(np.asarray(active_mask, dtype=bool).sum())
     window = _odd_window(min(max(7, active_count // 8), 101), max(active_count, 1))
@@ -426,15 +390,6 @@ def _odd_window(value: int, max_size: int) -> int:
     if size % 2 == 0:
         size -= 1
     return max(size, 1)
-
-
-def _measured_normalization_metadata(*, raw_peak: float, effective_peak: float, scale: float, status: str) -> dict[str, Any]:
-    return {
-        "measured_abs_peak_raw_mT": float(raw_peak),
-        "measured_abs_peak_effective_mT": float(effective_peak),
-        "measured_field_scale_to_50mT": float(scale),
-        "measured_field_normalization_status": status,
-    }
 
 
 def _measured_target_identity_metadata(target: np.ndarray, measured: np.ndarray, active_mask: np.ndarray) -> dict[str, Any]:
