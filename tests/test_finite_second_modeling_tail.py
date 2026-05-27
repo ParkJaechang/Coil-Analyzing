@@ -299,7 +299,7 @@ def test_second_modeling_does_not_overlay_separate_tail_voltage(tmp_path: Path) 
     tail = frame["tail_window_mask"].astype(bool).to_numpy()
     assert metadata["tail_voltage_overlay_used"] is False
     assert np.allclose(frame.loc[tail, "tail_voltage_v"], frame.loc[tail, "correction_delta_v"], equal_nan=True)
-    assert np.allclose(frame["second_limited_voltage_v"], np.clip(frame["second_voltage_before_clip_v"], -5.0, 5.0))
+    assert np.allclose(frame["second_limited_voltage_v"], np.clip(frame["second_voltage_before_clip_v"], -10.0, 10.0))
 
 
 def test_second_modeling_measured_source_stays_consistent_across_active_tail_boundary(tmp_path: Path) -> None:

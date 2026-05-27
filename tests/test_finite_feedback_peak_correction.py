@@ -72,11 +72,11 @@ def test_quick_lut_finite_feedback_peak_correction_supports_production_cycles(tm
     assert metadata["feedback_route"] == "finite_feedback_symmetric_peak_correction"
     assert metadata["hallbz_sign_applied"] is True
     assert metadata["field_normalization_mode"] == "peak_to_50mT"
-    assert metadata["voltage_normalization_mode"] == "peak_to_5V_or_limit"
+    assert metadata["voltage_normalization_mode"] == "peak_to_10V_or_limit"
     assert metadata["target_unchanged"] is True
     assert np.allclose(corrected["physical_target_output_mT"], original_target)
     assert np.nanmax(np.abs(corrected["measured_field_normalized_mT"])) == pytest.approx(50.0, abs=1e-6)
-    assert np.nanmax(np.abs(corrected["feedback_corrected_limited_voltage_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(corrected["feedback_corrected_limited_voltage_v"])) <= 10.0 + 1e-9
     assert np.allclose(corrected["active_limited_voltage_v"], corrected["feedback_corrected_limited_voltage_v"])
     assert np.allclose(corrected["limited_voltage_v"], corrected["active_limited_voltage_v"])
     assert np.allclose(corrected["baseline_limited_voltage_v"], profile["limited_voltage_v"])

@@ -152,7 +152,7 @@ def render_raw_waveforms_tab(
     )
     st.info(
         "데이터 정책: 파일명 규칙은 `continuous_{waveform}_{freq}Hz.csv` 또는 "
-        "`finite_{waveform}_{freq}Hz_{cycle}cycle.csv`입니다. DAQ output은 ±5V, "
+        f"`finite_{{waveform}}_{{freq}}Hz_{{cycle}}cycle.csv`입니다. DAQ output은 {FIXED_DAQ_OUTPUT_LABEL}, "
         "DCAMP Gain은 100% 고정 조건으로 표시합니다. Raw Waveforms 검수 화면에서는 0.75 cycle "
         "기존 데이터도 확인할 수 있지만, Quick LUT primary finite cycle은 1.0 / 1.25 / 1.5 / 1.75이며 "
         "1.75는 exact finite-cycle support가 있을 때만 사용 가능합니다."

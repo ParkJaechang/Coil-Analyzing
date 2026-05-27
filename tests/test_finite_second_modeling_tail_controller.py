@@ -54,7 +54,7 @@ def test_second_modeling_finite_time_tail_fits_local_model(tmp_path: Path) -> No
     assert np.nanmax(np.abs(frame.loc[tail, "tail_model_voltage_v"])) > 0.0
     assert np.allclose(
         frame.loc[tail, "second_limited_voltage_v"],
-        np.clip(frame.loc[tail, "tail_voltage_v"], -5.0, 5.0),
+        np.clip(frame.loc[tail, "tail_voltage_v"], -10.0, 10.0),
         equal_nan=True,
     )
 

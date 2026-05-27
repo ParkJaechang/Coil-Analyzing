@@ -57,13 +57,13 @@ def test_selector_label_builder_uses_human_label_as_primary_option() -> None:
     label = label_by_id[test_id]
 
     assert not OPAQUE_PREFIX.match(label)
-    assert label == "continuous | Sine | 2 Hz | 20 App | ±5V | Gain 100% | sine_2_20_sine_2Hz_20App.csv"
+    assert label == "continuous | Sine | 2 Hz | 20 App | ±10V | Gain 100% | sine_2_20_sine_2Hz_20App.csv"
     assert "10d2317e131196fe" not in label
     assert "continuous" in label
     assert "Sine" in label
     assert "2 Hz" in label
     assert "20 App" in label
-    assert "±5V" in label
+    assert "±10V" in label
     assert "Gain 100%" in label
     assert "sine_2_20_sine_2Hz_20App.csv" in label
     assert id_by_label[label] == test_id
@@ -176,7 +176,7 @@ def test_raw_waveforms_runtime_selector_uses_label_options_without_hash_prefix()
     raw_selector = selectbox_by_key["raw_test_audit"]
     option_labels = [str(option) for option in raw_selector.options]
 
-    expected = "continuous | Sine | 2 Hz | 20 App | ±5V | Gain 100% | sine_2_20_sine_2Hz_20App.csv"
+    expected = "continuous | Sine | 2 Hz | 20 App | ±10V | Gain 100% | sine_2_20_sine_2Hz_20App.csv"
     assert raw_selector.label == "테스트 선택 (metadata label)"
     assert str(raw_selector.value) == expected
     assert option_labels == [expected]

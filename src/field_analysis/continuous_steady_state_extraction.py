@@ -14,6 +14,7 @@ from field_analysis.continuous_phase_support import (
 from field_analysis.continuous_first_modeling import build_continuous_phase_aligned_command_profile
 from field_analysis.continuous_steady_state_schema import adapt_continuous_source_frame
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit
+from field_analysis.voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_MODE
 
 CONTINUOUS_PRODUCTION_CYCLE_COUNT = 1.0
 DEFAULT_MIN_DISCARD_CYCLES = 2
@@ -179,7 +180,7 @@ def extract_steady_state_one_cycle_window(
     normalized_voltage, voltage_meta = normalize_peak_to_limit(
         voltage,
         np.isfinite(voltage),
-        limit=5.0,
+        limit=COMMAND_VOLTAGE_LIMIT_V,
         unavailable_status="unavailable_zero_peak",
     )
     target = _finite_target_template(
@@ -253,7 +254,7 @@ def extract_steady_state_one_cycle_window(
         "field_normalization_scale_factor": field_meta.get("scale_factor"),
         "measured_field_scale_to_50mT": field_meta.get("scale_factor"),
         "measured_field_scale_to_target_mT": field_meta.get("scale_factor"),
-        "voltage_normalization_mode": "peak_to_5V",
+        "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_MODE,
         "voltage_normalization_status": voltage_meta["status"],
         "target_normalization_status": target_meta["status"],
         "continuous_target_shape": "fixed_rounded_triangle",

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .finite_actual_drive_normalization import peak_abs
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
 def smooth_measured_field_for_second_modeling(
@@ -430,7 +431,8 @@ def _discontinuity_source(
     if index < guard.size and guard[index]:
         return "polarity_guard_start_segment"
     if index > 0 and index < second_limited_voltage.size and (
-        abs(second_limited_voltage[index]) >= 5.0 - 1e-9 or abs(second_limited_voltage[index - 1]) >= 5.0 - 1e-9
+        abs(second_limited_voltage[index]) >= COMMAND_VOLTAGE_LIMIT_V - 1e-9
+        or abs(second_limited_voltage[index - 1]) >= COMMAND_VOLTAGE_LIMIT_V - 1e-9
     ):
         return "voltage_clip"
     return "unknown"

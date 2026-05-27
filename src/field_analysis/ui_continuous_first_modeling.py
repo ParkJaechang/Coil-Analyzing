@@ -12,6 +12,7 @@ from .ui_continuous_final_lut_export import (
     normalize_continuous_result_contract,
     render_continuous_final_voltage_lut_export_section,
 )
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
 def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq_hz: float | None) -> None:
@@ -99,7 +100,7 @@ def _command_plot(command: pd.DataFrame, metadata: dict[str, Any]) -> go.Figure:
     _add_trace(fig, command, "base_voltage_v", "모델링 입력 전압")
     _add_trace(fig, command, "correction_delta_v", "correction_delta_v")
     _add_trace(fig, command, "limited_voltage_v", "limited_voltage_v")
-    limit_v = float(metadata.get("continuous_final_voltage_limit_v") or 5.0)
+    limit_v = float(metadata.get("continuous_final_voltage_limit_v") or COMMAND_VOLTAGE_LIMIT_V)
     base_peak_v = float(metadata.get("continuous_base_voltage_peak_v") or 0.0)
     fig.add_hline(y=limit_v, line_dash="dash", line_color="red", annotation_text=f"+{limit_v:g}V limit")
     fig.add_hline(y=-limit_v, line_dash="dash", line_color="red", annotation_text=f"-{limit_v:g}V limit")

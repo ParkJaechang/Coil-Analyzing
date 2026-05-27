@@ -12,6 +12,7 @@ import streamlit as st
 
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .continuous_steady_state_extraction import build_continuous_steady_state_modeling_case
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL
 from .ui_second_modeling import (
     BASELINE_REMOVED_FIELD_LABEL,
     EFFECTIVE_FIELD_LABEL,
@@ -322,7 +323,7 @@ def _render_actual_drive_status_card(metadata: dict[str, Any]) -> None:
         ("active duration ratio", metadata.get("active_duration_ratio")),
         ("HallBz convention", "effective field = -HallBz raw"),
         ("field normalization", "±50mT"),
-        ("voltage normalization", "±5V"),
+        ("voltage normalization", COMMAND_VOLTAGE_LIMIT_LABEL),
     ]
     note = metadata.get("raw_waveforms_metadata_source_note")
     if note:

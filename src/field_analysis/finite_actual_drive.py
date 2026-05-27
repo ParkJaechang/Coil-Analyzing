@@ -13,6 +13,7 @@ from field_analysis.finite_actual_drive_io import parse_preamble
 from field_analysis.finite_actual_drive_io import resolve_actual_drive_metadata
 from field_analysis.finite_actual_drive_normalization import normalize_peak_to_limit, peak_abs
 from field_analysis.finite_actual_drive_timebase import detect_actual_drive_timebase
+from field_analysis.voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_MODE
 
 EXPECTED_ACTUAL_DRIVE_FREQS_HZ, EXPECTED_ACTUAL_DRIVE_CYCLES = (0.5, 1.25, 2.0), (1.0, 1.25, 1.5, 1.75)
 PHASE_ONE_NO_SECOND_CORRECTION_CONTRACT = {
@@ -225,13 +226,13 @@ def build_actual_drive_review_case(
     normalized_first_voltage, voltage_norm_meta = normalize_peak_to_limit(
         first_voltage,
         np.isfinite(first_voltage),
-        limit=5.0,
+        limit=COMMAND_VOLTAGE_LIMIT_V,
         unavailable_status="unavailable_zero_peak",
     )
     normalized_actual_drive_voltage, _actual_voltage_norm_meta = normalize_peak_to_limit(
         frame["actual_drive_voltage_v"].to_numpy(dtype=float),
         np.isfinite(frame["actual_drive_voltage_v"].to_numpy(dtype=float)),
-        limit=5.0,
+        limit=COMMAND_VOLTAGE_LIMIT_V,
         unavailable_status="unavailable_zero_peak",
     )
     residual = physical_target - measured_field
@@ -335,7 +336,7 @@ def build_actual_drive_review_case(
         "target_normalization_source_peak_mT": target_norm_meta["source_peak"],
         "target_normalization_scale_factor": target_norm_meta["scale_factor"],
         "voltage_normalization_enabled": True,
-        "voltage_normalization_mode": "peak_to_5V",
+        "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_MODE,
         "voltage_normalization_status": voltage_norm_meta["status"],
         "voltage_normalization_source_peak_v": voltage_norm_meta["source_peak"],
         "voltage_normalization_scale_factor": voltage_norm_meta["scale_factor"],

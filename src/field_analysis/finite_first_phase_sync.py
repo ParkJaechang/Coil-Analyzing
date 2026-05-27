@@ -26,6 +26,7 @@ from .finite_phase_sync_math import (
     phase_support_margin_s as _phase_support_margin_s,
     reference_voltage_peak_for_measured_peak as _reference_voltage_peak_for_measured_peak,
 )
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
 def apply_finite_first_phase_sync_modeling(
@@ -34,7 +35,7 @@ def apply_finite_first_phase_sync_modeling(
     freq_hz: float,
     cycle_count: float,
     mode: str = "phase_synced",
-    voltage_limit_v: float = 5.0,
+    voltage_limit_v: float = COMMAND_VOLTAGE_LIMIT_V,
     target_peak_field_mT: float | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if str(mode) == "legacy_delay_preserving":

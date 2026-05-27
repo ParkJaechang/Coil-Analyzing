@@ -7,6 +7,7 @@ import pandas as pd
 
 from .finite_actual_drive_normalization import normalize_peak_to_limit
 from .finite_actual_drive_normalization import peak_abs
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
 PRODUCTION_FINITE_SYMMETRIC_CYCLES = [1.0, 1.5]
@@ -14,7 +15,7 @@ REFERENCE_FINITE_SYMMETRIC_CYCLES: list[float] = []
 UNSUPPORTED_FINITE_SYMMETRIC_CYCLES = [1.25, 1.75, 2.0]
 SUPPORTED_FINITE_SYMMETRIC_CYCLES = [*PRODUCTION_FINITE_SYMMETRIC_CYCLES]
 FIELD_REVIEW_LIMIT_MT = 50.0
-VOLTAGE_REVIEW_LIMIT_V = 5.0
+VOLTAGE_REVIEW_LIMIT_V = COMMAND_VOLTAGE_LIMIT_V
 
 
 def normalize_raw_waveform_frame(

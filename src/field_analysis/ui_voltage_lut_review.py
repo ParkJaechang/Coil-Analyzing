@@ -17,6 +17,7 @@ from .ui_continuous_final_lut_export import (
     build_continuous_final_lut_frame,
     continuous_result_export_record,
 )
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_MODE
 
 REQUIRED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
 DEBUG_VOLTAGE_COLUMNS = (
@@ -368,7 +369,7 @@ def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:
         }
     )
     normalized.attrs["voltage_normalization_enabled"] = True
-    normalized.attrs["voltage_normalization_mode"] = "peak_to_5V"
+    normalized.attrs["voltage_normalization_mode"] = COMMAND_VOLTAGE_NORMALIZATION_MODE
     normalized.attrs["voltage_normalization_status"] = voltage_status
     normalized.attrs["voltage_normalization_source_peak_v"] = voltage_peak
     normalized.attrs["voltage_normalization_scale_factor"] = voltage_scale
@@ -553,7 +554,7 @@ def _review_normalize_voltage(values: pd.Series) -> tuple[pd.Series, float, floa
     peak = float(np.nanmax(np.abs(finite))) if finite.size else float("nan")
     if not np.isfinite(peak) or peak <= 1e-12:
         return pd.Series(np.zeros(len(numeric), dtype=float), index=numeric.index), peak, float("nan"), "unavailable_zero_peak"
-    scale = 5.0 / peak
+    scale = float(COMMAND_VOLTAGE_LIMIT_V) / peak
     return numeric * scale, peak, scale, "ok"
 
 

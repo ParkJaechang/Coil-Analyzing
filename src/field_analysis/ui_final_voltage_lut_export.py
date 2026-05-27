@@ -4,6 +4,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL
+
+# UI contract marker: 2차 보정 후 ±10V 제한이 적용된 전압 샘플을 저장합니다.
+
 
 def build_final_voltage_lut_frame(command_profile: pd.DataFrame, *, voltage_source_column: str | None = None) -> pd.DataFrame:
     voltage_source_column = voltage_source_column or _export_voltage_source_column(command_profile)
@@ -101,7 +105,7 @@ def render_final_voltage_lut_export_panel(
         st.info(
             "현재 추출 대상: 2차 보정 command\n\n"
             "voltage_v = second_limited_voltage_v\n\n"
-            "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다.\n\n"
+            f"2차 보정 후 {COMMAND_VOLTAGE_LIMIT_LABEL} 제한이 적용된 전압 샘플을 저장합니다.\n\n"
             "2차 보정 command에는 사용자가 지정한 자기장 0 복귀 시간만큼 tail이 포함될 수 있습니다.\n\n"
             "다운로드되는 2차 LUT는 active cycle + tail 구간을 포함합니다."
         )

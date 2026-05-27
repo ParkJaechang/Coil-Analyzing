@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from .voltage_policy import COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE
+
 
 def render_actual_drive_data_card(metadata: dict[str, object], *, cycle_count: float) -> None:
     source_file = metadata.get("quick_lut_actual_drive_selected_file") or metadata.get("actual_drive_source_file", "unknown")
@@ -18,7 +20,7 @@ def render_actual_drive_data_card(metadata: dict[str, object], *, cycle_count: f
         ("timebase", metadata.get("timebase_status", metadata.get("native_timebase_status", "unknown"))),
         ("HallBz sign convention", "effective field = -HallBz raw"),
         ("field normalization", metadata.get("field_normalization_mode", "peak_to_50mT")),
-        ("voltage normalization", metadata.get("voltage_normalization_mode", "peak_to_5V_or_limit")),
+        ("voltage normalization", metadata.get("voltage_normalization_mode", COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE)),
     ]
     st.markdown("##### 사용 중인 1차 실구동 데이터")
     st.caption("현재 이 파일을 2차 모델링 입력으로 사용합니다.")

@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
+
 TIME_ALIASES = (
     "time_s",
     "time_s_abs",
@@ -97,7 +99,7 @@ def adapt_continuous_source_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, di
         voltage_normalized = voltage
     else:
         voltage_peak = float(np.nanmax(np.abs(voltage.to_numpy(dtype=float)))) if len(voltage) else 0.0
-        voltage_scale = 5.0 / voltage_peak if np.isfinite(voltage_peak) and voltage_peak > 5.0 else 1.0
+        voltage_scale = COMMAND_VOLTAGE_LIMIT_V / voltage_peak if np.isfinite(voltage_peak) and voltage_peak > COMMAND_VOLTAGE_LIMIT_V else 1.0
         voltage_normalized = voltage * voltage_scale
     source = pd.DataFrame(
         {

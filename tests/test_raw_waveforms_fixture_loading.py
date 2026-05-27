@@ -57,7 +57,7 @@ def test_raw_waveform_labels_are_readable_for_fixture_files() -> None:
     for file_name, expected_parts in cases:
         label = _format_raw_waveform_label(_record_for_fixture(file_name))
         assert not re.match(r"^[0-9a-f]{12,}_", label)
-        assert "±5V" in label
+        assert "±10V" in label
         assert "Gain 100%" in label
         assert "App" not in label
         for expected in expected_parts:

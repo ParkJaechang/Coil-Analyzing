@@ -17,6 +17,7 @@ from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_second_modeling_plots import plot_labeled_frame
 from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_LIMIT_V
 
 TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
@@ -42,7 +43,8 @@ EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
 NORMALIZED_FIELD_LABEL = "정규화 자기장 (±50mT)"
 BASELINE_REMOVED_FIELD_LABEL = "기준선 제거 후 자기장"
 RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
-NORMALIZED_VOLTAGE_LABEL = "정규화 전압 (±5V)"
+NORMALIZED_VOLTAGE_LABEL = f"정규화 전압 ({COMMAND_VOLTAGE_LIMIT_LABEL})"
+# UI contract marker: 보정 전압 변화량 = gain × 오차 / 50mT × 10V
 def _set_second_debug_step(step: str, *, clicked: bool = False) -> None:
     if clicked:
         st.session_state["quick_lut_second_button_clicked"] = True
@@ -144,7 +146,7 @@ def render_second_modeling_controls(
     with st.expander("2차 보정 gain 설명", expanded=False):
         st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다. 0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
         st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다. 기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
-        st.caption("오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / 50mT × 5V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 ±5V로 제한됩니다.")
+        st.caption(f"오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / 50mT × {COMMAND_VOLTAGE_LIMIT_V:g}V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 {COMMAND_VOLTAGE_LIMIT_LABEL}로 제한됩니다.")
         st.caption("자동 추천 gain은 residual 크기와 남은 전압 headroom을 보고 보정량이 과해지지 않도록 계산합니다. 수동 gain은 사용자가 직접 보정 반영 비율을 지정합니다.")
     residual_help = "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. 첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. 첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다."
     residual_mode_label = st.selectbox("2차 보정 residual 계산 방식", options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"], index=0, key="second_modeling_residual_alignment_mode", help=residual_help)

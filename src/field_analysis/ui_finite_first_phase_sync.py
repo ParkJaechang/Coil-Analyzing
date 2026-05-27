@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .utils import first_number
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_LIMIT_V
 
 
 def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
@@ -84,18 +85,18 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
     )
     rows = [
         {"항목": "residual 계산", "계산/의미": "target_normalized_mT - measured_aligned_normalized_mT", "현재값": ""},
-        {"항목": "unit delta 변환", "계산/의미": "residual_mT / target_peak_mT * 5V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
+        {"항목": "unit delta 변환", "계산/의미": f"residual_mT / target_peak_mT * {COMMAND_VOLTAGE_LIMIT_V:g}V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
         {
             "항목": "auto gain 기준",
             "계산/의미": "unit_delta 95% peak, base voltage peak, headroom percentile",
             "현재값": metadata.get("correction_gain_auto"),
         },
         {"항목": "gain clamp", "계산/의미": "0.05 ~ 0.50", "현재값": metadata.get("auto_gain_clamped")},
-        {"항목": "최종 command", "계산/의미": "clip(base_voltage + correction_delta, +/-5V)", "현재값": metadata.get("clipping_fraction")},
+        {"항목": "최종 command", "계산/의미": f"clip(base_voltage + correction_delta, {COMMAND_VOLTAGE_LIMIT_LABEL})", "현재값": metadata.get("clipping_fraction")},
         {"항목": "실측 abs peak", "계산/의미": "max(abs(smoothed measured field))", "현재값": metadata.get("measured_field_smoothed_abs_peak_mT")},
         {"항목": "field scale", "계산/의미": "target_peak / measured_field_smoothed_abs_peak_mT", "현재값": metadata.get("measured_field_scale_to_50mT")},
         {"항목": "base voltage peak", "계산/의미": "field scale 적용 후 1차 입력 전압 peak", "현재값": metadata.get("auto_gain_first_voltage_peak_v")},
-        {"항목": "safe headroom", "계산/의미": "+/-5V limit 대비 headroom percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
+        {"항목": "safe headroom", "계산/의미": f"{COMMAND_VOLTAGE_LIMIT_LABEL} limit 대비 headroom percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
         {"항목": "target delta peak", "계산/의미": "auto gain이 허용하는 correction delta peak", "현재값": metadata.get("auto_gain_target_delta_peak_v")},
         {"항목": "used gain", "계산/의미": "실제 적용 correction gain", "현재값": metadata.get("correction_gain_used")},
     ]
@@ -165,8 +166,8 @@ def _finite_first_command_plot(command_profile: pd.DataFrame, *, diagnostics: bo
                 annotation_text=f"modeling input peak {input_peak:g}V",
             )
             fig.add_hline(y=-input_peak, line_dash="dot", line_color="gray")
-        fig.add_hline(y=5.0, line_dash="dash", line_color="red", annotation_text="+5V limit")
-        fig.add_hline(y=-5.0, line_dash="dash", line_color="red", annotation_text="-5V limit")
+        fig.add_hline(y=COMMAND_VOLTAGE_LIMIT_V, line_dash="dash", line_color="red", annotation_text=f"+{COMMAND_VOLTAGE_LIMIT_V:g}V limit")
+        fig.add_hline(y=-COMMAND_VOLTAGE_LIMIT_V, line_dash="dash", line_color="red", annotation_text=f"-{COMMAND_VOLTAGE_LIMIT_V:g}V limit")
         title = "1차 모델링 command"
     fig.update_layout(template="plotly_white", height=320, title=title, xaxis_title="time_s")
     return fig

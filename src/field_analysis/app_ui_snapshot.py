@@ -2177,7 +2177,7 @@ def _render_field_only_quick_lut_banner() -> None:
         "목표 자기장 개형은 source waveform과 별개로 fixed rounded triangle을 사용합니다."
     )
     st.caption(
-        "Field review/modeling은 사용자가 설정한 목표 피크 자기장 기준으로 scale-only 정규화합니다. Command voltage는 ±5V 기준으로 제한합니다. "
+        "Field review/modeling은 사용자가 설정한 목표 피크 자기장 기준으로 scale-only 정규화합니다. Command voltage는 ±10V 기준으로 제한합니다. "
         "HallBz convention: effective field = -HallBz raw."
     )
     st.caption(
@@ -2411,7 +2411,7 @@ def _render_quick_lut_tab_v2(
                 "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
                 "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
                 "2-cycle production 정책은 폐기되었습니다. "
-                "최종 command voltage는 ±5V 기준으로 제한하며, target field shape는 fixed rounded triangle입니다."
+                "최종 command voltage는 ±10V 기준으로 제한하며, target field shape는 fixed rounded triangle입니다."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(

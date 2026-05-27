@@ -41,6 +41,7 @@ from .finite_second_modeling_tail_controller import normalize_tail_duration_mode
 from .finite_second_modeling_tail_controller import normalize_tail_return_mode as _normalize_tail_return_mode
 from .finite_second_modeling_tail_controller import tail_cycle_count_from_duration as _tail_cycle_count_from_duration
 from .finite_second_modeling_tail_controller import unified_tail_diagnostics as _unified_tail_diagnostics
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE
 
 SUPPORTED_SECOND_MODELING_CYCLES = (1.0, 1.5)
 UNSUPPORTED_SECOND_MODELING_CYCLES = (1.25, 1.75, 2.0)
@@ -57,7 +58,7 @@ def generate_second_modeled_voltage_lut(
     waveform_type: str | None = None,
     correction_gain: float = 0.25,
     correction_gain_mode: str = "auto",
-    voltage_limit_v: float = 5.0,
+    voltage_limit_v: float = COMMAND_VOLTAGE_LIMIT_V,
     residual_alignment_mode: str = "first_peak_aligned_stabilized",
     post_cycle_zero_tail_enabled: bool = True,
     post_cycle_zero_tail_cycle_count: float = 0.25,
@@ -493,7 +494,7 @@ def generate_second_modeled_voltage_lut(
         "actual_drive_source_file": record.source_file,
         "hallbz_sign_applied": True,
         "field_normalization_mode": "peak_to_50mT",
-        "voltage_normalization_mode": "peak_to_5V_or_limit",
+        "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE,
         **_review_diagnostic_metadata(review_meta),
         "interpolation_status": "ok" if np.isfinite(measured).any() else "unavailable",
         "second_command_synthesis_mode": "active_residual_with_finite_time_zero_return_tail"

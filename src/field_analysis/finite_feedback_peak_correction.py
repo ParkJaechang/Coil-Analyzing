@@ -12,6 +12,7 @@ from .finite_actual_drive import build_actual_drive_review_case
 from .finite_actual_drive import read_actual_drive_result
 from .finite_actual_drive_normalization import normalize_peak_to_limit
 from .finite_actual_drive_normalization import peak_abs
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE
 
 
 PRODUCTION_FEEDBACK_PEAK_CYCLES = (1.0, 1.5)
@@ -32,7 +33,7 @@ def apply_finite_feedback_peak_correction(
     waveform_type: str,
     freq_hz: float,
     cycle_count: float,
-    voltage_limit_v: float = 5.0,
+    voltage_limit_v: float = COMMAND_VOLTAGE_LIMIT_V,
     correction_gain: float = 0.25,
     forward_model: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -189,7 +190,7 @@ def apply_finite_feedback_peak_correction(
         "hallbz_sign_applied": True,
         "hallbz_effective_convention": "effective_field_mT=-HallBz_raw",
         "field_normalization_mode": "peak_to_50mT",
-        "voltage_normalization_mode": "peak_to_5V_or_limit",
+        "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE,
         "field_normalization_scale_factor": field_norm_meta["scale_factor"],
         "voltage_normalization_scale_factor": review_metadata.get("voltage_normalization_scale_factor"),
         "raw_field_peak_mT": peak_abs(raw_hallbz[active_mask]),

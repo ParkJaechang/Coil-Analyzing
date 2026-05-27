@@ -9,6 +9,7 @@ from field_analysis.continuous_phase_support import continuous_peak_alignment_me
 from field_analysis.finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling
 from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
 from field_analysis.finite_second_modeling_tail import compute_second_modeling_gain
+from field_analysis.voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
 def build_continuous_phase_aligned_command_profile(
@@ -19,7 +20,7 @@ def build_continuous_phase_aligned_command_profile(
     waveform_type: str | None = None,
     correction_gain: float = 0.25,
     correction_gain_mode: str = "auto",
-    voltage_limit_v: float = 5.0,
+    voltage_limit_v: float = COMMAND_VOLTAGE_LIMIT_V,
     base_voltage_peak_v: float | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     frame = steady_state_one_cycle_frame.copy()

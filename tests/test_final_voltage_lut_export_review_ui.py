@@ -118,10 +118,10 @@ def test_uploaded_lut_review_preserves_raw_voltage_and_adds_review_normalized_vo
 
     assert parsed.ok is True
     assert parsed.frame["raw_voltage_v"].tolist() == [-12.0, 0.0, 6.0]
-    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) <= 5.0 + 1e-12
-    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) == 5.0
+    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) <= 10.0 + 1e-12
+    assert np.nanmax(np.abs(parsed.frame["normalized_voltage_v"])) == 10.0
     assert diagnostics["voltage_normalization_enabled"] is True
-    assert diagnostics["voltage_normalization_mode"] == "peak_to_5V"
+    assert diagnostics["voltage_normalization_mode"] == "peak_to_10V"
     assert diagnostics["voltage_normalization_source_peak_v"] == 12.0
     assert diagnostics["shape_review_only"] is True
 
@@ -181,7 +181,7 @@ def test_lut_review_helper_source_contains_user_visible_review_markers() -> None
         "2차 보정 command가 아직 없습니다",
         "voltage_v = second_limited_voltage_v",
         "voltage_v = 1차 모델링 command",
-        "2차 보정 후 ±5V 제한이 적용된 전압 샘플을 저장합니다.",
+        "2차 보정 후 ±10V 제한이 적용된 전압 샘플을 저장합니다.",
         "LUT Voltage vs time_s",
         "LUT Voltage vs sample_index",
         "dt_irregularity_ratio",

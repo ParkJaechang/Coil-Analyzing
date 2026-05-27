@@ -76,7 +76,7 @@ def test_extract_steady_state_one_cycle_excludes_startup_and_returns_one_cycle_c
     assert window["cycle_phase_s"].max() < 0.5
     assert np.isclose(window["time_s"].min(), 0.0)
     assert np.nanmax(np.abs(window["measured_field_normalized_mT"])) <= 50.0 + 1e-9
-    assert np.nanmax(np.abs(window["voltage_normalized_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(window["voltage_normalized_v"])) <= 10.0 + 1e-9
     assert np.allclose(window["measured_field_effective_mT"], -window["raw_hallbz_mT"])
     assert {
         "time_s",
@@ -328,7 +328,7 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
         metadata["source_voltage_raw_peak_v"] * metadata["continuous_input_voltage_field_scale"],
         rel=0.02,
     )
-    assert metadata["continuous_final_voltage_limit_v"] == 5.0
+    assert metadata["continuous_final_voltage_limit_v"] == 10.0
     assert metadata["source_voltage_base_normalized_peak_v"] == pytest.approx(metadata["continuous_base_voltage_peak_v"], rel=0.02)
     assert "continuous_clipping_fraction" in metadata
     assert {
@@ -368,7 +368,7 @@ def test_continuous_first_modeling_prefers_raw_voltage_over_legacy_normalized_vo
         3.0 * metadata["continuous_input_voltage_field_scale"],
         rel=0.03,
     )
-    assert np.nanmax(np.abs(command["limited_voltage_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(command["limited_voltage_v"])) <= 10.0 + 1e-9
     assert metadata["source_voltage_raw_peak_v"] == pytest.approx(3.0, rel=0.02)
     assert metadata["source_voltage_base_normalized_peak_v"] == pytest.approx(np.nanmax(np.abs(command["base_voltage_v"])), rel=0.02)
 

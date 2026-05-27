@@ -76,7 +76,7 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert metadata["second_modeling_status"] == "ok"
     assert metadata["hallbz_sign_applied"] is True
     assert metadata["final_export_voltage_source_column"] == "second_limited_voltage_v"
-    assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 5.0 + 1e-12
+    assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 10.0 + 1e-12
     assert np.isclose(np.nanmax(np.abs(frame["measured_field_normalized_mT"])), 50.0)
     assert {"second_correction_delta_v", "second_modeled_voltage_v", "final_voltage_v"}.issubset(frame.columns)
     assert bool(frame["target_unchanged"].iloc[0]) is True
@@ -305,7 +305,7 @@ def test_second_modeling_first_peak_aligned_without_stabilization_is_preserved(t
 
     assert metadata["residual_alignment_mode"] == "first_peak_aligned"
     assert metadata["correction_stabilization_enabled"] is False
-    expected_delta = frame["first_model_residual_for_second_mT"] / 50.0 * 5.0 * 0.25
+    expected_delta = frame["first_model_residual_for_second_mT"] / 50.0 * 10.0 * 0.25
     active = frame["active_window_mask"].astype(bool).to_numpy()
     interior = active & np.isfinite(expected_delta.to_numpy())
     assert np.nanmean(np.abs(frame.loc[interior, "second_correction_delta_v"] - expected_delta[interior])) < 0.08
@@ -365,7 +365,7 @@ def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_
     assert metadata["second_modeling_available"] is True
     assert metadata["second_modeling_status"] == "ok"
     assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
-    assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 5.0 + 1e-12
+    assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 10.0 + 1e-12
 
 
 def test_second_modeling_preserves_first_command_profile_and_limited_voltage(tmp_path: Path) -> None:
@@ -501,7 +501,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "단계별 trace" in source
     assert "실측 자기장 smoothing" in source
     assert "오차 (목표 - 보정 계산용 실측)" in source
-    assert "보정 전압 변화량 = gain × 오차 / 50mT × 5V" in source
+    assert "보정 전압 변화량 = gain × 오차 / 50mT × 10V" in source
     assert "2차 command = 1차 command + 안정화된 보정 전압 변화량" in source
     assert "2차 보정 residual 계산 방식" in source
     assert "첫 피크 정렬 + 안정화" in source

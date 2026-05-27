@@ -4,9 +4,10 @@ import re
 from pathlib import PurePath
 
 from .upload_filename import canonical_upload_filename
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL
 
 
-FIXED_DAQ_OUTPUT_LABEL = "±5V"
+FIXED_DAQ_OUTPUT_LABEL = COMMAND_VOLTAGE_LIMIT_LABEL
 FIXED_GAIN_LABEL = "Gain 100%"
 
 _NEW_DATASET_FILENAME_PATTERN = re.compile(

@@ -26,7 +26,7 @@ def test_feedback_review_panel_renders_supported_status_and_graph_markers() -> N
         "feedback_alignment_status": "ok",
         "hallbz_sign_applied": True,
         "field_normalization_mode": "peak_to_50mT",
-        "voltage_normalization_mode": "peak_to_5V_or_limit",
+        "voltage_normalization_mode": "peak_to_10V_or_limit",
         "target_unchanged": True,
     }
     rows = build_feedback_status_rows(metadata)
@@ -361,7 +361,7 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "현재 Quick LUT 설정의 실구동 결과로 사용",
         "1차 실구동 데이터 원본 확인",
         "실측 자기장 (HallBz 부호 보정, ±50mT)",
-        "정규화 전압 (±5V)",
+        "정규화 전압 (±10V)",
         "보정 전압 변화량",
         "피드백 보정 후 제한 전압",
         "active_command_source",
