@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 
 def coerce_measured_field_centered(
@@ -94,6 +95,47 @@ def measured_normalization_metadata(
         "measured_field_smoothed_active_min_mT": float(active_min),
         "measured_field_smoothed_active_max_mT": float(active_max),
         "measured_field_smoothed_abs_peak_mT": float(peak),
+    }
+
+
+def scale_target_field_columns_to_peak(
+    frame: pd.DataFrame,
+    active_mask: np.ndarray,
+    *,
+    target_peak_mT: float,
+    target_peak_source: str,
+) -> dict[str, Any]:
+    active = np.asarray(active_mask, dtype=bool)
+    columns = (
+        "physical_target_output_mT",
+        "target_field_mT",
+        "target_output",
+        "aligned_target_output",
+    )
+    scaled_columns: list[str] = []
+    original_peak = float("nan")
+    scaled_peak = float("nan")
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+        peak = _peak_abs(values[active])
+        if not np.isfinite(peak) or peak <= 1e-12:
+            continue
+        scale = float(target_peak_mT) / peak if np.isfinite(target_peak_mT) and target_peak_mT > 1e-12 else 1.0
+        frame[column] = values * scale
+        scaled_columns.append(column)
+        if not np.isfinite(original_peak):
+            original_peak = peak
+            scaled_peak = _peak_abs(pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)[active])
+    return {
+        "target_field_original_peak_mT": original_peak,
+        "target_field_scale_applied": (float(target_peak_mT) / original_peak)
+        if np.isfinite(original_peak) and original_peak > 1e-12 and np.isfinite(target_peak_mT)
+        else 1.0,
+        "target_field_scaled_peak_mT": scaled_peak,
+        "target_field_scaled_columns": tuple(scaled_columns),
+        "target_field_scale_source": target_peak_source,
     }
 
 

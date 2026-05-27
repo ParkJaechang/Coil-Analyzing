@@ -502,8 +502,54 @@ def test_finite_first_normalization_uses_explicit_ui_target_peak_even_if_trace_i
     expected_scale = 80.0 / 42.0
     assert metadata["target_peak_field_source"] == "ui_user_selection"
     assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.01)
+    assert metadata["target_field_original_peak_mT"] == pytest.approx(50.0, rel=0.01)
+    assert metadata["target_field_scaled_peak_mT"] == pytest.approx(80.0, rel=0.01)
+    assert metadata["target_field_scale_applied"] == pytest.approx(1.6, rel=0.01)
     assert metadata["measured_field_scale_to_target_peak_mT"] == pytest.approx(expected_scale, rel=0.02)
+    assert result["physical_target_output_mT"].abs().max() == pytest.approx(80.0, rel=0.01)
     assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(5.0 * expected_scale, rel=0.05)
+
+
+def test_finite_first_target_peak_changes_residual_and_correction_delta() -> None:
+    profile_50 = _finite_profile(delay_s=0.0)
+    support_time = profile_50["time_s"].to_numpy(dtype=float)
+    source_lut_voltage = 5.0 * np.sin(2.0 * np.pi * support_time)
+    for profile in (profile_50,):
+        profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+        profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+        profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+    profile_80 = profile_50.copy(deep=True)
+    profile_80.attrs.update(profile_50.attrs)
+
+    result_50, metadata_50 = apply_finite_first_phase_sync_modeling(
+        profile_50,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        target_peak_field_mT=50.0,
+    )
+    result_80, metadata_80 = apply_finite_first_phase_sync_modeling(
+        profile_80,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        target_peak_field_mT=80.0,
+    )
+
+    assert metadata_50["finite_first_modeling_status"] == "ok"
+    assert metadata_80["finite_first_modeling_status"] == "ok"
+    assert result_50["physical_target_output_mT"].abs().max() == pytest.approx(50.0, rel=0.01)
+    assert result_80["physical_target_output_mT"].abs().max() == pytest.approx(80.0, rel=0.01)
+    assert not np.allclose(
+        result_50["residual_for_modeling_mT"].to_numpy(dtype=float),
+        result_80["residual_for_modeling_mT"].to_numpy(dtype=float),
+    )
+    assert not np.allclose(
+        result_50["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
+        result_80["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
+    )
+    assert not np.allclose(
+        result_50["first_modeled_voltage_v"].to_numpy(dtype=float),
+        result_80["first_modeled_voltage_v"].to_numpy(dtype=float),
+    )
 
 
 def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() -> None:

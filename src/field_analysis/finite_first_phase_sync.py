@@ -7,7 +7,11 @@ import pandas as pd
 
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
-from .finite_first_normalization import coerce_measured_field_centered, normalize_smoothed_field_to_pm50
+from .finite_first_normalization import (
+    coerce_measured_field_centered,
+    normalize_smoothed_field_to_pm50,
+    scale_target_field_columns_to_peak,
+)
 from .finite_phase_sync_support import (
     active_end_kink_detected,
     native_measured_support_source,
@@ -93,11 +97,19 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_modeling_missing_measured": False,
             "finite_first_modeling_missing_voltage": voltage_column is None,
         }
-    target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
     explicit_target_peak = float(target_peak_field_mT) if target_peak_field_mT is not None else float("nan")
-    target_peak_reference_mT = explicit_target_peak if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else _peak_abs(target[active_mask])
+    raw_target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
+    raw_target_peak_mT = _peak_abs(raw_target[active_mask])
+    target_peak_reference_mT = explicit_target_peak if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else raw_target_peak_mT
     if not np.isfinite(target_peak_reference_mT) or target_peak_reference_mT <= 1e-12:
         target_peak_reference_mT = 50.0
+    target_scale_meta = scale_target_field_columns_to_peak(
+        frame,
+        active_mask,
+        target_peak_mT=target_peak_reference_mT,
+        target_peak_source="ui_user_selection" if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else "target_trace_peak",
+    )
+    target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
     measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
     native_time_s, native_measured_raw, measured_alignment_source = native_measured_support_source(
         frame,
@@ -249,6 +261,7 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
             if input_voltage_source == "selected_support_source_voltage_v"
             else input_voltage_source,
+            **target_scale_meta,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
@@ -365,6 +378,9 @@ def apply_finite_first_phase_sync_modeling(
         "field_modeling_normalization_reference_mT": target_peak_reference_mT,
         "user_target_peak_field_mT": target_peak_reference_mT,
         "target_peak_field_source": "ui_user_selection" if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else "target_trace_peak",
+        **target_scale_meta,
+        "correction_delta_v_target_peak_reference_mT": target_peak_reference_mT,
+        "correction_delta_v_uses_scaled_target_field": True,
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
