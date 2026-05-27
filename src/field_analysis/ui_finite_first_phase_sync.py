@@ -10,8 +10,9 @@ from .utils import first_number
 def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
     if not isinstance(command_profile, pd.DataFrame) or command_profile.empty:
         return
+
     st.markdown("#### Finite 1차 phase sync 확인")
-    st.caption("전압 피크와 실측 자기장 피크를 맞춘 뒤, ±50mT 정규화 기준으로 residual을 계산합니다.")
+    st.caption("전압 피크와 실측 자기장 피크를 맞춘 뒤, 목표 피크 자기장 기준으로 residual을 계산합니다.")
     summary = {
         "source file": metadata.get("finite_first_measured_source_file"),
         "source label": metadata.get("finite_first_measured_source_label"),
@@ -28,10 +29,9 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "phase_delay_s": metadata.get("phase_delay_s"),
         "phase_delay_cycles": metadata.get("phase_delay_cycles"),
         "실측 field abs peak (mT)": metadata.get("measured_abs_peak_effective_mT"),
-        "±50mT 정규화 scale": metadata.get("measured_field_scale_to_50mT"),
-        "정규화 offset 제거 (mT)": metadata.get("measured_field_total_offset_removed_mT"),
-        "정규화 mode": metadata.get("measured_field_normalization_mode"),
-        "정규화 후 peak (mT)": metadata.get("measured_aligned_normalized_peak_mT"),
+        "field 정규화 scale": metadata.get("measured_field_scale_to_50mT"),
+        "normalization mode": metadata.get("measured_field_normalization_mode"),
+        "normalized aligned peak (mT)": metadata.get("measured_aligned_normalized_peak_mT"),
         "correction_gain": metadata.get("correction_gain_used"),
         "voltage_headroom_v": metadata.get("voltage_headroom_v"),
         "clipping_fraction": metadata.get("clipping_fraction"),
@@ -46,6 +46,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
     }
     st.dataframe(pd.DataFrame([summary]), use_container_width=True, hide_index=True)
     _render_phase_sync_correction_basis(metadata)
+
     with st.expander("target template ripple diagnostic", expanded=False):
         diagnostic = {
             "target_template_type": metadata.get("target_template_type"),
@@ -56,6 +57,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         }
         st.dataframe(pd.DataFrame([diagnostic]), use_container_width=True, hide_index=True)
         st.plotly_chart(_finite_first_target_template_plot(command_profile), use_container_width=True)
+
     if "measured_field_aligned_mT" not in command_profile.columns:
         st.caption("기존 delay 포함 방식, review only: phase sync trace는 생성하지 않습니다.")
         return
@@ -65,6 +67,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
             "이 결과는 1차 command 성공 결과로 사용하지 않습니다."
         )
         return
+
     st.plotly_chart(_finite_first_phase_sync_plot(command_profile, metadata), use_container_width=True)
     st.plotly_chart(_finite_first_residual_plot(command_profile), use_container_width=True)
     st.caption("다운로드 voltage_v source: limited_voltage_v")
@@ -76,33 +79,27 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
 def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
     st.markdown("##### Phase sync residual -> 1차 command 반영 기준")
     st.caption(
-        "phase-aligned measured field를 ±50mT 기준으로 정규화한 뒤 residual을 계산하고, "
-        "residual을 ±5V 전압 기준의 unit delta로 변환한 다음 auto gain과 smoothing/stabilization을 적용합니다."
+        "phase-aligned measured field를 목표 피크 자기장 기준으로 정규화한 뒤 residual을 계산하고, "
+        "residual을 전압 기준 unit delta로 변환한 다음 auto gain과 smoothing/stabilization을 적용합니다."
     )
     rows = [
         {"항목": "residual 계산", "계산/의미": "target_normalized_mT - measured_aligned_normalized_mT", "현재값": ""},
-        {"항목": "unit delta 변환", "계산/의미": "residual_mT / 50mT * 5V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
+        {"항목": "unit delta 변환", "계산/의미": "residual_mT / target_peak_mT * 5V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
         {
             "항목": "auto gain 기준",
-            "계산/의미": "unit_delta 95% peak, base voltage peak, headroom 20% percentile",
+            "계산/의미": "unit_delta 95% peak, base voltage peak, headroom percentile",
             "현재값": metadata.get("correction_gain_auto"),
         },
         {"항목": "gain clamp", "계산/의미": "0.05 ~ 0.50", "현재값": metadata.get("auto_gain_clamped")},
-        {"항목": "최종 command", "계산/의미": "clip(base_voltage + correction_delta, ±5V)", "현재값": metadata.get("clipping_fraction")},
-        {"항목": "실측 min/max", "계산/의미": "smoothing 후 active 구간 min/max, offset 재정렬 없음", "현재값": f"{metadata.get('measured_field_smoothed_active_min_mT')} / {metadata.get('measured_field_smoothed_active_max_mT')}"},
+        {"항목": "최종 command", "계산/의미": "clip(base_voltage + correction_delta, +/-5V)", "현재값": metadata.get("clipping_fraction")},
         {"항목": "실측 abs peak", "계산/의미": "max(abs(smoothed measured field))", "현재값": metadata.get("measured_field_smoothed_abs_peak_mT")},
-        {"항목": "offset 제거", "계산/의미": "정규화 단계에서는 0mT, 실측값 위치 보존", "현재값": metadata.get("measured_field_total_offset_removed_mT")},
-        {"항목": "±50mT scale", "계산/의미": "50 / measured_field_smoothed_abs_peak_mT", "현재값": metadata.get("measured_field_scale_to_50mT")},
-        {"항목": "base voltage peak", "계산/의미": "현재 1차/base command peak", "현재값": metadata.get("auto_gain_first_voltage_peak_v")},
-        {"항목": "safe headroom", "계산/의미": "±5V limit 대비 headroom의 20% percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
-        {"항목": "target delta peak", "계산/의미": "min(0.35*base_peak, 0.70*safe_headroom, 1.0V)", "현재값": metadata.get("auto_gain_target_delta_peak_v")},
-        {"항목": "used gain", "계산/의미": "auto gain 또는 manual gain 중 실제 적용값", "현재값": metadata.get("correction_gain_used")},
+        {"항목": "field scale", "계산/의미": "target_peak / measured_field_smoothed_abs_peak_mT", "현재값": metadata.get("measured_field_scale_to_50mT")},
+        {"항목": "base voltage peak", "계산/의미": "field scale 적용 후 1차 입력 전압 peak", "현재값": metadata.get("auto_gain_first_voltage_peak_v")},
+        {"항목": "safe headroom", "계산/의미": "+/-5V limit 대비 headroom percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
+        {"항목": "target delta peak", "계산/의미": "auto gain이 허용하는 correction delta peak", "현재값": metadata.get("auto_gain_target_delta_peak_v")},
+        {"항목": "used gain", "계산/의미": "실제 적용 correction gain", "현재값": metadata.get("correction_gain_used")},
     ]
-    st.dataframe(
-        pd.DataFrame(rows),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[str, object]) -> go.Figure:
@@ -112,15 +109,15 @@ def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[
     _add_profile_trace(fig, command_profile, "measured_field_smoothed_mT", f"measured field smoothed, actual source: {measured_column}")
     _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", f"measured field aligned, actual source: {measured_column}")
     for key, label in (
-        ("voltage_first_peak_time_s", "voltage first peak"),
-        ("measured_first_peak_time_s", "measured first peak before alignment"),
+        ("voltage_first_peak_time_s", "voltage peak"),
+        ("measured_first_peak_time_s", "measured peak before alignment"),
     ):
         value = first_number(metadata.get(key))
         if value is not None:
             fig.add_vline(x=float(value), line_dash="dash", annotation_text=label)
     shifted = first_number(metadata.get("voltage_first_peak_time_s"))
     if shifted is not None:
-        fig.add_vline(x=float(shifted), line_dash="dot", annotation_text="measured first peak after alignment")
+        fig.add_vline(x=float(shifted), line_dash="dot", annotation_text="measured peak after alignment")
     fig.update_layout(template="plotly_white", height=320, title="Finite 1차 phase sync 확인", xaxis_title="time_s")
     return fig
 
@@ -155,9 +152,21 @@ def _finite_first_command_plot(command_profile: pd.DataFrame, *, diagnostics: bo
         _add_profile_trace(fig, command_profile, "limited_voltage_v", "limited_voltage_v")
         title = "Finite 1차 command diagnostics"
     else:
-        _add_profile_trace(fig, command_profile, "limited_voltage_v", "1차 모델링 command")
-        _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_normalized_v", "모델링 입력 전압")
         _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_v", "원본 입력 전압")
+        _add_profile_trace(fig, command_profile, "finite_first_input_lut_voltage_normalized_v", "모델링 입력 전압")
+        _add_profile_trace(fig, command_profile, "correction_delta_v", "correction_delta_v")
+        _add_profile_trace(fig, command_profile, "limited_voltage_v", "limited_voltage_v")
+        input_peak = _profile_peak_abs(command_profile, "finite_first_input_lut_voltage_normalized_v")
+        if input_peak > 0.0:
+            fig.add_hline(
+                y=input_peak,
+                line_dash="dot",
+                line_color="gray",
+                annotation_text=f"modeling input peak {input_peak:g}V",
+            )
+            fig.add_hline(y=-input_peak, line_dash="dot", line_color="gray")
+        fig.add_hline(y=5.0, line_dash="dash", line_color="red", annotation_text="+5V limit")
+        fig.add_hline(y=-5.0, line_dash="dash", line_color="red", annotation_text="-5V limit")
         title = "1차 모델링 command"
     fig.update_layout(template="plotly_white", height=320, title=title, xaxis_title="time_s")
     return fig
@@ -173,3 +182,12 @@ def _add_profile_trace(fig: go.Figure, frame: pd.DataFrame, column: str, label: 
                 name=label,
             )
         )
+
+
+def _profile_peak_abs(frame: pd.DataFrame, column: str) -> float:
+    if column not in frame.columns:
+        return 0.0
+    finite = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if finite.empty:
+        return 0.0
+    return float(finite.abs().max())

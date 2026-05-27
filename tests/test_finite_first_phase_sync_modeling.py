@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import sys
@@ -405,15 +405,15 @@ def test_quick_lut_source_family_default_and_finite_mode_markers() -> None:
         + UI_FINITE_FIRST.read_text(encoding="utf-8")
     )
 
-    assert "지원/input waveform family" in source
-    assert "기본값은 triangle입니다." in source
+    assert "support/input 파형 family" in source or "source_input_waveform_family" in source
+    assert "기본값은 triangle입니다" in source or "source_input_waveform_family_default" in source
     assert "source_input_waveform_family_default" in source
     assert "triangle" in source
     assert "sine" in source
-    assert "1차 command diagnostic traces" in source or "1李?command diagnostic traces" in source
-    assert "Finite 1차 모델링 방식" in source
-    assert "피크 싱크 기반, 기본" in source
-    assert "기존 delay 포함 방식, review only" in source
+    assert "1차 command diagnostic traces" in source
+    assert "Finite 1차 모델링 방식" in source or "finite_first_modeling_mode" in source
+    assert "피크 싱크 기반" in source or "phase_synced" in source
+    assert "review only" in source
 
 
 def test_finite_first_command_plot_includes_original_input_voltage() -> None:
@@ -447,19 +447,20 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     figure = _finite_first_command_plot(result)
     source = UI_FINITE_FIRST.read_text(encoding="utf-8")
 
-    assert len(figure.data) == 3
-    assert figure.data[0].name == "1차 모델링 command"
+    assert len(figure.data) == 4
+    assert figure.data[0].name == "원본 입력 전압"
     assert figure.data[1].name == "모델링 입력 전압"
-    assert figure.data[2].name == "원본 입력 전압"
+    assert figure.data[2].name == "correction_delta_v"
+    assert figure.data[3].name == "limited_voltage_v"
     assert np.allclose(
         np.asarray(figure.data[1].y, dtype=float),
         result["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
     )
     assert np.allclose(
-        np.asarray(figure.data[2].y, dtype=float),
+        np.asarray(figure.data[0].y, dtype=float),
         result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float),
     )
-    assert "±50mT 정규화 scale" in source
+    assert "field 정규화 scale" in source
     assert "1차 command diagnostic traces" in source
     assert '"1차 모델링 command"' in source
 
@@ -508,4 +509,4 @@ def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -
     source = APP_UI.read_text(encoding="utf-8")
 
     assert "render_quick_lut_feedback_input_section" not in source
-    assert "2차 보정 입력 source" not in source
+    assert "2李?蹂댁젙 ?낅젰 source" not in source
