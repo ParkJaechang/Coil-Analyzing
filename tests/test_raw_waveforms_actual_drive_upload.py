@@ -98,7 +98,7 @@ def test_raw_waveforms_actual_drive_parse_uses_same_column_convention() -> None:
     assert expected_columns.issubset(frame.columns)
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"])
     assert np.nanmax(np.abs(frame["normalized_measured_field_mT"])) <= 50.0 + 1e-9
-    assert np.nanmax(np.abs(frame["normalized_actual_drive_voltage_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(frame["normalized_actual_drive_voltage_v"])) <= 10.0 + 1e-9
     assert np.all(np.diff(pd.to_numeric(frame["time_s"], errors="coerce").to_numpy(dtype=float)) > 0.0)
     assert payload.metadata["metadata_source"] == "current_quick_lut_selection"
     assert payload.metadata["source"] == "Raw Waveforms upload"

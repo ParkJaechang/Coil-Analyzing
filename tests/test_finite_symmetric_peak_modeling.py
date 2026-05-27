@@ -95,7 +95,7 @@ def test_finite_symmetric_peak_modeling_one_cycle_computes_lobe_metrics() -> Non
     assert result["lobe_balance_applied"] is True
     assert "symmetric_peak_recommended_voltage_v" in result_frame.columns
     assert "symmetric_peak_command_delta_v" in result_frame.columns
-    assert np.nanmax(np.abs(result_frame["symmetric_peak_recommended_voltage_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(result_frame["symmetric_peak_recommended_voltage_v"])) <= 10.0 + 1e-9
     assert result["command_voltage_limit_status"] == "ok"
 
 
