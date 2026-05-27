@@ -42,6 +42,65 @@ FEEDBACK_SELECTED_CACHE_KEY = "quick_lut_feedback_selected_cache_id"
 FEEDBACK_RUN_LABEL_KEY = "quick_lut_feedback_run_label"
 
 
+def select_actual_drive_feedback_candidate_for_target(
+    *,
+    waveform_type: str | None = None,
+    freq_hz: float | None = None,
+    cycle_count: float | None = None,
+    run_label: str = "first_run",
+) -> tuple[dict[str, object] | None, dict[str, object]]:
+    """Auto-select a measured first-drive result without rendering the old upload UI."""
+    cache_state = st.session_state.setdefault(FEEDBACK_CACHE_STATE_KEY, {})
+    if not isinstance(cache_state, dict):
+        cache_state = {}
+        st.session_state[FEEDBACK_CACHE_STATE_KEY] = cache_state
+
+    records = [record for record in build_upload_cache_records(cache_state) if record.cache_type == "actual_drive_validation"]
+    cache_candidates = [
+        {
+            "candidate_id": f"cache:{record.cache_item_id}",
+            "cache_id": record.cache_item_id,
+            "source_kind": "upload_cache",
+            "source_label": "업로드 메모리",
+            "filename": record.original_filename,
+            "original_filename": record.original_filename,
+            "csv_bytes": cache_item_bytes(cache_state, record.cache_item_id),
+            "run_label": run_label,
+        }
+        for record in records
+    ]
+    folder_candidates, folder_meta = scan_second_actual_drive_upload_folder(run_label=run_label)
+    candidate_payloads = cache_candidates + folder_candidates
+    exact_match_count = count_exact_matches(
+        candidate_payloads,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    selected, selection_meta = choose_actual_drive_feedback_candidate(
+        candidate_payloads,
+        waveform_type=waveform_type,
+        freq_hz=freq_hz,
+        cycle_count=cycle_count,
+    )
+    metadata = {
+        **selection_meta,
+        "folder_path": folder_meta.get("folder_path"),
+        "folder_file_count": folder_meta.get("file_count", 0),
+        "actual_drive_candidate_count": folder_meta.get("actual_drive_candidate_count", 0),
+        "final_voltage_lut_count": folder_meta.get("final_voltage_lut_count", 0),
+        "exact_match_count": exact_match_count,
+        "candidate_count": len(candidate_payloads),
+    }
+    if selected is not None:
+        selected = {
+            **selected,
+            "selection_reason": metadata.get("selection_reason"),
+            "match_status": "match",
+        }
+    return selected, metadata
+
+
 def render_quick_lut_feedback_input_section(
     *,
     finite_cycle_mode: bool,
@@ -493,6 +552,8 @@ def _interp_command_column(command_profile: pd.DataFrame, target_time_s: pd.Seri
 
 
 def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: dict[str, object]) -> None:
+    if not bool(metadata.get("feedback_correction_available", False)):
+        return
     st.markdown("#### Quick LUT 피드백 보정 결과")
     st.caption("사용자가 그래프를 보고 판단하는 검토 화면입니다. 자동 합격/불합격 판정은 하지 않습니다.")
     st.caption("화면에 표시된 전압 명령과 같은 column을 저장합니다.")

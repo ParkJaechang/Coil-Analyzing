@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from .ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SECOND_ACTUAL_DRIVE_UPLOAD_DIR = REPO_ROOT / "outputs" / "field_analysis_app_state" / "uploads" / "2nd"
+DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR = REPO_ROOT / "outputs" / "field_analysis_app_state" / "uploads"
+DEFAULT_SECOND_ACTUAL_DRIVE_UPLOAD_DIR = DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR
 
 
 def scan_second_actual_drive_upload_folder(
@@ -14,7 +14,12 @@ def scan_second_actual_drive_upload_folder(
     *,
     run_label: str = "first_run",
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
-    root = Path(folder) if folder is not None else DEFAULT_SECOND_ACTUAL_DRIVE_UPLOAD_DIR
+    """Find first-run measured result CSVs for finite second modeling.
+
+    The current workflow uses the upload root as the configured drop folder; legacy
+    `uploads/2nd` files are still discovered because the scan is recursive.
+    """
+    root = Path(folder) if folder is not None else DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR
     candidates: list[dict[str, object]] = []
     actual_count = 0
     final_lut_count = 0
@@ -28,10 +33,12 @@ def scan_second_actual_drive_upload_folder(
             "final_voltage_lut_count": 0,
             "unsupported_schema_count": 0,
         }
-    files = sorted(path for path in root.glob("*.csv") if path.is_file())
+
+    files = sorted(path for path in root.rglob("*.csv") if path.is_file())
     for path in files:
         data = path.read_bytes()
         info = classify_feedback_csv_candidate(path.name, data)
+        rel_path = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.name
         file_type = str(info.get("file_type") or "unknown")
         if file_type == "actual_drive_result":
             actual_count += 1
@@ -41,11 +48,12 @@ def scan_second_actual_drive_upload_folder(
             unsupported_count += 1
         candidates.append(
             {
-                "candidate_id": f"second_folder:{path.name}",
-                "source_kind": "second_folder",
-                "source_label": "2차 모델링용 실구동 결과 폴더",
+                "candidate_id": f"actual_drive_folder:{rel_path}",
+                "source_kind": "actual_drive_folder",
+                "source_label": "1차 구동 결과 폴더",
                 "filename": path.name,
                 "original_filename": path.name,
+                "relative_path": rel_path,
                 "source_path": str(path),
                 "csv_bytes": data,
                 "run_label": run_label,

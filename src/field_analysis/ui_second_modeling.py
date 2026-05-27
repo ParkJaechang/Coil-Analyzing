@@ -133,8 +133,8 @@ def render_second_modeling_controls(
             _render_second_runtime_trace(expanded=True)
             return
         _set_second_debug_step("feedback selection missing")
-        _render_second_runtime_trace(expanded=True)
-        st.info("2차 보정 command를 만들려면 먼저 TimeMs / Voltage1_V / HallBz 컬럼이 있는 실구동 결과 CSV를 업로드/선택하십시오.")
+        _render_second_runtime_trace(expanded=False)
+        st.info("2차 보정 command를 만들려면 지정 업로드 폴더에 현재 target과 일치하는 1차 실구동 결과 CSV가 필요합니다.")
         return
     gain_mode_label = st.selectbox("2차 보정 gain mode", options=["자동 추천 gain", "수동 gain"], index=0, key="second_modeling_correction_gain_mode")
     correction_gain_mode = "manual" if gain_mode_label == "수동 gain" else "auto"
@@ -477,12 +477,22 @@ def _render_actual_drive_selection_status(
     waveform_type: str | None,
 ) -> None:
     st.markdown("##### 사용 중인 1차 실구동 데이터")
+    folder_meta = st.session_state.get("quick_lut_actual_drive_folder_source_meta")
+    if isinstance(folder_meta, dict):
+        st.caption(
+            "자동 스캔 폴더: "
+            f"`{folder_meta.get('folder_path', 'unknown')}` | "
+            f"CSV {folder_meta.get('folder_file_count', 0)}개 | "
+            f"실구동 후보 {folder_meta.get('actual_drive_candidate_count', 0)}개 | "
+            f"현재 target exact match {folder_meta.get('exact_match_count', 0)}개"
+        )
     if not feedback_selection:
-        st.info("실구동 결과 CSV가 아직 선택되지 않았습니다. TimeMs / Voltage1_V / HallBz 컬럼이 있는 측정 데이터를 선택하십시오.")
+        st.info("현재 target과 일치하는 1차 실구동 결과가 없습니다. CSV를 지정 업로드 폴더에 넣은 뒤 다시 실행하십시오.")
         return
     rows = [
         ("파일명", feedback_selection.get("filename", "unknown")),
-        ("데이터 source", feedback_selection.get("source_label", feedback_selection.get("source", "업로드 파일 또는 uploads/2nd"))),
+        ("데이터 source", feedback_selection.get("source_label", feedback_selection.get("source", "업로드 폴더"))),
+        ("상대 경로", feedback_selection.get("relative_path", "n/a")),
         ("schema", "TimeMs / Voltage1_V / HallBz"),
         ("현재 Quick LUT 설정", f"target waveform={waveform_type}, freq={freq_hz}, cycle={cycle_count}"),
         ("match 상태", feedback_selection.get("match_status", feedback_selection.get("selection_reason", "버튼 실행 시 검증"))),

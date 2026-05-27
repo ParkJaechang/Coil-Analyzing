@@ -94,6 +94,7 @@ from .ui_startup_compensation_review import render_startup_compensation_review
 from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
 from .ui_quick_lut_feedback import render_feedback_correction_review
 from .ui_quick_lut_feedback import render_actual_drive_review_from_selection
+from .ui_quick_lut_feedback import select_actual_drive_feedback_candidate_for_target
 from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
@@ -1303,6 +1304,10 @@ def _render_finite_cycle_correction_summary(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
+    # Legacy terminal/tail guardrail metrics are retained for backend debugging,
+    # but they are no longer part of the primary Quick LUT workflow.
+    if not bool(st.session_state.get("quick_lut_show_legacy_finite_metrics", False)):
+        return
     applied = _coerce_boolish(compensation.get("finite_terminal_correction_applied"))
     reason = _normalize_optional_text(
         compensation.get("finite_terminal_correction_reason")
@@ -2098,20 +2103,21 @@ def _render_finite_route_marker(compensation: dict[str, object]) -> None:
     support_tests_used = _normalize_support_tests_used(compensation.get("support_tests_used"))
     support_blended_output_nonzero = compensation.get("support_blended_output_nonzero")
 
-    st.caption(
-        f"Route: {route_mode} | finite_support_used={'yes' if finite_support_used else 'no'} | reason={route_reason}"
-    )
-    st.caption(
-        f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
-        f"| support_tests_used={support_tests_used}"
-    )
-    if support_blended_output_nonzero is not None:
-        st.caption(f"support_blended_output_nonzero={bool(support_blended_output_nonzero)}")
-
     if finite_support_used:
-        st.success("Finite empirical support route used. Using uploaded transient finite-cycle support data.")
+        st.success("finite-cycle 실측 support 데이터를 사용해 1차 command를 계산했습니다.")
     else:
-        st.warning("Steady-state fallback: finite transient support was unavailable or unusable.")
+        st.warning("finite-cycle 실측 support를 찾지 못해 fallback 경로를 사용했습니다.")
+
+    with st.expander("데이터 선택 상세 / Debug", expanded=False):
+        st.caption(
+            f"route={route_mode} | finite_support_used={'yes' if finite_support_used else 'no'} | reason={route_reason}"
+        )
+        st.caption(
+            f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
+            f"| support_tests_used={support_tests_used}"
+        )
+        if support_blended_output_nonzero is not None:
+            st.caption(f"support_blended_output_nonzero={bool(support_blended_output_nonzero)}")
 
 
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
@@ -2567,6 +2573,15 @@ def _render_quick_lut_tab_v2(
         )
 
     feedback_selection = None
+    feedback_source_meta: dict[str, object] = {}
+    if finite_cycle_mode:
+        feedback_selection, feedback_source_meta = select_actual_drive_feedback_candidate_for_target(
+            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
+            cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+            run_label="first_run",
+        )
+        st.session_state["quick_lut_actual_drive_folder_source_meta"] = feedback_source_meta
 
     if not estimate_clicked and not compensation_clicked:
         cached_first_model = st.session_state.get("quick_lut_first_model_result")

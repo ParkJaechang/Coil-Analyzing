@@ -287,9 +287,25 @@ def test_second_actual_drive_upload_folder_scan_finds_candidates(tmp_path: Path)
     assert metadata["actual_drive_candidate_count"] == 1
     assert metadata["final_voltage_lut_count"] == 1
     actual = [item for item in candidates if item["file_type"] == "actual_drive_result"][0]
-    assert actual["source_label"] == "2차 모델링용 실구동 결과 폴더"
+    assert actual["source_label"] == "1차 구동 결과 폴더"
     assert actual["freq_hz"] == 1.5
     assert actual["cycle_count"] == 1.5
+
+
+def test_actual_drive_upload_root_scan_is_recursive(tmp_path: Path) -> None:
+    from field_analysis.ui_quick_lut_feedback_second_sources import scan_second_actual_drive_upload_folder
+
+    nested = tmp_path / "2nd"
+    nested.mkdir()
+    (nested / "finite_recommended_voltage_lut_triangle_3Hz_1.5cycle_result.csv").write_bytes(
+        b"# Frequency(Hz),3.000\n# Cycles,1.500\nRow,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n"
+    )
+
+    candidates, metadata = scan_second_actual_drive_upload_folder(tmp_path)
+
+    assert metadata["file_count"] == 1
+    assert metadata["actual_drive_candidate_count"] == 1
+    assert candidates[0]["relative_path"] == "2nd/finite_recommended_voltage_lut_triangle_3Hz_1.5cycle_result.csv"
 
 
 def test_quick_lut_feedback_user_facing_source_has_no_mojibake_patterns() -> None:
