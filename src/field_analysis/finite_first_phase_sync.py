@@ -23,6 +23,7 @@ def apply_finite_first_phase_sync_modeling(
     cycle_count: float,
     mode: str = "phase_synced",
     voltage_limit_v: float = 5.0,
+    target_peak_field_mT: float | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if str(mode) == "legacy_delay_preserving":
         return command_profile.copy(deep=True), {
@@ -93,7 +94,8 @@ def apply_finite_first_phase_sync_modeling(
             "finite_first_modeling_missing_voltage": voltage_column is None,
         }
     target = pd.to_numeric(frame[target_column], errors="coerce").to_numpy(dtype=float)
-    target_peak_reference_mT = _peak_abs(target[active_mask])
+    explicit_target_peak = float(target_peak_field_mT) if target_peak_field_mT is not None else float("nan")
+    target_peak_reference_mT = explicit_target_peak if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else _peak_abs(target[active_mask])
     if not np.isfinite(target_peak_reference_mT) or target_peak_reference_mT <= 1e-12:
         target_peak_reference_mT = 50.0
     measured_raw = pd.to_numeric(frame[measured_column], errors="coerce").to_numpy(dtype=float)
@@ -361,6 +363,8 @@ def apply_finite_first_phase_sync_modeling(
         "measured_aligned_normalized_peak_mT": _peak_abs(aligned[active_mask]),
         "residual_gain_field_scale_applied": True,
         "field_modeling_normalization_reference_mT": target_peak_reference_mT,
+        "user_target_peak_field_mT": target_peak_reference_mT,
+        "target_peak_field_source": "ui_user_selection" if np.isfinite(explicit_target_peak) and explicit_target_peak > 1e-12 else "target_trace_peak",
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),

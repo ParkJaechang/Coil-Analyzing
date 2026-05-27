@@ -7,10 +7,9 @@ from .ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR = REPO_ROOT / "outputs" / "field_analysis_app_state" / "uploads"
 DEFAULT_SECOND_ACTUAL_DRIVE_UPLOAD_DIR = DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR
-PRIMARY_ACTUAL_DRIVE_RESULT_DIRS = (
-    DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR / "Continuous_1st_Result",
-    DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR / "Transient_1st_Result",
-)
+
+# Finite 2nd modeling consumes finite/transient first-drive measurements.
+PRIMARY_ACTUAL_DRIVE_RESULT_DIRS = (DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR / "Transient_1st_Result",)
 LEGACY_ACTUAL_DRIVE_RESULT_DIRS = (DEFAULT_ACTUAL_DRIVE_UPLOAD_DIR / "2nd",)
 
 
@@ -22,10 +21,10 @@ def _default_scan_roots() -> list[Path]:
 
 def _source_label_for_path(path: Path) -> str:
     parts = set(path.parts)
-    if "Continuous_1st_Result" in parts:
-        return "Continuous 1차 구동 결과 폴더"
     if "Transient_1st_Result" in parts:
         return "Finite 1차 구동 결과 폴더"
+    if "Continuous_1st_Result" in parts:
+        return "Continuous 1차 구동 결과 폴더"
     if "2nd" in parts:
         return "Legacy 2차 입력 폴더"
     return "1차 구동 결과 폴더"
@@ -36,11 +35,7 @@ def scan_second_actual_drive_upload_folder(
     *,
     run_label: str = "first_run",
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
-    """Find first-run measured result CSVs for finite second modeling.
-
-    The current workflow uses the upload root as the configured drop folder; legacy
-    `uploads/2nd` files are still discovered because the scan is recursive.
-    """
+    """Find first-run measured result CSVs for finite second modeling."""
     roots = [Path(folder)] if folder is not None else _default_scan_roots()
     candidates: list[dict[str, object]] = []
     actual_count = 0

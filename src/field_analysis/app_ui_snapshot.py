@@ -2771,6 +2771,13 @@ def _render_quick_lut_tab_v2(
                     freq_hz=float(target_freq),
                     cycle_count=float(target_cycle_count) if target_cycle_count is not None else 1.0,
                     mode=finite_first_modeling_mode,
+                    target_peak_field_mT=float(
+                        applied_for_modeling.get(
+                            "user_target_peak_field_mT",
+                            st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0),
+                        )
+                        or 50.0
+                    ),
                 )
                 command_profile = first_command_profile.copy(deep=True)
                 compensation["command_profile"] = command_profile

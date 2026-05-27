@@ -484,6 +484,28 @@ def test_finite_first_normalization_uses_target_peak_not_fixed_50mT() -> None:
     assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.05)
 
 
+def test_finite_first_normalization_uses_explicit_ui_target_peak_even_if_trace_is_50mT() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    support_time = profile["time_s"].to_numpy(dtype=float)
+    source_lut_voltage = 5.0 * np.sin(2.0 * np.pi * support_time)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(
+        profile,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        target_peak_field_mT=80.0,
+    )
+
+    expected_scale = 80.0 / 42.0
+    assert metadata["target_peak_field_source"] == "ui_user_selection"
+    assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.01)
+    assert metadata["measured_field_scale_to_target_peak_mT"] == pytest.approx(expected_scale, rel=0.02)
+    assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(5.0 * expected_scale, rel=0.05)
+
+
 def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() -> None:
     profile = _finite_profile(delay_s=0.0)
     support_time = profile["time_s"].to_numpy(dtype=float) + 10.0
