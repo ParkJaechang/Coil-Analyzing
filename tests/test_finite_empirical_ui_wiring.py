@@ -39,8 +39,8 @@ def test_finite_route_warning_and_plot_identity_contract_are_present() -> None:
         '"Nearest Support Preview"',
         '"Nearest Support Output"',
         "support_blended_output_nonzero",
-        "Finite empirical support route used. Using uploaded transient finite-cycle support data.",
-        "Steady-state fallback: finite transient support was unavailable or unusable.",
+            "finite empirical support route로 추천 전압 파형을 계산했습니다.",
+            "harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.",
         "finite empirical support route",
         'if compensation.get("finite_support_used"):',
     ]

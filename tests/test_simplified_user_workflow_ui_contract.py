@@ -37,8 +37,8 @@ def test_core_policy_wording_is_visible_in_user_facing_ui() -> None:
     )
 
     expected = [
-        "Field review/modeling은 ±50mT 기준으로 정규화합니다.",
-        "Command voltage는 ±5V 기준으로 정규화/제한합니다.",
+            "Field review/modeling은 사용자가 설정한 목표 피크 자기장 기준으로 scale-only 정규화합니다.",
+            "Command voltage는 ±5V 기준으로 제한합니다.",
         "목표 피크 자기장과 내부 정규화 기준은 분리해서 표시합니다.",
         "HallBz convention: effective field = -HallBz raw.",
         "최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.",

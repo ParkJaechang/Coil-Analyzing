@@ -28,9 +28,13 @@ LEGACY_OVERSIZED_ALLOWLIST: dict[str, str] = {
     "src/field_analysis/parser.py": "Legacy parser module with multiple import flows.",
     "src/field_analysis/plotting.py": "Legacy plotting bundle awaiting feature splits.",
     "src/field_analysis/recommendation_surface_runtime.py": "Legacy recommendation surface runtime bundle.",
+    "src/field_analysis/ui_continuous_steady_state.py": "Legacy continuous steady-state UI bundle awaiting feature splits.",
+    "src/field_analysis/ui_quick_lut_feedback.py": "Legacy Quick LUT feedback UI bundle awaiting feature splits.",
+    "src/field_analysis/ui_second_modeling.py": "Legacy second-modeling UI bundle awaiting feature splits.",
     "src/field_analysis/validation_retune.py": "Legacy retune runtime bundle.",
     "src/field_analysis/validation_retune_catalog.py": "Legacy catalog helper bundle.",
     "src/field_analysis/plant_model/harmonic_surface.py": "Legacy harmonic surface model bundle.",
+    "tests/test_continuous_steady_state_quick_lut.py": "Legacy broad continuous Quick LUT regression suite.",
 }
 
 
