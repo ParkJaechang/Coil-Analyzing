@@ -120,7 +120,11 @@ def build_continuous_phase_aligned_command_profile(
     measured_for_modeling = measured_aligned
     residual = target - measured_for_modeling
     measured_peak = _peak_abs(measured_for_modeling[active_mask])
-    field_scale = target_peak_reference_mT / measured_peak if measured_peak > 1e-12 else 1.0
+    field_scale = _frame_first_numeric(frame, "measured_field_normalization_scale_to_target_mT")
+    field_scale_source = "extraction_field_normalization_scale_to_target"
+    if field_scale is None or not np.isfinite(field_scale) or field_scale <= 1e-12:
+        field_scale = target_peak_reference_mT / measured_peak if measured_peak > 1e-12 else 1.0
+        field_scale_source = "aligned_measured_peak_fallback"
     first_voltage = source_voltage * field_scale
     voltage_norm_meta.update(
         {
@@ -130,6 +134,7 @@ def build_continuous_phase_aligned_command_profile(
             "continuous_base_voltage_headroom_v": float(max(abs(voltage_limit_v) - _peak_abs(first_voltage), 0.0)),
             "continuous_input_voltage_field_scale": float(field_scale),
             "continuous_voltage_normalization_mode": "raw_source_voltage_scaled_by_target_field_peak",
+            "continuous_input_voltage_field_scale_source": field_scale_source,
             "continuous_source_voltage_column": source_voltage_column,
             "continuous_support_voltage_column": support_voltage_column,
             "continuous_base_voltage_source": "raw_input_voltage_scaled_by_field_peak",
@@ -246,6 +251,15 @@ def _peak_abs(values: np.ndarray) -> float:
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
     return float(np.nanmax(np.abs(finite))) if finite.size else 0.0
+
+
+def _frame_first_numeric(frame: pd.DataFrame, column: str) -> float | None:
+    if column not in frame.columns:
+        return None
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.iloc[0])
 
 
 def _normalize_base_voltage(values: np.ndarray, *, base_peak_v: float, final_limit_v: float) -> tuple[np.ndarray, dict[str, Any]]:

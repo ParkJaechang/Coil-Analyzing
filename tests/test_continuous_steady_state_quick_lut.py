@@ -149,6 +149,42 @@ def test_continuous_first_modeling_scales_raw_input_voltage_by_field_peak() -> N
     assert command["base_voltage_v"].abs().max() == pytest.approx(6.0, rel=0.02)
 
 
+def test_continuous_runtime_scales_input_voltage_by_extraction_field_normalization() -> None:
+    period = 0.5
+    time_s = np.linspace(0.0, period * 8, 640, endpoint=False)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "Voltage1_V": 3.0 * np.sin(2.0 * np.pi * time_s / period),
+            "HallBz": -(40.0 * np.sin(2.0 * np.pi * time_s / period - 0.08)),
+        }
+    )
+    extraction = run_continuous_steady_state_extraction(
+        selected_candidate_name="analysis_lookup:synthetic_2Hz",
+        selected_frame=frame,
+        waveform_type="sine",
+        freq_hz=2.0,
+    )
+
+    first = run_continuous_first_modeling(
+        extraction_result=extraction["extraction_result"],
+        waveform_type="sine",
+        freq_hz=2.0,
+        target_peak_field_mT=80.0,
+    )
+
+    assert first["status"] == "ok"
+    command = first["command_profile"]
+    metadata = first["first_model_metadata"]
+    assert metadata["continuous_source_voltage_column"] == "raw_voltage_v"
+    assert metadata["continuous_input_voltage_field_scale_source"] == "extraction_field_normalization_scale_to_target"
+    assert metadata["continuous_input_voltage_field_scale"] == pytest.approx(2.0, rel=0.05)
+    assert command["source_voltage_v"].abs().max() == pytest.approx(3.0, rel=0.05)
+    assert command["base_voltage_v"].abs().max() == pytest.approx(6.0, rel=0.08)
+    assert command["target_field_1cycle_mT"].abs().max() == pytest.approx(80.0, rel=0.02)
+    assert command["measured_field_aligned_mT"].abs().max() == pytest.approx(80.0, rel=0.08)
+
+
 def test_quick_lut_continuous_actual_drive_and_validation_runtime_markers_exist() -> None:
     app_source = APP_UI.read_text(encoding="utf-8")
     source = app_source + CONT_UI.read_text(encoding="utf-8")

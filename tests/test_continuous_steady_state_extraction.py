@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -320,10 +321,15 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
     assert metadata["continuous_first_modeling_cycle_count"] == 1.0
     assert metadata["continuous_loop_output"] is True
     assert metadata["loop_endpoint_policy"] == "period_exclusive"
-    assert metadata["continuous_base_voltage_peak_v"] == 2.5
+    assert metadata["continuous_base_voltage_source"] == "raw_input_voltage_scaled_by_field_peak"
+    assert metadata["continuous_input_voltage_field_scale_source"] == "extraction_field_normalization_scale_to_target"
+    assert metadata["continuous_source_voltage_column"] == "raw_voltage_v"
+    assert metadata["continuous_base_voltage_peak_v"] == pytest.approx(
+        metadata["source_voltage_raw_peak_v"] * metadata["continuous_input_voltage_field_scale"],
+        rel=0.02,
+    )
     assert metadata["continuous_final_voltage_limit_v"] == 5.0
-    assert metadata["source_voltage_base_normalized_peak_v"] <= 2.5 + 1e-9
-    assert metadata["continuous_base_voltage_headroom_v"] >= 2.5 - 1e-9
+    assert metadata["source_voltage_base_normalized_peak_v"] == pytest.approx(metadata["continuous_base_voltage_peak_v"], rel=0.02)
     assert "continuous_clipping_fraction" in metadata
     assert {
         "first_modeled_voltage_v",
@@ -338,7 +344,7 @@ def test_continuous_phase_aligned_command_profile_uses_shared_kernel_without_tai
     assert command["time_s"].max() < 0.5
 
 
-def test_continuous_first_modeling_renormalizes_five_volt_source_to_base_peak() -> None:
+def test_continuous_first_modeling_prefers_raw_voltage_over_legacy_normalized_voltage() -> None:
     case = build_continuous_steady_state_modeling_case(
         _continuous_frame(freq_hz=2.0),
         waveform_type="sine",
@@ -356,11 +362,15 @@ def test_continuous_first_modeling_renormalizes_five_volt_source_to_base_peak() 
         base_voltage_peak_v=2.5,
     )
 
-    assert np.nanmax(np.abs(command["source_voltage_v"])) > 4.9
-    assert np.nanmax(np.abs(command["base_voltage_v"])) <= 2.5 + 1e-9
+    assert metadata["continuous_source_voltage_column"] == "raw_voltage_v"
+    assert np.nanmax(np.abs(command["source_voltage_v"])) == pytest.approx(3.0, rel=0.02)
+    assert np.nanmax(np.abs(command["base_voltage_v"])) == pytest.approx(
+        3.0 * metadata["continuous_input_voltage_field_scale"],
+        rel=0.03,
+    )
     assert np.nanmax(np.abs(command["limited_voltage_v"])) <= 5.0 + 1e-9
-    assert metadata["source_voltage_raw_peak_v"] > 4.9
-    assert metadata["source_voltage_base_normalized_peak_v"] <= 2.5 + 1e-9
+    assert metadata["source_voltage_raw_peak_v"] == pytest.approx(3.0, rel=0.02)
+    assert metadata["source_voltage_base_normalized_peak_v"] == pytest.approx(np.nanmax(np.abs(command["base_voltage_v"])), rel=0.02)
 
 
 def test_continuous_first_modeling_reports_clipping_warning_for_manual_high_gain() -> None:

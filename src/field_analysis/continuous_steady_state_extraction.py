@@ -198,6 +198,10 @@ def extract_steady_state_one_cycle_window(
     )
     window["measured_field_baseline_removed_mT"] = baseline_removed
     window["measured_field_normalized_mT"] = normalized_field
+    window["measured_field_normalization_source_peak_mT"] = field_meta.get("source_peak")
+    window["measured_field_normalization_scale_to_50mT"] = field_meta.get("scale_factor")
+    window["measured_field_normalization_scale_to_target_mT"] = field_meta.get("scale_factor")
+    window["field_modeling_normalization_reference_mT"] = 50.0
     window["voltage_normalized_v"] = normalized_voltage
     window["physical_target_output_mT"] = target
     window["normalized_physical_target_output_mT"] = normalized_target
@@ -212,6 +216,10 @@ def extract_steady_state_one_cycle_window(
         "measured_field_effective_mT",
         "measured_field_baseline_removed_mT",
         "measured_field_normalized_mT",
+        "measured_field_normalization_source_peak_mT",
+        "measured_field_normalization_scale_to_50mT",
+        "measured_field_normalization_scale_to_target_mT",
+        "field_modeling_normalization_reference_mT",
         "raw_voltage_v",
         "voltage_normalized_v",
         "physical_target_output_mT",
@@ -241,6 +249,10 @@ def extract_steady_state_one_cycle_window(
         "continuous_steady_state_window_support_status": "ok",
         "field_normalization_mode": "peak_to_50mT",
         "field_normalization_status": field_meta["status"],
+        "field_normalization_source_peak_mT": field_meta.get("source_peak"),
+        "field_normalization_scale_factor": field_meta.get("scale_factor"),
+        "measured_field_scale_to_50mT": field_meta.get("scale_factor"),
+        "measured_field_scale_to_target_mT": field_meta.get("scale_factor"),
         "voltage_normalization_mode": "peak_to_5V",
         "voltage_normalization_status": voltage_meta["status"],
         "target_normalization_status": target_meta["status"],
@@ -251,11 +263,21 @@ def extract_steady_state_one_cycle_window(
     }
     output = window.loc[:, output_columns].reset_index(drop=True)
     output.attrs["cycle_stability_metrics"] = metrics.copy(deep=True)
-    output.attrs["steady_state_support_frame"] = build_support_frame(
+    support_frame = build_support_frame(
         source,
         start_s=start_s,
         support_end_s=float(phase_support_meta.get("field_support_end_s") or end_s),
     )
+    if not support_frame.empty:
+        support_effective = pd.to_numeric(support_frame["measured_field_effective_mT"], errors="coerce").to_numpy(dtype=float)
+        support_baseline_removed = support_effective - baseline
+        support_frame["measured_field_baseline_removed_mT"] = support_baseline_removed
+        support_frame["measured_field_normalized_mT"] = support_baseline_removed * float(field_meta.get("scale_factor") or 1.0)
+        support_frame["measured_field_normalization_source_peak_mT"] = field_meta.get("source_peak")
+        support_frame["measured_field_normalization_scale_to_50mT"] = field_meta.get("scale_factor")
+        support_frame["measured_field_normalization_scale_to_target_mT"] = field_meta.get("scale_factor")
+        support_frame["field_modeling_normalization_reference_mT"] = 50.0
+    output.attrs["steady_state_support_frame"] = support_frame
     return output, metadata
 
 

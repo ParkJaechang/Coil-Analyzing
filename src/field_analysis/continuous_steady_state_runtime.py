@@ -117,6 +117,28 @@ def _scale_continuous_target_fields(frame: pd.DataFrame, *, target_peak_mT: floa
             source_peak = float(values.abs().max()) if values.notna().any() else 0.0
             if source_peak > 1e-12:
                 out[column] = values * (peak / source_peak)
+    current_ref = _first_numeric(out, "field_modeling_normalization_reference_mT")
+    if current_ref is None or current_ref <= 1e-12:
+        current_ref = 50.0
+    measured_rescale = peak / current_ref
+    for column in ("measured_field_normalized_mT", "normalized_measured_field_mT"):
+        if column in out.columns:
+            out[column] = pd.to_numeric(out[column], errors="coerce") * measured_rescale
+    base_scale = _first_numeric(out, "measured_field_normalization_scale_to_50mT")
+    if base_scale is None:
+        base_scale = _first_numeric(out, "field_normalization_scale_factor")
+    if base_scale is not None:
+        out["measured_field_normalization_scale_to_target_mT"] = float(base_scale) * (peak / 50.0)
+        out["measured_field_scale_to_target_mT"] = float(base_scale) * (peak / 50.0)
     out["user_target_peak_field_mT"] = peak
     out["field_modeling_normalization_reference_mT"] = peak
     return out
+
+
+def _first_numeric(frame: pd.DataFrame, column: str) -> float | None:
+    if column not in frame.columns:
+        return None
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.iloc[0])
