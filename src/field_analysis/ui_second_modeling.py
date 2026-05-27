@@ -479,9 +479,11 @@ def _render_actual_drive_selection_status(
     st.markdown("##### 사용 중인 1차 실구동 데이터")
     folder_meta = st.session_state.get("quick_lut_actual_drive_folder_source_meta")
     if isinstance(folder_meta, dict):
+        folder_paths = folder_meta.get("folder_paths")
+        folder_text = ", ".join(f"`{path}`" for path in folder_paths) if isinstance(folder_paths, list) else f"`{folder_meta.get('folder_path', 'unknown')}`"
         st.caption(
             "자동 스캔 폴더: "
-            f"`{folder_meta.get('folder_path', 'unknown')}` | "
+            f"{folder_text} | "
             f"CSV {folder_meta.get('folder_file_count', 0)}개 | "
             f"실구동 후보 {folder_meta.get('actual_drive_candidate_count', 0)}개 | "
             f"현재 target exact match {folder_meta.get('exact_match_count', 0)}개"

@@ -308,6 +308,27 @@ def test_actual_drive_upload_root_scan_is_recursive(tmp_path: Path) -> None:
     assert candidates[0]["relative_path"] == "2nd/finite_recommended_voltage_lut_triangle_3Hz_1.5cycle_result.csv"
 
 
+def test_default_actual_drive_scan_uses_named_first_result_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import field_analysis.ui_quick_lut_feedback_second_sources as sources
+
+    continuous = tmp_path / "Continuous_1st_Result"
+    transient = tmp_path / "Transient_1st_Result"
+    continuous.mkdir()
+    transient.mkdir()
+    (transient / "finite_recommended_voltage_lut_triangle_2Hz_1.5cycle_result.csv").write_bytes(
+        b"# Frequency(Hz),2.000\n# Cycles,1.500\nRow,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n"
+    )
+    monkeypatch.setattr(sources, "PRIMARY_ACTUAL_DRIVE_RESULT_DIRS", (continuous, transient))
+    monkeypatch.setattr(sources, "LEGACY_ACTUAL_DRIVE_RESULT_DIRS", ())
+
+    candidates, metadata = sources.scan_second_actual_drive_upload_folder()
+
+    assert metadata["folder_paths"] == [str(continuous), str(transient)]
+    assert metadata["actual_drive_candidate_count"] == 1
+    assert candidates[0]["source_label"] == "Finite 1차 구동 결과 폴더"
+    assert candidates[0]["relative_path"].startswith("Transient_1st_Result/")
+
+
 def test_quick_lut_feedback_user_facing_source_has_no_mojibake_patterns() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
     selection_source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback_selection.py").read_text(encoding="utf-8")
