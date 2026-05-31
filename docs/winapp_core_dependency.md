@@ -14,7 +14,8 @@ Last updated: 2026-06-01 KST
 
 - PR checkout path inspected: `D:\programs\Codex\Coil Analyzing_clean`
 - PR branch: `codex/finite-feedback-cycle-policy-backend`
-- PR audit-start SHA: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
+- Current documented PR head SHA: `6858c9613fa4be1c2d805b81b5a63276882ec4aa`
+- Previous implementation head SHA before PR-manager docs: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
 - PR URL: https://github.com/ParkJaechang/Coil-Analyzing/pull/61
 
 ## Dependency Method

@@ -10,8 +10,9 @@ Last updated: 2026-06-01 KST
 - Draft: yes
 - Branch: `codex/finite-feedback-cycle-policy-backend`
 - Base branch: `codex/finite-actual-drive-second-correction`
-- Head SHA at audit start: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
-- CI status at audit start: GitHub Actions CI succeeded for `d3eed1f970ffe52e70568ed4d06da1908e564dde`
+- Current documented PR head SHA: `6858c9613fa4be1c2d805b81b5a63276882ec4aa`
+- Previous implementation head SHA before PR-manager docs: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
+- CI status: GitHub Actions CI is in progress for `6858c9613fa4be1c2d805b81b5a63276882ec4aa`; previous implementation head `d3eed1f970ffe52e70568ed4d06da1908e564dde` had succeeded.
 
 ## Current Scope
 
