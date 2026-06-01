@@ -10,21 +10,22 @@ Last updated: 2026-06-01 KST
 - Draft: yes
 - Branch: `codex/finite-feedback-cycle-policy-backend`
 - Base branch: `codex/finite-actual-drive-second-correction`
-- Current PR head SHA: `8f8a881b040429a4d6451f15831602d2e76added`
-- CI status: PASS. Two GitHub Actions CI test runs completed successfully for the current head.
+- Implementation audit target SHA: `8f8a881b040429a4d6451f15831602d2e76added`
+- CI status for implementation audit target: PASS. Two GitHub Actions CI test runs completed successfully.
+- Latest exact PR head may be a later documentation-only commit; see the newest `WinApp Implementation Status` PR comment for the exact head SHA.
 
 ## Implementation Audit
 
 Result: documentation only / implementation not present.
 
-The requested Windows App skeleton is not present in the current PR head:
+The requested Windows App skeleton is not present in the audited implementation head:
 
 - MISSING: `src/coil_win_app/main.py`
 - MISSING: `src/coil_win_app/core_adapter.py`
 - MISSING: `src/coil_win_app/project_state.py`
 - MISSING: `src/coil_win_app/ui/`
 
-The requested Windows App tests are not present in the current PR head:
+The requested Windows App tests are not present in the audited implementation head:
 
 - MISSING: `tests/test_core_adapter_contract.py`
 - MISSING: `tests/test_winapp_no_streamlit_dependency.py`

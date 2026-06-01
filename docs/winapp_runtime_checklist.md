@@ -8,7 +8,7 @@ Status legend: PASS means verified on the current PR head, PARTIAL means partial
 
 | Item | Status | Evidence / Expected Result | Blocker |
 | --- | --- | --- | --- |
-| Windows App skeleton | FAIL | `src/coil_win_app/` is missing from the current PR head. | Coder must implement and push skeleton. |
+| Windows App skeleton | FAIL | `src/coil_win_app/` is missing from the audited implementation head. | Coder must implement and push skeleton. |
 | `main.py` | FAIL | `src/coil_win_app/main.py` is missing. | Needed before app launch testing. |
 | `core_adapter.py` | FAIL | `src/coil_win_app/core_adapter.py` is missing. | Needed before non-Streamlit adapter testing. |
 | `project_state.py` | FAIL | `src/coil_win_app/project_state.py` is missing. | Needed before project folder state testing. |
