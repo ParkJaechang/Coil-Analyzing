@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-01 KST
 
-Latest PR-manager recheck: 2026-06-01 KST. Runtime remains blocked because the Windows App skeleton is still missing.
+Latest PR-manager recheck: 2026-06-01 KST. PR61 runtime remains blocked because the Windows App skeleton is still missing. A separate Windows App implementation PR exists at https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.
 
 Status legend: PASS means verified on the current PR head, PARTIAL means partial evidence exists but runtime evidence is missing, FAIL means a blocking issue is known.
 
@@ -38,6 +38,17 @@ Status legend: PASS means verified on the current PR head, PARTIAL means partial
 | Final LUT export | PARTIAL | Existing contract is `sample_index,time_s,voltage_v`; Windows App export route is missing. | Missing final export adapter/UI. |
 | CSV preview | PARTIAL | Cannot validate Windows App CSV preview until UI exists. | Missing Windows App UI. |
 | Packaging smoke test | PARTIAL | Not executed. | Missing Windows App skeleton. |
+
+## Separate WinApp PR #1 Status
+
+| Item | Status | Evidence / Expected Result | Blocker |
+| --- | --- | --- | --- |
+| Separate implementation PR | PASS | https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1 | None. |
+| Windows App skeleton | PASS | `src/coil_win_app/` exists in separate PR #1. | None. |
+| Core adapter import | PASS | `coil_win_app.core_adapter` imports without Streamlit locally. | None. |
+| Required tests | PASS | Targeted local run: `11 passed`. | GitHub CI not configured/reported. |
+| User runtime checklist | PARTIAL | Possible against separate PR #1. | User-launched runtime evidence missing. |
+| Packaging smoke test | PARTIAL | Not verified in this PR-manager pass. | Need packaging command/result. |
 
 ## User Runtime Checklist After Skeleton Lands
 

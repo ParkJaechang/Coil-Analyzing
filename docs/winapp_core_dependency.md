@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-01 KST
 
-Latest PR-manager recheck: 2026-06-01 KST. Result unchanged: Windows App adapter files are still missing.
+Latest PR-manager recheck: 2026-06-01 KST. PR61 adapter files are still missing. A separate Windows App implementation PR was found at https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.
 
 ## Streamlit/Core Repo
 
@@ -29,7 +29,18 @@ Latest PR-manager recheck: 2026-06-01 KST. Result unchanged: Windows App adapter
 
 ## Windows App Adapter Audit
 
-Result: documentation only / implementation not present.
+PR61 result: documentation only / implementation not present.
+
+Separate implementation PR:
+
+- Repo: `ParkJaechang/Coil-Analyzing-WinApp`
+- PR URL: https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1
+- Branch: `winapp/bootstrap`
+- Head SHA: `5420398b718c1c3ed25ee2b3ecaf6732e79c251d`
+- Streamlit/core dependency SHA documented in that repo: `a24d0388ca8d0be0e6a603df62936a3ff956a036`
+- Core adapter import smoke: PASS, Streamlit not loaded
+- Targeted tests: PASS, `11 passed`
+- GitHub CI: no check runs reported by GitHub for that PR at recheck time
 
 - MISSING: `src/coil_win_app/core_adapter.py`
 - MISSING: `src/coil_win_app/main.py`
@@ -37,6 +48,8 @@ Result: documentation only / implementation not present.
 - MISSING: `src/coil_win_app/ui/`
 
 Because `src/coil_win_app/core_adapter.py` does not exist, the Windows App core adapter cannot be imported and cannot be considered implemented.
+
+In the separate WinApp PR, `src/coil_win_app/core_adapter.py` exists and imports without Streamlit.
 
 ## Existing Field-Analysis Imports
 
@@ -71,3 +84,10 @@ This does not replace the missing Windows App core adapter.
 - Windows App no-Streamlit dependency test: MISSING.
 - Windows App final LUT export contract test: MISSING.
 - Runtime parity: PARTIAL / blocked because the Windows App skeleton is not present.
+
+Separate WinApp PR #1 parity status:
+
+- `tests/test_core_adapter_contract.py`: PRESENT and passed locally.
+- `tests/test_winapp_no_streamlit_dependency.py`: PRESENT and passed locally.
+- `tests/test_final_lut_export_contract.py`: PRESENT and passed locally.
+- Runtime parity: PARTIAL, pending user-launched runtime evidence and packaging smoke.

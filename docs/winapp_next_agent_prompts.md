@@ -2,15 +2,15 @@
 
 Last updated: 2026-06-01 KST
 
-Latest PR-manager recheck: 2026-06-01 KST. Required implementation tasks remain unchanged because `src/coil_win_app/` is still missing.
+Latest PR-manager recheck: 2026-06-01 KST. PR61 still lacks `src/coil_win_app/`, but a separate implementation PR exists at https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.
 
 ## Prompt For Next Coder
 
-You are the next Coder for the Windows App PR. The current PR head is documentation only for Windows App status: `src/coil_win_app/` is not present.
+You are the next Coder for the Windows App work. PR61 is documentation/status only for the Windows App implementation. The actual skeleton is in separate PR #1: https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.
 
 Do not modify Streamlit/core algorithms casually. Do not push to the Streamlit/core reference repo. Work only on the Windows App PR branch unless explicitly instructed otherwise.
 
-Required implementation tasks:
+Required implementation tasks if working in PR61:
 
 1. Add `src/coil_win_app/main.py`.
 2. Add `src/coil_win_app/core_adapter.py`.
@@ -23,6 +23,14 @@ Required implementation tasks:
 9. Ensure final LUT export contract is exactly `sample_index,time_s,voltage_v`.
 10. Ensure voltage limit/normalization policy is `+/-10V`.
 11. Ensure harmonic inverse is not used as the final export route.
+
+Required follow-up tasks if working in separate WinApp PR #1:
+
+1. Keep `src/coil_win_app/main.py`, `core_adapter.py`, `project_state.py`, and `ui/` in the WinApp repo.
+2. Keep the three required tests passing.
+3. Add GitHub CI or document why local tests are the current verification source.
+4. Run user-launched runtime checklist.
+5. Run packaging smoke and record the result.
 
 ## Upstream Streamlit/Core Requests
 
