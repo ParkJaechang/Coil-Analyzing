@@ -4,41 +4,50 @@ Last updated: 2026-06-01 KST
 
 ## Prompt For Next Coder
 
-You are the next Coder for the Windows App PR. Do not modify Streamlit/core algorithms casually. Work only on the Windows App PR branch unless explicitly instructed otherwise.
+You are the next Coder for the Windows App PR. The current PR head is documentation only for Windows App status: `src/coil_win_app/` is not present.
 
-Tasks:
+Do not modify Streamlit/core algorithms casually. Do not push to the Streamlit/core reference repo. Work only on the Windows App PR branch unless explicitly instructed otherwise.
 
-1. Run the Windows App from the PR branch and complete `docs/winapp_runtime_checklist.md`.
-2. Capture runtime evidence for app launch, project folder selection, target config, finite first modeling, finite second modeling, continuous extraction, continuous first modeling, CSV preview, final LUT export, and packaging smoke.
-3. Confirm final LUT export columns are exactly `sample_index,time_s,voltage_v`.
-4. Confirm voltage normalization/limit copy and behavior use `±10V`.
-5. Confirm target peak normalization remains separate from target shape.
-6. Confirm harmonic inverse is not exposed or used as the final export route.
-7. Do not commit generated artifacts, local state, upload caches, export caches, real measurement CSV/XLSX, `dist/`, `build/`, `__pycache__/`, or `.pytest_cache/`.
+Required implementation tasks:
+
+1. Add `src/coil_win_app/main.py`.
+2. Add `src/coil_win_app/core_adapter.py`.
+3. Add `src/coil_win_app/project_state.py`.
+4. Add `src/coil_win_app/ui/`.
+5. Add `tests/test_core_adapter_contract.py`.
+6. Add `tests/test_winapp_no_streamlit_dependency.py`.
+7. Add `tests/test_final_lut_export_contract.py`.
+8. Ensure the Windows App core adapter imports without Streamlit.
+9. Ensure final LUT export contract is exactly `sample_index,time_s,voltage_v`.
+10. Ensure voltage limit/normalization policy is `+/-10V`.
+11. Ensure harmonic inverse is not used as the final export route.
 
 ## Upstream Streamlit/Core Requests
 
 1. Provide a stable, documented, non-Streamlit core adapter surface for Windows App imports.
-2. Provide a durable dependency pin or release tag for the Windows App to reference.
+2. Provide a durable dependency pin, release tag, or package reference for Windows App.
 3. Keep final LUT export contract stable: `sample_index,time_s,voltage_v`.
-4. Keep command voltage policy stable as peak-based `±10V` normalization/limit.
+4. Keep command voltage policy stable as peak-based `+/-10V` normalization/limit.
 5. Keep harmonic inverse out of final LUT export.
-6. Document any intentional algorithm/policy changes before the Windows App updates its dependency reference.
+6. Document any intentional algorithm/policy changes before Windows App updates its dependency reference.
 
 ## Test TODO
 
-- Run targeted core tests around final LUT export, continuous schema adapter, finite first modeling, and finite second modeling.
-- Run Streamlit/AppTest source contract tests if the UI copy changes.
-- Add or update routing tests only if the runtime checklist exposes a routing gap.
-- Preserve current retune policy and acceptance thresholds unless explicitly approved.
+- Run `tests/test_core_adapter_contract.py`.
+- Run `tests/test_winapp_no_streamlit_dependency.py`.
+- Run `tests/test_final_lut_export_contract.py`.
+- Run targeted field-analysis tests around final LUT export and continuous schema adapter if adapter code calls those APIs.
+- Add routing tests only if the Windows App UI introduces routing logic.
 
-## Routing TODO
+## Runtime TODO
 
-- Verify Windows App launch path uses the intended latest/full entrypoint or Quick LUT entrypoint.
-- Keep `app_field_analysis_latest.py` as the latest/full field-analysis entrypoint.
-- Keep `app_field_analysis_quick.py` as the Quick LUT entrypoint.
-- Treat `src/field_analysis/app_ui_snapshot.py` as the practical UI source of truth.
-- Do not add new feature bodies to `app_ui_snapshot.py`; extract to `ui_*.py` modules if code changes are later needed.
+- Launch the Windows App from the PR branch.
+- Select a project folder.
+- Verify target config.
+- Run finite first modeling and finite second modeling through the Windows App route.
+- Run continuous extraction and continuous first modeling through the Windows App route.
+- Export final LUT and verify `sample_index,time_s,voltage_v`.
+- Confirm generated/user data is not committed.
 
 ## Packaging TODO
 

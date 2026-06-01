@@ -2,35 +2,52 @@
 
 Last updated: 2026-06-01 KST
 
-Status legend: PASS means verified on the current PR path, PARTIAL means source/CI evidence exists but user-launched runtime evidence is missing, FAIL means a blocking issue is known.
+Status legend: PASS means verified on the current PR head, PARTIAL means partial evidence exists but runtime evidence is missing, FAIL means a blocking issue is known.
+
+## Implementation Gate
 
 | Item | Status | Evidence / Expected Result | Blocker |
 | --- | --- | --- | --- |
-| App launch | PARTIAL | Source and CI are present; user must launch the Windows App/entrypoint from the PR branch. | Need fresh user-launched runtime evidence. |
-| Project folder selection | PARTIAL | UI/workflow docs mention project selection, but current audit did not run a desktop clickthrough. | Need runtime confirmation. |
-| Target config | PARTIAL | Target shape, target peak, and normalization are separated in source/policy docs. | Need visual confirmation in app. |
-| Finite 1차 modeling | PARTIAL | `field_analysis.finite_first_phase_sync` imports without Streamlit. | Need runtime modeling run. |
-| Finite 2차 modeling | PARTIAL | `field_analysis.finite_second_modeling` imports without Streamlit. | Need runtime modeling run. |
-| Continuous extraction | PARTIAL | `field_analysis.continuous_steady_state_schema` imports without Streamlit and rejects final LUT as measurement source. | Need runtime extraction run. |
-| Continuous 1차 modeling | PARTIAL | `field_analysis.continuous_first_modeling` imports without Streamlit. | Need runtime modeling run. |
-| Final LUT export | PARTIAL | Export contract is documented and tested as `sample_index,time_s,voltage_v`. | Need exported CSV from runtime. |
-| CSV preview | PARTIAL | Final LUT review/preview source paths exist. | Need visual/user confirmation. |
-| Packaging smoke test | PARTIAL | Not executed during this PR-manager pass. | Need Coder or user packaging smoke result. |
+| Windows App skeleton | FAIL | `src/coil_win_app/` is missing from the current PR head. | Coder must implement and push skeleton. |
+| `main.py` | FAIL | `src/coil_win_app/main.py` is missing. | Needed before app launch testing. |
+| `core_adapter.py` | FAIL | `src/coil_win_app/core_adapter.py` is missing. | Needed before non-Streamlit adapter testing. |
+| `project_state.py` | FAIL | `src/coil_win_app/project_state.py` is missing. | Needed before project folder state testing. |
+| `ui/` | FAIL | `src/coil_win_app/ui/` is missing. | Needed before Windows App UI testing. |
 
-## Required Runtime Evidence
+## Required Tests
 
-- Screenshot or text capture of app launch and selected project folder.
-- Screenshot of target config showing target shape, target peak, and normalization as separate concepts.
-- Finite first modeling result for supported 1.0-cycle and/or 1.5-cycle case.
-- Finite second modeling result using actual-drive input.
-- Continuous one-cycle extraction result.
-- Continuous first modeling result.
-- Final LUT CSV preview or downloaded CSV header proving exactly `sample_index,time_s,voltage_v`.
-- Packaging smoke test command/result.
+| Test | Status | Blocker |
+| --- | --- | --- |
+| `tests/test_core_adapter_contract.py` | FAIL | Missing. |
+| `tests/test_winapp_no_streamlit_dependency.py` | FAIL | Missing. |
+| `tests/test_final_lut_export_contract.py` | FAIL | Missing. |
 
-## Policy Checks To Confirm In Runtime
+## Runtime Checklist
 
-- Voltage limit/normalization copy uses `±10V`.
-- Target peak normalization policy is visible and not mixed with target shape.
-- Final LUT export does not expose harmonic inverse as the final export method.
-- Generated exports, upload caches, and user measurement files are not staged for commit.
+| Item | Status | Evidence / Expected Result | Blocker |
+| --- | --- | --- | --- |
+| App launch | PARTIAL | Cannot validate the actual Windows App until skeleton exists. | Missing `src/coil_win_app/main.py`. |
+| Project folder selection | PARTIAL | Cannot validate Windows App project state until skeleton exists. | Missing `project_state.py`. |
+| Target config | PARTIAL | Existing field-analysis docs/policy exist, but Windows App UI is missing. | Missing Windows App UI. |
+| Finite first modeling | PARTIAL | Existing field-analysis module exists; Windows App route is missing. | Missing core adapter. |
+| Finite second modeling | PARTIAL | Existing field-analysis module exists; Windows App route is missing. | Missing core adapter. |
+| Continuous extraction | PARTIAL | Existing field-analysis module exists; Windows App route is missing. | Missing core adapter. |
+| Continuous first modeling | PARTIAL | Existing field-analysis module exists; Windows App route is missing. | Missing core adapter. |
+| Final LUT export | PARTIAL | Existing contract is `sample_index,time_s,voltage_v`; Windows App export route is missing. | Missing final export adapter/UI. |
+| CSV preview | PARTIAL | Cannot validate Windows App CSV preview until UI exists. | Missing Windows App UI. |
+| Packaging smoke test | PARTIAL | Not executed. | Missing Windows App skeleton. |
+
+## User Runtime Checklist After Skeleton Lands
+
+1. Launch the Windows App from the PR branch.
+2. Select a project folder and confirm state persists.
+3. Load target config and verify target shape is separate from target peak normalization.
+4. Run finite first modeling.
+5. Run finite second modeling.
+6. Run continuous extraction.
+7. Run continuous first modeling.
+8. Export final LUT and confirm the CSV header is exactly `sample_index,time_s,voltage_v`.
+9. Confirm voltage limit/normalization is `+/-10V`.
+10. Confirm harmonic inverse is not exposed as final export.
+11. Run packaging smoke and record the command/result.
+12. Confirm no generated exports, upload caches, local state, user CSV/XLSX data, `dist/`, `build/`, `__pycache__/`, or `.pytest_cache/` are committed.

@@ -8,26 +8,36 @@ Last updated: 2026-06-01 KST
 - Local reference path inspected: `D:\programs\Codex\Coil Analyzing`
 - Reference branch: `main`
 - Reference commit SHA: `f55fc878ac5d669fe3f0c1481ce8851fb0110de6`
-- Reference working tree status at audit: clean
+- Reference working tree status: clean
 
 ## Windows App / PR Checkout
 
 - PR checkout path inspected: `D:\programs\Codex\Coil Analyzing_clean`
-- PR branch: `codex/finite-feedback-cycle-policy-backend`
-- Current documented PR head SHA: `6858c9613fa4be1c2d805b81b5a63276882ec4aa`
-- Previous implementation head SHA before PR-manager docs: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
 - PR URL: https://github.com/ParkJaechang/Coil-Analyzing/pull/61
+- PR branch: `codex/finite-feedback-cycle-policy-backend`
+- PR head SHA: `8f8a881b040429a4d6451f15831602d2e76added`
+- CI status: PASS for current head.
 
 ## Dependency Method
 
-- No git submodule was configured.
+- No git submodule is configured.
 - No package pin for a separate Streamlit/core dependency was found in `requirements.txt`.
-- The dependency is currently documented as a source/reference relationship against the Streamlit/core repo and commit above.
-- This document is the current PR-visible record of the Streamlit/core reference SHA.
+- The current dependency record is documentation-based: Windows App work must reference Streamlit/core repo SHA `f55fc878ac5d669fe3f0c1481ce8851fb0110de6`.
 
-## Imported APIs
+## Windows App Adapter Audit
 
-Core/non-UI imports verified without importing Streamlit:
+Result: documentation only / implementation not present.
+
+- MISSING: `src/coil_win_app/core_adapter.py`
+- MISSING: `src/coil_win_app/main.py`
+- MISSING: `src/coil_win_app/project_state.py`
+- MISSING: `src/coil_win_app/ui/`
+
+Because `src/coil_win_app/core_adapter.py` does not exist, the Windows App core adapter cannot be imported and cannot be considered implemented.
+
+## Existing Field-Analysis Imports
+
+These existing field-analysis modules imported without Streamlit in the previous PR-manager smoke check with `PYTHONPATH=src`:
 
 - `field_analysis.final_modeled_lut`
 - `field_analysis.finite_first_phase_sync`
@@ -36,31 +46,25 @@ Core/non-UI imports verified without importing Streamlit:
 - `field_analysis.continuous_first_modeling`
 - `field_analysis.voltage_policy`
 
-UI modules intentionally depend on Streamlit and are not part of the core-adapter import surface.
+This does not replace the missing Windows App core adapter.
 
-## Placeholder APIs
+## Required Contract
 
-- No separate placeholder package API was found for the Streamlit/core dependency.
-- Current placeholder boundary is documentation/process based: Coder should not vendor-copy Streamlit/core changes into the Windows App path without an explicit dependency update plan.
+- Windows App adapter must import without Streamlit.
+- Windows App adapter must not vendor-copy Streamlit UI code.
+- Final LUT export contract must remain `sample_index,time_s,voltage_v`.
+- Voltage limit/normalization policy must remain `+/-10V`.
+- Harmonic inverse must not be used as the final export route.
 
 ## Upstream Requests
 
-- Add a durable dependency record if Windows App and Streamlit/core are split into separate repositories or packages.
-- Publish a stable core adapter interface that can be imported without Streamlit.
-- Keep final LUT export contract stable as `sample_index,time_s,voltage_v`.
-- Keep voltage policy stable as peak-based `±10V` normalization/limit unless explicitly approved.
-- Keep harmonic inverse out of the final export route.
+- Publish or document a stable non-Streamlit core API surface for Windows App use.
+- Add a durable dependency pin, tag, or package reference for the Windows App to consume.
+- Document any future algorithm or policy change before updating the Windows App dependency SHA.
 
 ## Parity Test Status
 
-- Core import smoke: PASS with `PYTHONPATH=src`.
-- Final LUT schema policy: covered by existing tests and source contracts.
-- Continuous schema adapter reject-final-LUT policy: covered by existing tests.
-- Full Windows runtime parity: PARTIAL, pending user-launched checklist and packaging smoke test.
-
-## Streamlit Repo Isolation
-
-- `D:\programs\Codex\Coil Analyzing` was inspected as the Streamlit/core reference checkout.
-- It remained on `main` at `f55fc878ac5d669fe3f0c1481ce8851fb0110de6`.
-- `git status -sb` reported no local changes.
-- No commit or push was made to the Streamlit/core reference repo during this PR-manager pass.
+- Windows App core adapter contract test: MISSING.
+- Windows App no-Streamlit dependency test: MISSING.
+- Windows App final LUT export contract test: MISSING.
+- Runtime parity: PARTIAL / blocked because the Windows App skeleton is not present.

@@ -10,62 +10,81 @@ Last updated: 2026-06-01 KST
 - Draft: yes
 - Branch: `codex/finite-feedback-cycle-policy-backend`
 - Base branch: `codex/finite-actual-drive-second-correction`
-- Current documented PR head SHA: `6858c9613fa4be1c2d805b81b5a63276882ec4aa`
-- Previous implementation head SHA before PR-manager docs: `d3eed1f970ffe52e70568ed4d06da1908e564dde`
-- CI status: GitHub Actions CI is in progress for `6858c9613fa4be1c2d805b81b5a63276882ec4aa`; previous implementation head `d3eed1f970ffe52e70568ed4d06da1908e564dde` had succeeded.
+- Current PR head SHA: `8f8a881b040429a4d6451f15831602d2e76added`
+- CI status: PASS. Two GitHub Actions CI test runs completed successfully for the current head.
 
-## Current Scope
+## Implementation Audit
+
+Result: documentation only / implementation not present.
+
+The requested Windows App skeleton is not present in the current PR head:
+
+- MISSING: `src/coil_win_app/main.py`
+- MISSING: `src/coil_win_app/core_adapter.py`
+- MISSING: `src/coil_win_app/project_state.py`
+- MISSING: `src/coil_win_app/ui/`
+
+The requested Windows App tests are not present in the current PR head:
+
+- MISSING: `tests/test_core_adapter_contract.py`
+- MISSING: `tests/test_winapp_no_streamlit_dependency.py`
+- MISSING: `tests/test_final_lut_export_contract.py`
+
+## Current Scope In This PR
 
 - Quick LUT-centered finite and continuous workflow stabilization.
-- Finite 1.0-cycle and 1.5-cycle production path.
 - Finite first modeling, actual-drive review, finite second modeling, tail policy, and final LUT export.
-- Continuous steady-state one-cycle extraction, continuous first modeling, continuous second modeling route, and final LUT export.
-- UI copy/policy cleanup around target shape, target peak, field normalization, voltage normalization/limit, and final export contract.
+- Continuous steady-state extraction, continuous first modeling, and continuous final LUT export.
+- Documentation of target peak normalization, voltage policy, final LUT export contract, and runtime checklist.
 
-## Implemented Pages
+## Changed Files Summary
 
-- Quick LUT workflow and target configuration.
-- Raw Waveforms / actual-drive review.
-- Finite first phase-sync modeling.
-- Finite second modeling.
-- Continuous steady-state extraction.
-- Continuous first modeling.
-- Continuous final LUT export.
-- Final voltage LUT export/review.
-- Upload memory/cache management.
+- PR changed files include field-analysis source modules, Streamlit UI modules, tests, launch scripts, reports, and PR documentation.
+- PR changed files do not include `src/coil_win_app/`.
+- PR changed files do not include the requested Windows App contract tests listed above.
 
 ## Core Adapter Status
 
-- Core modules import without Streamlit when loaded with `PYTHONPATH=src`.
-- Verified modules:
+- Windows App core adapter status: FAIL / not present because `src/coil_win_app/core_adapter.py` does not exist.
+- Existing field-analysis core modules still import without Streamlit when loaded with `PYTHONPATH=src`, but that is not a Windows App skeleton/core-adapter implementation.
+- Verified field-analysis imports from the previous PR-manager pass:
   - `field_analysis.final_modeled_lut`
   - `field_analysis.finite_first_phase_sync`
   - `field_analysis.finite_second_modeling`
   - `field_analysis.continuous_steady_state_schema`
   - `field_analysis.continuous_first_modeling`
   - `field_analysis.voltage_policy`
-- UI modules still intentionally import Streamlit.
-- Continuous schema adapter rejects final voltage LUT-shaped CSV input as a measurement source.
 
 ## Policy Status
 
-- Target peak and normalization are documented as separate concepts.
-- Field review/modeling normalization is target-peak based and uses the 50 mT normalized display/fit convention where applicable.
-- Command voltage normalization/limit policy is `±10V`.
-- Final LUT export contract is exactly `sample_index,time_s,voltage_v`.
-- Harmonic inverse output is not allowed as the final export route; final export must use the modeled/limited command profile.
+- Final LUT export contract remains documented as exactly `sample_index,time_s,voltage_v`.
+- Command voltage normalization/limit policy is documented as `+/-10V`.
+- Harmonic inverse final export remains prohibited.
+- Target peak normalization must remain separate from target shape.
 
-## Known Limitations
+## Safety Status
 
-- User-launched Windows/runtime evidence is still incomplete for this exact HEAD.
-- PR is still draft.
-- Some previously modified source/test files are already present in the working tree outside this PR-manager documentation pass.
-- The dependency pin to the Streamlit/core reference was not found in `requirements.txt`, `pyproject.toml`, or a submodule before this documentation update.
+- Streamlit/core reference repo inspected at `D:\programs\Codex\Coil Analyzing`.
+- Streamlit/core reference branch: `main`.
+- Streamlit/core reference SHA: `f55fc878ac5d669fe3f0c1481ce8851fb0110de6`.
+- Streamlit/core reference status: clean.
+- No Streamlit/core commit or push was made during this PR-manager pass.
+- No tracked generated/user data files were found under prohibited path/pattern checks for `outputs/`, `dist/`, `build/`, `__pycache__/`, `.pytest_cache/`, `*.csv`, or `*.xlsx`.
+
+## Runtime Status
+
+- Runtime evidence: PARTIAL / missing for an actual Windows App skeleton.
+- Packaging smoke: not executed.
+- User runtime checklist remains blocked until a real `src/coil_win_app` skeleton exists.
 
 ## Merge Blockers
 
-- Complete user runtime checklist on the Windows App path.
-- Confirm packaging smoke test result.
-- Confirm GitHub Actions for the final pushed documentation HEAD.
-- Decide whether remaining UI/semantics limitations are accepted or require a Coder follow-up.
-- Keep generated artifacts, local state, upload/export caches, and user measurement data out of commits.
+- Implement and push `src/coil_win_app/main.py`.
+- Implement and push `src/coil_win_app/core_adapter.py`.
+- Implement and push `src/coil_win_app/project_state.py`.
+- Implement and push `src/coil_win_app/ui/`.
+- Add and pass `tests/test_core_adapter_contract.py`.
+- Add and pass `tests/test_winapp_no_streamlit_dependency.py`.
+- Add and pass `tests/test_final_lut_export_contract.py`.
+- Complete user-launched Windows App runtime checklist.
+- Complete packaging smoke test.
