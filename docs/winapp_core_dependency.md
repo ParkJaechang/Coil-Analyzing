@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-01 KST
 
+Latest PR-manager recheck: 2026-06-01 KST. Result unchanged: Windows App adapter files are still missing.
+
 ## Streamlit/Core Repo
 
 - Reference repo: `ParkJaechang/Coil-Analyzing`

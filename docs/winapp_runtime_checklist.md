@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-01 KST
 
+Latest PR-manager recheck: 2026-06-01 KST. Runtime remains blocked because the Windows App skeleton is still missing.
+
 Status legend: PASS means verified on the current PR head, PARTIAL means partial evidence exists but runtime evidence is missing, FAIL means a blocking issue is known.
 
 ## Implementation Gate

@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-01 KST
 
+Latest PR-manager recheck: 2026-06-01 KST. Required implementation tasks remain unchanged because `src/coil_win_app/` is still missing.
+
 ## Prompt For Next Coder
 
 You are the next Coder for the Windows App PR. The current PR head is documentation only for Windows App status: `src/coil_win_app/` is not present.
