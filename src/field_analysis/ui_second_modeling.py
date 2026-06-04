@@ -114,6 +114,10 @@ def render_second_modeling_controls(
         cycle_count=cycle_count,
         waveform_type=waveform_type,
     )
+    if feedback_selection and feedback_selection.get("csv_bytes"):
+        from .ui_quick_lut_feedback import render_actual_drive_review_from_selection
+
+        render_actual_drive_review_from_selection(command_profile, feedback_selection)
     st.markdown("#### 4. 2차 보정 command")
     st.caption("사용자가 버튼을 눌렀을 때만 생성합니다. 업로드나 옵션 변경만으로 2차 보정을 자동 생성하지 않습니다.")
     st.caption("Raw peak 값은 참고용입니다. 최종 적합성은 사용자가 그래프를 보고 판단합니다. 자동 합격/불합격 판정은 하지 않습니다.")

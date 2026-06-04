@@ -91,9 +91,6 @@ from .quick_lut_target_config import (
 from .ui_quick_lut_target_debug import render_quick_lut_target_debug, render_quick_lut_target_summary
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
-from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
-from .ui_quick_lut_feedback import render_feedback_correction_review
-from .ui_quick_lut_feedback import render_actual_drive_review_from_selection
 from .ui_quick_lut_feedback import select_actual_drive_feedback_candidate_for_target
 from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
@@ -2643,7 +2640,7 @@ def _render_quick_lut_tab_v2(
     feedback_source_meta: dict[str, object] = {}
     if finite_cycle_mode:
         feedback_selection, feedback_source_meta = select_actual_drive_feedback_candidate_for_target(
-            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            waveform_type=None,
             freq_hz=float(target_freq) if target_freq is not None else None,
             cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
             run_label="first_run",
@@ -2804,16 +2801,6 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
-            feedback_metadata = None
-            if finite_cycle_mode:
-                command_profile, feedback_metadata = apply_feedback_correction_from_selection(
-                    command_profile,
-                    feedback_selection,
-                    waveform_type=str(target_waveform),
-                    freq_hz=float(target_freq),
-                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
-                )
-                compensation["command_profile"] = command_profile
             first_command_profile = command_profile.copy(deep=True)
             if isinstance(compensation, dict):
                 support_time = compensation.get("selected_support_source_time_s")
@@ -3025,7 +3012,6 @@ def _render_quick_lut_tab_v2(
                     render_startup_compensation_review(compensation, first_command_profile)
                 # Contract marker: _render_finite_cycle_correction_summary(compensation, command_profile)
                 _render_finite_cycle_correction_summary(compensation, first_command_profile)
-                render_feedback_correction_review(first_command_profile, feedback_metadata or {})
                 render_second_modeling_controls(
                     command_profile=first_command_profile,
                     feedback_selection=feedback_selection,

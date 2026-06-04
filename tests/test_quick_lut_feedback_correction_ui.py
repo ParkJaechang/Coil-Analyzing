@@ -414,6 +414,28 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
     assert not found, f"Mojibake patterns found: {found}"
 
 
+def test_default_first_drive_filename_matches_by_freq_cycle_without_waveform() -> None:
+    from field_analysis.ui_quick_lut_feedback_second_sources import count_exact_matches
+    from field_analysis.ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
+
+    csv_bytes = (
+        b"# Frequency(Hz),0.250\n"
+        b"# Cycles,1.500\n"
+        b"TimeMs,Voltage1_V,HallBz\n"
+        b"0,0,0\n"
+        b"1,1,1\n"
+    )
+    candidate = {
+        "filename": "0.25hz_1.5cycle.csv",
+        "csv_bytes": csv_bytes,
+        **classify_feedback_csv_candidate("0.25hz_1.5cycle.csv", csv_bytes),
+    }
+
+    assert candidate["waveform_type"] == "triangle"
+    assert count_exact_matches([candidate], waveform_type=None, freq_hz=0.25, cycle_count=1.5) == 1
+    assert count_exact_matches([candidate], waveform_type="sine", freq_hz=0.25, cycle_count=1.5) == 0
+
+
 def test_feedback_plot_dataframe_accepts_optional_prediction() -> None:
     from field_analysis.ui_quick_lut_feedback import build_feedback_plot_frame
 

@@ -225,6 +225,7 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
         "baseline_removed_effective_field_mT",
         "measured_field_baseline_removed_mT",
         "normalized_effective_field_mT",
+        "measured_field_smoothed_mT",
         "physical_target_output_mT",
         "measured_field_mT",
         "measured_residual_mT",
@@ -250,7 +251,10 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert metadata["duplicate_time_count"] == 0
     assert metadata["double_sign_flip_detected"] is False
     assert metadata["field_convention"] == "raw_hallbz -> effective=-raw -> baseline_removed -> normalized"
+    assert metadata["actual_drive_review_smoothing_enabled"] is True
+    assert metadata["actual_drive_review_smoothing_method"] == "median_then_rolling"
     assert np.allclose(review["raw_hallbz_mT"], -review["measured_field_effective_mT"], atol=1e-12)
+    assert np.isfinite(review["measured_field_smoothed_mT"].to_numpy(dtype=float)).all()
     assert np.allclose(
         review["measured_field_baseline_removed_mT"],
         review["baseline_removed_effective_field_mT"],

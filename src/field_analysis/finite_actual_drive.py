@@ -242,6 +242,7 @@ def build_actual_drive_review_case(
     measured_pp = _pp(measured_field[active_mask])
     measured_peak_error = float(measured_pp - float(FIELD_ROUTE_NORMALIZED_TARGET_PP)) if np.isfinite(measured_pp) else float("nan")
     normalized_peak = peak_abs(normalized_measured_field[active_mask])
+    smoothed_normalized_measured_field = _smooth_review_signal(normalized_measured_field, active_mask)
     normalized_voltage_peak = peak_abs(normalized_first_voltage)
     normalized_terminal_peak_error = float(
         peak_abs(normalized_target[active_mask]) - peak_abs(normalized_measured_field[active_mask])
@@ -277,6 +278,7 @@ def build_actual_drive_review_case(
             "normalized_effective_field_mT": normalized_measured_field,
             "normalized_measured_field_mT": normalized_measured_field,
             "measured_field_normalized_mT": normalized_measured_field,
+            "measured_field_smoothed_mT": smoothed_normalized_measured_field,
             "normalized_physical_target_output_mT": normalized_target,
             "measured_residual_normalized_mT": normalized_residual,
             "modeled_cycle_count": float(record.cycle_count),
@@ -333,6 +335,8 @@ def build_actual_drive_review_case(
         "field_normalization_status": field_norm_meta["status"],
         "field_normalization_source_peak_mT": field_norm_meta["source_peak"],
         "field_normalization_scale_factor": field_norm_meta["scale_factor"],
+        "actual_drive_review_smoothing_enabled": True,
+        "actual_drive_review_smoothing_method": "median_then_rolling",
         "target_normalization_source_peak_mT": target_norm_meta["source_peak"],
         "target_normalization_scale_factor": target_norm_meta["scale_factor"],
         "voltage_normalization_enabled": True,
@@ -529,6 +533,31 @@ def _pp(values: np.ndarray) -> float:
     if finite.size == 0:
         return float("nan")
     return float(np.nanmax(finite) - np.nanmin(finite))
+
+
+def _smooth_review_signal(values: np.ndarray, active_mask: np.ndarray) -> np.ndarray:
+    signal = pd.Series(np.asarray(values, dtype=float)).interpolate(limit_direction="both").ffill().bfill()
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(signal.to_numpy(dtype=float))
+    active_count = int(np.sum(active))
+    window = _odd_window(min(max(5, int(round(active_count * 0.03))), 51), max(active_count, 1))
+    if window <= 1:
+        return signal.to_numpy(dtype=float)
+    return (
+        signal.rolling(window=window, center=True, min_periods=1)
+        .median()
+        .rolling(window=window, center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+
+
+def _odd_window(value: int, count: int) -> int:
+    if count <= 1:
+        return 1
+    value = max(1, min(int(value), int(count)))
+    if value % 2 == 0:
+        value -= 1
+    return max(1, value)
 
 
 def _json_safe(value: Any) -> Any:

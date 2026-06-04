@@ -98,3 +98,12 @@ def test_actual_drive_feedback_review_is_button_gated_and_plotted() -> None:
     assert "목표 자기장 vs 실측 자기장" in source
     assert "1차 실구동 데이터 원본 확인" in source
     assert "부호 보정 자기장 (-HallBz)" in source
+
+
+def test_first_drive_review_is_separate_from_first_model_feedback_correction() -> None:
+    app_source = APP_UI.read_text(encoding="utf-8")
+    second_source = SECOND_UI.read_text(encoding="utf-8")
+
+    assert "apply_feedback_correction_from_selection" not in app_source
+    assert "render_feedback_correction_review(" not in app_source
+    assert "render_actual_drive_review_from_selection(command_profile, feedback_selection)" in second_source
