@@ -8,17 +8,25 @@ RESULT_FILENAME_RE = re.compile(
     r"(?P<canonical>finite_recommended_voltage_lut_(?P<waveform>[A-Za-z]+)_(?P<freq>[0-9]+(?:\.[0-9]+)?)Hz_(?P<cycle>[0-9]+(?:\.[0-9]+)?)cycle(?:_result)?\.csv)$",
     re.IGNORECASE,
 )
+DEFAULT_TRIANGLE_RESULT_FILENAME_RE = re.compile(
+    r"(?P<canonical>(?:finite_)?(?P<freq>[0-9]+(?:[._p][0-9]+)?)hz_(?P<cycle>[0-9]+(?:[._p][0-9]+)?)cycle\.csv)$",
+    re.IGNORECASE,
+)
 
 
 def parse_finite_actual_drive_filename(path: str | Path) -> dict[str, Any]:
     name = Path(path).name
     match = RESULT_FILENAME_RE.search(name)
+    waveform = None
+    if match is None:
+        match = DEFAULT_TRIANGLE_RESULT_FILENAME_RE.search(name)
+        waveform = "triangle" if match is not None else None
     if match is None:
         raise ValueError(f"Unsupported finite actual-drive result filename: {name}")
     prefix = name[: match.start("canonical")]
     if prefix.endswith("_"):
         prefix = prefix[:-1]
-    waveform = match.group("waveform").lower()
+    waveform = waveform or match.group("waveform").lower()
     return {
         "source_type": "finite_actual_drive_result",
         "source_file": name,
@@ -26,9 +34,13 @@ def parse_finite_actual_drive_filename(path: str | Path) -> dict[str, Any]:
         "upload_internal_id": prefix or None,
         "waveform": waveform,
         "waveform_type": waveform,
-        "freq_hz": float(match.group("freq")),
-        "cycle_count": float(match.group("cycle")),
+        "freq_hz": _filename_float(match.group("freq")),
+        "cycle_count": _filename_float(match.group("cycle")),
     }
+
+
+def _filename_float(value: str) -> float:
+    return float(str(value).replace("_", ".").replace("p", ".").replace("P", "."))
 
 
 def parse_preamble(lines: list[str]) -> tuple[dict[str, Any], int]:

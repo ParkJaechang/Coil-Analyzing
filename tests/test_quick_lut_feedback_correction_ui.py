@@ -327,6 +327,34 @@ def test_default_actual_drive_scan_uses_named_first_result_folders(tmp_path: Pat
     assert candidates[0]["relative_path"].startswith("Transient_1st_Result/")
 
 
+def test_default_triangle_first_result_filenames_match_current_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import field_analysis.ui_quick_lut_feedback_second_sources as sources
+
+    transient = tmp_path / "Transient_1st_Result"
+    transient.mkdir()
+    (transient / "0.25hz_1.5cycle.csv").write_bytes(
+        b"Row,TimeMs,HallBz,Voltage1_V\n0,0,1,0\n"
+    )
+    monkeypatch.setattr(sources, "PRIMARY_ACTUAL_DRIVE_RESULT_DIRS", (transient,))
+    monkeypatch.setattr(sources, "LEGACY_ACTUAL_DRIVE_RESULT_DIRS", ())
+
+    candidates, metadata = sources.scan_second_actual_drive_upload_folder()
+
+    assert metadata["actual_drive_candidate_count"] == 1
+    assert candidates[0]["waveform_type"] == "triangle"
+    assert candidates[0]["freq_hz"] == 0.25
+    assert candidates[0]["cycle_count"] == 1.5
+    assert (
+        sources.count_exact_matches(
+            candidates,
+            waveform_type="triangle",
+            freq_hz=0.25,
+            cycle_count=1.5,
+        )
+        == 1
+    )
+
+
 def test_quick_lut_feedback_user_facing_source_has_no_mojibake_patterns() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback.py").read_text(encoding="utf-8")
     selection_source = (SRC_ROOT / "field_analysis" / "ui_quick_lut_feedback_selection.py").read_text(encoding="utf-8")

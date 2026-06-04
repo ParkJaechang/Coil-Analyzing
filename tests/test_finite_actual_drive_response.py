@@ -194,6 +194,16 @@ def test_actual_drive_filename_without_prefix_still_parses() -> None:
     assert parsed["cycle_count"] == 1.0
 
 
+def test_actual_drive_default_triangle_hz_cycle_filename_parses() -> None:
+    parsed = parse_finite_actual_drive_filename("0.25hz_1.5cycle.csv")
+
+    assert parsed["upload_internal_id"] is None
+    assert parsed["canonical_source_filename"] == "0.25hz_1.5cycle.csv"
+    assert parsed["waveform_type"] == "triangle"
+    assert parsed["freq_hz"] == 0.25
+    assert parsed["cycle_count"] == 1.5
+
+
 def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     path = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.25cycle_result.csv"
     _write_actual_drive_csv(path)
