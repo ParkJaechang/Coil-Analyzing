@@ -70,6 +70,7 @@ def compute_second_modeling_gain(
     gain_mode: str,
     voltage_limit_v: float,
     tail_mask: np.ndarray | None = None,
+    error_ratio_for_gain: np.ndarray | None = None,
 ) -> tuple[float, dict[str, Any]]:
     mode = "manual" if str(gain_mode).lower() == "manual" else "auto"
     manual = float(np.clip(manual_gain, 0.0, 1.0))
@@ -89,17 +90,42 @@ def compute_second_modeling_gain(
     first_peak = float(np.nanmax(first)) if first.size else 0.0
     headroom = np.maximum(float(voltage_limit_v) - first, 0.0) if first.size else np.array([], dtype=float)
     headroom_safe = float(np.nanpercentile(headroom, 20)) if headroom.size else 0.0
+    if error_ratio_for_gain is not None:
+        ratio_source = np.abs(np.asarray(error_ratio_for_gain, dtype=float)[active])
+        error_ratio = ratio_source[np.isfinite(ratio_source)]
+        error_ratio_basis = "field_residual_over_target_peak"
+    else:
+        voltage_limit_abs = max(abs(float(voltage_limit_v)), 1e-12)
+        error_ratio = unit / voltage_limit_abs if unit.size else np.array([], dtype=float)
+        error_ratio_basis = "unit_delta_over_voltage_limit"
+    mean_error_ratio = float(np.nanmean(error_ratio)) if error_ratio.size else 0.0
+    rms_error_ratio = float(np.sqrt(np.nanmean(np.square(error_ratio)))) if error_ratio.size else 0.0
+    max_error_ratio = float(np.nanmax(error_ratio)) if error_ratio.size else 0.0
+    p95_error_ratio = float(np.nanpercentile(error_ratio, 95)) if error_ratio.size else 0.0
+    target_error_ratio_goal = 0.01
+    goal_error_ratio = rms_error_ratio
+    adaptive_drive_error_ratio = max(rms_error_ratio, 0.65 * p95_error_ratio, 0.45 * max_error_ratio)
+    if goal_error_ratio <= target_error_ratio_goal:
+        nominal = 0.0
+        adaptive_gain_reason = "target_rms_error_goal_reached"
+    else:
+        # Apply the fraction of the residual needed to reduce the current
+        # error estimate toward the 1% target.  Example: 10% -> gain 0.90,
+        # 2% -> gain 0.50.  Headroom may still limit the final applied gain.
+        nominal = 1.0 - target_error_ratio_goal / max(adaptive_drive_error_ratio, 1e-12)
+        adaptive_gain_reason = "error_proportional_to_one_percent_goal"
+    nominal = float(np.clip(nominal, 0.0, 1.0))
     if unit_peak <= 1e-9:
-        auto = 0.25
+        auto = nominal
+        headroom_limited_auto = nominal
         target_delta_peak = 0.0
     else:
-        target_delta_peak = min(
-            0.35 * max(first_peak, 1e-9),
-            0.70 * max(headroom_safe, 0.0),
-            1.0,
-        )
-        auto = target_delta_peak / max(unit_peak, 1e-9)
-    auto_clamped = float(np.clip(auto, 0.05, 0.50))
+        requested_delta_peak = unit_peak * nominal
+        headroom_delta_peak = 0.70 * max(headroom_safe, 0.0)
+        target_delta_peak = min(requested_delta_peak, headroom_delta_peak)
+        headroom_limited_auto = target_delta_peak / max(unit_peak, 1e-9)
+        auto = min(nominal, headroom_limited_auto)
+    auto_clamped = 0.0 if nominal <= 0.0 else float(np.clip(auto, 0.0, 1.0))
     used = manual if mode == "manual" else auto_clamped
     return used, {
         "correction_gain_mode": mode,
@@ -113,6 +139,24 @@ def compute_second_modeling_gain(
         "auto_gain_first_voltage_peak_v": first_peak,
         "auto_gain_headroom_safe_v": headroom_safe,
         "auto_gain_target_delta_peak_v": float(target_delta_peak),
+        "auto_gain_nominal_residual_fraction": nominal,
+        "auto_gain_adaptive_drive_error_ratio": adaptive_drive_error_ratio,
+        "auto_gain_formula": "max(0, 1 - target_error_ratio_goal / adaptive_drive_error_ratio)",
+        "auto_gain_headroom_limited": bool(unit_peak > 1e-9 and headroom_limited_auto < nominal - 1e-12),
+        "auto_gain_policy": "target_rms_error_goal_adaptive_headroom_limited",
+        "auto_gain_error_ratio_basis": error_ratio_basis,
+        "target_error_ratio_goal": target_error_ratio_goal,
+        "goal_error_metric": "rms_error_ratio",
+        "goal_error_ratio": goal_error_ratio,
+        "mean_error_ratio": mean_error_ratio,
+        "rms_error_ratio": rms_error_ratio,
+        "max_error_ratio": max_error_ratio,
+        "p95_error_ratio": p95_error_ratio,
+        "goal_reached": bool(goal_error_ratio <= target_error_ratio_goal),
+        "samples_above_1pct": int(np.sum(error_ratio > target_error_ratio_goal)) if error_ratio.size else 0,
+        "adaptive_correction_gain": float(used),
+        "adaptive_gain_reason": adaptive_gain_reason,
+        "next_correction_recommended": bool(mode == "auto" and goal_error_ratio > target_error_ratio_goal),
         "auto_gain_clamped": bool(not np.isclose(auto, auto_clamped)),
         "tail_gain_used": float(used),
     }

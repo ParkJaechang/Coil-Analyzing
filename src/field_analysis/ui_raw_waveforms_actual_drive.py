@@ -322,7 +322,7 @@ def _render_actual_drive_status_card(metadata: dict[str, Any]) -> None:
         ("dt median", metadata.get("dt_median_s")),
         ("active duration ratio", metadata.get("active_duration_ratio")),
         ("HallBz convention", "effective field = -HallBz raw"),
-        ("field normalization", "±50mT"),
+        ("field normalization", "user target peak mT"),
         ("voltage normalization", COMMAND_VOLTAGE_LIMIT_LABEL),
     ]
     note = metadata.get("raw_waveforms_metadata_source_note")

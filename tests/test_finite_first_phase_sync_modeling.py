@@ -56,7 +56,7 @@ def test_finite_first_phase_sync_kernel_adds_aligned_residual_columns() -> None:
     assert "residual_for_modeling_mT" in result.columns
     assert "correction_delta_v" in result.columns
     assert metadata["measured_abs_peak_effective_mT"] == pytest.approx(42.0, rel=0.01)
-    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / 42.0, rel=0.01)
+    assert metadata["measured_field_scale_to_target_mT"] == pytest.approx(50.0 / 42.0, rel=0.01)
     assert metadata["residual_gain_field_scale_applied"] is True
     assert metadata["active_residual_finite_through_end"] is True
     assert result["measured_field_aligned_mT"].notna().all()
@@ -73,7 +73,7 @@ def test_finite_first_phase_sync_scales_smoothed_measured_without_offset_shift()
     assert metadata["measured_field_normalization_mode"] == "scale_only_abs_peak_to_target_peak"
     assert float(metadata["measured_field_total_offset_removed_mT"]) == pytest.approx(0.0)
     expected_peak = 42.0 + 18.0
-    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(50.0 / expected_peak, rel=0.04)
+    assert metadata["measured_field_scale_to_target_mT"] == pytest.approx(50.0 / expected_peak, rel=0.04)
     active = result["measured_field_smoothed_mT"].dropna()
     assert active.max() == pytest.approx(50.0, abs=1.5)
     assert active.min() > -25.0
@@ -255,11 +255,10 @@ def test_finite_first_phase_sync_pairs_measured_dominant_peak_with_nearest_same_
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=freq_hz, cycle_count=cycle_count)
 
     assert metadata["finite_first_modeling_status"] == "ok"
-    assert metadata["phase_sync_voltage_reference"] == "nearest_same_polarity_peak_to_measured_peak"
-    assert metadata["phase_sync_peak_polarity"] == "negative"
-    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(second_negative_voltage_peak_s, abs=0.02)
-    assert float(metadata["measured_first_peak_time_s"]) == pytest.approx(second_negative_voltage_peak_s + delay_s, abs=0.03)
-    assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
+    assert metadata["phase_sync_voltage_reference"] == "target_zero_crossing"
+    assert metadata["phase_sync_peak_reference"] == "second_to_third_peak_midpoint"
+    assert metadata["phase_sync_alignment_anchor"] == "peak_pair_midpoint_to_target_zero_crossing"
+    assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.04)
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
 
@@ -287,9 +286,10 @@ def test_finite_first_one_point_five_cycle_uses_negative_peak_reference() -> Non
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=freq_hz, cycle_count=cycle_count)
 
     assert metadata["finite_first_modeling_status"] == "ok"
-    assert metadata["phase_sync_peak_reference"] == "dominant_negative_peak"
-    assert metadata["phase_sync_peak_polarity"] == "negative"
-    assert float(metadata["voltage_first_peak_time_s"]) == pytest.approx(0.75, abs=0.03)
+    assert metadata["phase_sync_peak_reference"] == "second_to_third_peak_midpoint"
+    assert metadata["phase_sync_voltage_reference"] == "target_zero_crossing"
+    assert metadata["phase_sync_alignment_anchor"] == "peak_pair_midpoint_to_target_zero_crossing"
+    assert float(metadata["phase_sync_target_zero_crossing_time_s"]) == pytest.approx(1.0, abs=0.03)
     assert float(metadata["phase_delay_s"]) == pytest.approx(delay_s, abs=0.03)
     assert result["measured_field_aligned_mT"].notna().all()
     assert result["residual_for_modeling_mT"].notna().all()
@@ -430,7 +430,7 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
 
     assert metadata["finite_first_modeling_status"] == "ok"
     assert metadata["finite_first_input_voltage_source"] == "selected_support_source_voltage_v"
-    scale = float(metadata["measured_field_scale_to_50mT"])
+    scale = float(metadata["measured_field_scale_to_target_mT"])
     expected_normalized_input = result["finite_first_input_lut_voltage_v"].to_numpy(dtype=float) * scale
     assert "finite_first_input_lut_voltage_v" in result.columns
     assert "finite_first_input_lut_voltage_normalized_v" in result.columns
@@ -478,8 +478,8 @@ def test_finite_first_normalization_uses_target_peak_not_fixed_50mT() -> None:
 
     expected_scale = 80.0 / 42.0
     assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.01)
+    assert metadata["measured_field_scale_to_target_mT"] == pytest.approx(expected_scale, rel=0.02)
     assert metadata["measured_field_scale_to_target_peak_mT"] == pytest.approx(expected_scale, rel=0.02)
-    assert metadata["measured_field_scale_to_50mT"] == pytest.approx(expected_scale, rel=0.02)
     assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(5.0 * expected_scale, rel=0.05)
     assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.05)
 
@@ -505,9 +505,39 @@ def test_finite_first_normalization_uses_explicit_ui_target_peak_even_if_trace_i
     assert metadata["target_field_original_peak_mT"] == pytest.approx(50.0, rel=0.01)
     assert metadata["target_field_scaled_peak_mT"] == pytest.approx(80.0, rel=0.01)
     assert metadata["target_field_scale_applied"] == pytest.approx(1.6, rel=0.01)
+    assert metadata["measured_field_scale_to_target_mT"] == pytest.approx(expected_scale, rel=0.02)
     assert metadata["measured_field_scale_to_target_peak_mT"] == pytest.approx(expected_scale, rel=0.02)
     assert result["physical_target_output_mT"].abs().max() == pytest.approx(80.0, rel=0.01)
     assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(5.0 * expected_scale, rel=0.05)
+
+
+def test_finite_first_residual_delta_uses_measured_field_per_input_volt() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    support_time = profile["time_s"].to_numpy(dtype=float)
+    source_lut_voltage = 1.0 * np.sin(2.0 * np.pi * support_time)
+    profile["limited_voltage_v"] = source_lut_voltage
+    profile["recommended_voltage_v"] = source_lut_voltage
+    profile["physical_target_output_mT"] = 50.0 * np.sin(2.0 * np.pi * support_time)
+    profile["finite_first_actual_measured_field_mT"] = 40.0 * np.sin(2.0 * np.pi * support_time)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = profile["finite_first_actual_measured_field_mT"].to_list()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["field_per_volt_mT_per_v"] == pytest.approx(40.0, rel=0.03)
+    assert metadata["voltage_per_field_v_per_mT"] == pytest.approx(1.0 / 40.0, rel=0.03)
+    assert metadata["correction_delta_mode"] == "residual_div_field_per_volt"
+    assert metadata["correction_delta_v_uses_field_per_volt"] is True
+    assert metadata["finite_first_input_lut_voltage_normalized_peak_v"] == pytest.approx(1.25, rel=0.03)
+    assert result["finite_first_input_lut_voltage_normalized_v"].abs().max() == pytest.approx(1.25, rel=0.03)
+    residual = result["residual_for_modeling_mT"].to_numpy(dtype=float)
+    raw_delta = result["raw_correction_delta_v"].to_numpy(dtype=float)
+    gain = float(metadata["correction_gain_used"])
+    field_per_volt = float(metadata["field_per_volt_mT_per_v"])
+    finite = np.isfinite(residual) & np.isfinite(raw_delta)
+    assert np.nanmax(np.abs(raw_delta[finite] - residual[finite] / field_per_volt * gain)) < 1e-6
 
 
 def test_finite_first_target_peak_changes_residual_and_correction_delta() -> None:
@@ -565,12 +595,80 @@ def test_finite_first_input_voltage_uses_voltage_active_start_not_field_start() 
 
     result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
 
-    scale = float(metadata["measured_field_scale_to_50mT"])
+    scale = float(metadata["measured_field_scale_to_target_mT"])
     assert metadata["finite_first_modeling_status"] == "ok"
     assert metadata["phase_sync_source_active_start_s"] == pytest.approx(10.0)
     assert result["finite_first_input_lut_voltage_v"].iloc[0] == pytest.approx(0.0, abs=0.05)
     assert result["finite_first_input_lut_voltage_normalized_v"].iloc[0] == pytest.approx(0.0, abs=0.05)
     assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.03)
+
+
+def test_finite_first_detects_support_motion_start_when_metadata_missing() -> None:
+    profile = _finite_profile(delay_s=0.0)
+    native_start = 5.0
+    motion_start = 5.35
+    support_time = np.linspace(native_start, 6.55, 520, endpoint=False)
+    rel = support_time - motion_start
+    active_rel = np.clip(rel, 0.0, None)
+    source_lut_voltage = np.where(rel >= 0.0, 5.0 * np.sin(2.0 * np.pi * active_rel), 0.0)
+    source_measured = np.where(rel >= 0.0, 42.0 * np.sin(2.0 * np.pi * (active_rel - 0.08)), 0.0)
+    profile.attrs["selected_support_source_time_s"] = support_time.tolist()
+    profile.attrs["selected_support_source_mT"] = source_measured.tolist()
+    profile.attrs["selected_support_source_voltage_v"] = source_lut_voltage.tolist()
+
+    result, metadata = apply_finite_first_phase_sync_modeling(profile, freq_hz=1.0, cycle_count=1.0)
+
+    assert metadata["finite_first_modeling_status"] == "ok"
+    assert metadata["phase_sync_source_active_start_s"] == pytest.approx(motion_start, abs=0.01)
+    assert result["finite_first_input_lut_voltage_v"].iloc[0] == pytest.approx(0.0, abs=0.2)
+    assert result["finite_first_input_lut_voltage_v"].abs().max() == pytest.approx(5.0, rel=0.05)
+    assert result["measured_field_aligned_mT"].notna().all()
+    assert result["residual_for_modeling_mT"].notna().all()
+
+
+def test_finite_first_error_evaluation_excludes_discharge_tail() -> None:
+    one, one_meta = apply_finite_first_phase_sync_modeling(_finite_profile(cycle_count=1.0), freq_hz=1.0, cycle_count=1.0)
+    one_half_profile = _finite_profile(cycle_count=1.5)
+    tail_mask = pd.to_numeric(one_half_profile["time_s"], errors="coerce") > 1.25
+    one_half_profile.loc[tail_mask, "finite_first_actual_measured_field_mT"] *= 0.75
+    one_half, one_half_meta = apply_finite_first_phase_sync_modeling(
+        one_half_profile,
+        freq_hz=1.0,
+        cycle_count=1.5,
+    )
+
+    assert one_meta["error_evaluation_cycle_count"] == pytest.approx(0.75)
+    assert one_meta["error_evaluation_start_cycle"] == pytest.approx(0.25)
+    assert one_meta["error_evaluation_end_cycle"] == pytest.approx(0.75)
+    assert one_meta["error_evaluation_end_s"] == pytest.approx(0.75)
+    assert one_half_meta["error_evaluation_cycle_count"] == pytest.approx(1.25)
+    assert one_half_meta["error_evaluation_start_cycle"] == pytest.approx(0.25)
+    assert one_half_meta["error_evaluation_end_cycle"] == pytest.approx(1.25)
+    assert one_half_meta["error_evaluation_end_s"] == pytest.approx(1.25)
+    assert np.isfinite(float(one_meta["peak_to_peak_error_ratio"]))
+    assert np.isfinite(float(one_meta["positive_peak_error_ratio"]))
+    assert np.isfinite(float(one_meta["negative_peak_error_ratio"]))
+    assert np.isfinite(float(one_half_meta["peak_to_peak_error_ratio"]))
+    assert "modeling_error_evaluation_mask" in one.columns
+    assert "modeling_error_evaluation_mask" in one_half.columns
+    assert not bool(one.loc[one["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
+    assert bool(one.loc[(one["time_s"] >= 0.25) & (one["time_s"] <= 0.75), "modeling_error_evaluation_mask"].all())
+    assert not bool(one.loc[one["time_s"] > 0.75, "modeling_error_evaluation_mask"].any())
+    assert not bool(one_half.loc[one_half["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
+    assert bool(one_half.loc[(one_half["time_s"] >= 0.25) & (one_half["time_s"] <= 1.25), "modeling_error_evaluation_mask"].all())
+    assert not bool(one_half.loc[one_half["time_s"] > 1.25, "modeling_error_evaluation_mask"].any())
+    one_tail = one.loc[one["time_s"] > 0.75, "correction_delta_v"].to_numpy(dtype=float)
+    one_half_tail = one_half.loc[one_half["time_s"] > 1.25, "correction_delta_v"].to_numpy(dtype=float)
+    one_tail_residual = one.loc[one["time_s"] > 0.75, "residual_for_modeling_mT"].to_numpy(dtype=float)
+    one_half_tail_residual = one_half.loc[one_half["time_s"] > 1.25, "residual_for_modeling_mT"].to_numpy(dtype=float)
+    one_tail_raw_delta = one.loc[one["time_s"] > 0.75, "raw_correction_delta_v"].to_numpy(dtype=float)
+    one_half_tail_raw_delta = one_half.loc[one_half["time_s"] > 1.25, "raw_correction_delta_v"].to_numpy(dtype=float)
+    assert np.isfinite(one_tail).all()
+    assert np.isfinite(one_half_tail).all()
+    assert np.isfinite(one_tail_residual).all()
+    assert np.isfinite(one_half_tail_residual).all()
+    assert np.isfinite(one_tail_raw_delta).all()
+    assert np.isfinite(one_half_tail_raw_delta).all()
 
 
 def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -> None:

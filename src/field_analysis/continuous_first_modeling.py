@@ -9,6 +9,11 @@ from field_analysis.continuous_phase_support import continuous_peak_alignment_me
 from field_analysis.finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling
 from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
 from field_analysis.finite_second_modeling_tail import compute_second_modeling_gain
+from field_analysis.first_modeling_voltage_response import (
+    field_per_volt_response_metadata,
+    residual_to_voltage_delta_from_field_per_volt,
+)
+from field_analysis.modeling_error_metrics import peak_error_metrics
 from field_analysis.voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
@@ -120,6 +125,13 @@ def build_continuous_phase_aligned_command_profile(
         }
     measured_for_modeling = measured_aligned
     residual = target - measured_for_modeling
+    evaluation_start_s = output_start_s + 0.25 * period_s
+    evaluation_end_s = output_start_s + 0.75 * period_s
+    evaluation_mask = (
+        active_mask
+        & (time_s >= evaluation_start_s - 1e-12)
+        & (time_s <= evaluation_end_s + 1e-12)
+    )
     measured_peak = _peak_abs(measured_for_modeling[active_mask])
     field_scale = _frame_first_numeric(frame, "measured_field_normalization_scale_to_target_mT")
     field_scale_source = "extraction_field_normalization_scale_to_target"
@@ -127,6 +139,13 @@ def build_continuous_phase_aligned_command_profile(
         field_scale = target_peak_reference_mT / measured_peak if measured_peak > 1e-12 else 1.0
         field_scale_source = "aligned_measured_peak_fallback"
     first_voltage = source_voltage * field_scale
+    field_response_meta = field_per_volt_response_metadata(
+        source_voltage,
+        active_mask,
+        target_peak_mT=target_peak_reference_mT,
+        field_scale_to_target=float(field_scale),
+        prefix="continuous",
+    )
     voltage_norm_meta.update(
         {
             "continuous_base_voltage_peak_v": _peak_abs(first_voltage),
@@ -134,22 +153,32 @@ def build_continuous_phase_aligned_command_profile(
             "source_voltage_base_normalization_scale": float(field_scale),
             "continuous_base_voltage_headroom_v": float(max(abs(voltage_limit_v) - _peak_abs(first_voltage), 0.0)),
             "continuous_input_voltage_field_scale": float(field_scale),
+            "measured_field_scale_to_target_mT": float(field_scale),
             "continuous_voltage_normalization_mode": "raw_source_voltage_scaled_by_target_field_peak",
             "continuous_input_voltage_field_scale_source": field_scale_source,
             "continuous_source_voltage_column": source_voltage_column,
             "continuous_support_voltage_column": support_voltage_column,
             "continuous_base_voltage_source": "raw_input_voltage_scaled_by_field_peak",
+            **field_response_meta,
         }
     )
-    unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
+    unit_delta = residual_to_voltage_delta_from_field_per_volt(
+        residual,
+        float(field_response_meta.get("field_per_volt_mT_per_v") or float("nan")),
+    )
+    unit_delta_for_gain = unit_delta.copy()
+    unit_delta_for_gain[~evaluation_mask] = np.nan
+    unit_delta_for_correction = unit_delta.copy()
+    unit_delta_for_correction[~active_mask] = np.nan
     gain, gain_meta = compute_second_modeling_gain(
-        unit_delta,
+        unit_delta_for_gain,
         first_voltage,
-        active_mask,
+        evaluation_mask,
         manual_gain=float(correction_gain),
         gain_mode=correction_gain_mode,
         voltage_limit_v=float(voltage_limit_v),
         tail_mask=np.zeros_like(active_mask, dtype=bool),
+        error_ratio_for_gain=np.abs(residual) / max(float(target_peak_reference_mT), 1e-12),
     )
     if str(correction_gain_mode).lower() == "manual":
         continuous_gain_meta = _continuous_gain_meta(float(gain), first_voltage, unit_delta, voltage_limit_v=float(voltage_limit_v), clamped=False)
@@ -161,7 +190,7 @@ def build_continuous_phase_aligned_command_profile(
             voltage_limit_v=float(voltage_limit_v),
             safety_factor=0.7,
         )
-    raw_delta = unit_delta * float(gain)
+    raw_delta = unit_delta_for_correction * float(gain)
     correction_delta, stabilization_meta, arrays = stabilize_correction_delta(
         raw_delta,
         first_voltage,
@@ -189,6 +218,7 @@ def build_continuous_phase_aligned_command_profile(
             "measured_field_aligned_mT": measured_aligned,
             "target_field_1cycle_mT": target,
             "residual_for_modeling_mT": residual,
+            "modeling_error_evaluation_mask": evaluation_mask,
             "continuous_loop_output": True,
             "loop_endpoint_policy": "period_exclusive",
             "continuous_export_cycle_count": 1.0,
@@ -214,7 +244,24 @@ def build_continuous_phase_aligned_command_profile(
         "continuous_target_shape": "fixed_rounded_triangle",
         "continuous_target_cycle_count": 1.0,
         "field_modeling_normalization_reference_mT": target_peak_reference_mT,
+        "user_target_peak_field_mT": target_peak_reference_mT,
         "continuous_residual_unit_delta_reference_mT": target_peak_reference_mT,
+        "legacy_residual_over_target_peak_voltage_limit": False,
+        "residual_to_voltage_conversion_basis": "measured_field_per_input_volt",
+        "error_evaluation_start_cycle": 0.25,
+        "error_evaluation_cycle_count": 0.75,
+        "error_evaluation_end_cycle": 0.75,
+        "error_evaluation_start_s": evaluation_start_s,
+        "error_evaluation_end_s": evaluation_end_s,
+        "error_evaluation_policy": "evaluate_after_startup_from_0.25cycle_to_0.75cycle",
+        "error_evaluation_sample_count": int(np.asarray(evaluation_mask, dtype=bool).sum()),
+        "error_evaluation_finite_ratio": float(np.isfinite(residual[evaluation_mask]).mean()) if np.asarray(evaluation_mask, dtype=bool).any() else 0.0,
+        **peak_error_metrics(
+            target,
+            measured_for_modeling,
+            evaluation_mask,
+            reference_peak_mT=target_peak_reference_mT,
+        ),
         "continuous_export_cycle_count": 1.0,
         "continuous_final_voltage_limit_v": float(voltage_limit_v),
         "loop_endpoint_policy": "period_exclusive",

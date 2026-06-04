@@ -14,7 +14,7 @@ if str(TEST_ROOT) not in sys.path:
     sys.path.insert(0, str(TEST_ROOT))
 
 import test_finite_empirical_field_route as finite_fixture
-from field_analysis.app_ui_snapshot import _resolve_compensation_plot_reference
+from field_analysis.app_ui_snapshot import _native_support_reference_plot_frame, _resolve_compensation_plot_reference
 
 
 def _support_entries() -> list[dict[str, object]]:
@@ -169,6 +169,31 @@ def test_ui_support_reference_preview_uses_native_source_beyond_target_end() -> 
     assert reference_profile.attrs["support_reference_native_normalization_mode"] == "scale_only_abs_peak_to_50mT_after_motion_start"
     assert reference_profile.attrs["support_reference_native_offset_removed_mT"] == pytest.approx(0.0)
     assert float(reference_profile["support_reference_native_mT"].iloc[0]) >= -1e-9
+
+
+def test_ui_support_reference_preview_detects_motion_start_without_metadata() -> None:
+    time_s = np.linspace(0.0, 2.0, 400)
+    motion_start = 0.8
+    rel = time_s - motion_start
+    active = rel >= 0.0
+    voltage = np.where(active, 5.0 * np.sin(2.0 * np.pi * rel), 0.0)
+    field = np.where(active, 80.0 * np.sin(2.0 * np.pi * rel), 0.0)
+
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": time_s,
+            "selected_support_source_mT": field,
+            "selected_support_source_voltage_v": voltage,
+            "target_active_end_s": 1.0,
+        }
+    )
+
+    assert reference_profile is not None
+    assert float(reference_profile["time_s"].min()) == pytest.approx(0.0)
+    assert reference_profile.attrs["support_reference_native_start_s"] == pytest.approx(motion_start, abs=0.01)
+    assert reference_profile.attrs["support_reference_native_rebased_to_motion_start"] is True
+    assert reference_profile.attrs["support_reference_motion_start_detection_source"] == "voltage_or_field_signal"
+    assert float(reference_profile["time_s"].max()) > 1.0
 
 
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:

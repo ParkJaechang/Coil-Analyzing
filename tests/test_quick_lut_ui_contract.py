@@ -170,7 +170,7 @@ def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets
     assert any("Quick LUT" in value for value in text_values)
     assert any("rounded triangle" in value for value in text_values)
     assert any("목표 피크 자기장" in value for value in text_values)
-    assert any("±50 mT" in value or "±50mT" in value for value in text_values)
+    assert any("사용자 목표 피크" in value or "user_target_peak_mT" in value for value in text_values)
     assert not any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
     assert not any("FIELD-ONLY" in value for value in text_values)
     assert any("Runtime: Quick LUT renderer" in value for value in text_values)

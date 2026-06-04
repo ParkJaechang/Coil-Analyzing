@@ -70,6 +70,56 @@ def reference_voltage_peak_for_measured_peak(
     return float(selected_time), polarity, float(selected_value)
 
 
+def midpoint_between_peak_pair(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    pair_start_number: int = 2,
+) -> tuple[float | None, str | None, float | None, float | None]:
+    peaks = sorted(peak_candidates(time_s, values, active_mask), key=lambda item: float(item[0]))
+    if len(peaks) < int(pair_start_number) + 1:
+        return None, None, None, None
+    left_time, left_value = peaks[int(pair_start_number) - 1]
+    right_time, right_value = peaks[int(pair_start_number)]
+    midpoint = 0.5 * (float(left_time) + float(right_time))
+    polarity = "positive_to_negative" if float(left_value) >= 0.0 and float(right_value) < 0.0 else (
+        "negative_to_positive" if float(left_value) < 0.0 and float(right_value) >= 0.0 else "same_polarity"
+    )
+    return float(midpoint), polarity, float(left_time), float(right_time)
+
+
+def nearest_zero_crossing_time(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    reference_time_s: float | None = None,
+) -> float | None:
+    time_arr = np.asarray(time_s, dtype=float)
+    value_arr = np.asarray(values, dtype=float)
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(time_arr) & np.isfinite(value_arr)
+    if active.sum() < 2:
+        return None
+    indices = np.flatnonzero(active)
+    zero_times: list[float] = []
+    for left, right in zip(indices[:-1], indices[1:]):
+        y0 = float(value_arr[left])
+        y1 = float(value_arr[right])
+        t0 = float(time_arr[left])
+        t1 = float(time_arr[right])
+        if y0 == 0.0:
+            zero_times.append(t0)
+        elif y0 * y1 < 0.0:
+            frac = abs(y0) / max(abs(y0) + abs(y1), 1e-12)
+            zero_times.append(t0 + (t1 - t0) * frac)
+    if not zero_times:
+        return None
+    if reference_time_s is not None and np.isfinite(float(reference_time_s)):
+        return float(min(zero_times, key=lambda value: abs(float(value) - float(reference_time_s))))
+    return float(zero_times[0])
+
+
 def peak_candidates(time_s: np.ndarray, values: np.ndarray, active_mask: np.ndarray) -> list[tuple[float, float]]:
     time_arr = np.asarray(time_s, dtype=float)
     value_arr = np.asarray(values, dtype=float)

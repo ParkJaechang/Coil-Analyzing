@@ -511,10 +511,14 @@ def _run_app_shell(
             key="full_section_nav",
         )
 
-    uploaded_payloads = _dedupe_payloads(category_payloads("continuous", continuous_files) + continuous_library_payloads)
-    transient_payloads = _dedupe_payloads(category_payloads("transient", transient_files) + transient_library_payloads)
-    validation_payloads = category_payloads("validation", validation_files)
-    lcr_payloads = category_payloads("lcr", lcr_files)
+    uploaded_payloads = _dedupe_payloads(
+        category_payloads("continuous", continuous_files, include_cached_uploads=True) + continuous_library_payloads
+    )
+    transient_payloads = _dedupe_payloads(
+        category_payloads("transient", transient_files, include_cached_uploads=True) + transient_library_payloads
+    )
+    validation_payloads = category_payloads("validation", validation_files, include_cached_uploads=True)
+    lcr_payloads = category_payloads("lcr", lcr_files, include_cached_uploads=True)
     lcr_records = list_persisted_uploads("lcr")
     _render_quick_lut_cache_status(
         continuous_payloads=uploaded_payloads,
@@ -1459,6 +1463,37 @@ def _plot_reference_pp(frame: pd.DataFrame | None, column: str) -> float:
     return _signal_peak_to_peak(frame, column)
 
 
+def _detect_signal_motion_start_s(time_values: np.ndarray, signal_values: np.ndarray | None) -> float | None:
+    if signal_values is None:
+        return None
+    time_arr = np.asarray(time_values, dtype=float)
+    signal_arr = np.asarray(signal_values, dtype=float)
+    if time_arr.size != signal_arr.size or time_arr.size < 3:
+        return None
+    finite = np.isfinite(time_arr) & np.isfinite(signal_arr)
+    if finite.sum() < 3:
+        return None
+    time_arr = time_arr[finite]
+    signal_arr = signal_arr[finite]
+    order = np.argsort(time_arr)
+    time_arr = time_arr[order]
+    signal_arr = signal_arr[order]
+    peak = float(np.nanmax(np.abs(signal_arr)))
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return None
+    threshold = max(peak * 0.02, 1e-9)
+    active = np.abs(signal_arr) > threshold
+    if not active.any():
+        return None
+    run_length = min(3, int(active.sum()))
+    if run_length <= 1:
+        return float(time_arr[np.flatnonzero(active)[0]])
+    consecutive = np.convolve(active.astype(int), np.ones(run_length, dtype=int), mode="valid") >= run_length
+    if consecutive.any():
+        return float(time_arr[int(np.flatnonzero(consecutive)[0])])
+    return float(time_arr[np.flatnonzero(active)[0]])
+
+
 def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.DataFrame | None:
     source_time = compensation.get("selected_support_source_time_s")
     source_field = compensation.get("selected_support_source_mT")
@@ -1466,14 +1501,24 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
         return None
     time_values = np.asarray(source_time, dtype=float)
     field_values = np.asarray(source_field, dtype=float)
+    source_voltage = compensation.get("selected_support_source_voltage_v")
+    voltage_values = np.asarray(source_voltage, dtype=float) if source_voltage is not None else None
+    if voltage_values is not None and voltage_values.size != time_values.size:
+        voltage_values = None
     finite = np.isfinite(time_values) & np.isfinite(field_values)
+    if voltage_values is not None:
+        finite = finite & np.isfinite(voltage_values)
     if finite.sum() < 3:
         return None
     time_values = time_values[finite]
     field_values = field_values[finite]
+    if voltage_values is not None:
+        voltage_values = voltage_values[finite]
     order = np.argsort(time_values)
     time_values = time_values[order]
     field_values = field_values[order]
+    if voltage_values is not None:
+        voltage_values = voltage_values[order]
 
     # Plot the real measured support beyond target_end.  The target-aligned
     # support reference remains available as a debug trace only.
@@ -1484,7 +1529,21 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     )
     nonzero_start = first_number(compensation.get("selected_support_original_nonzero_start_s"))
     nonzero_end = first_number(compensation.get("selected_support_original_nonzero_end_s"))
-    plot_start = nonzero_start if nonzero_start is not None and np.isfinite(nonzero_start) else float(np.nanmin(time_values))
+    voltage_start = first_number(compensation.get("selected_support_voltage_nonzero_start_s"))
+    detected_start = (
+        voltage_start
+        if voltage_start is not None and np.isfinite(voltage_start)
+        else _detect_signal_motion_start_s(time_values, voltage_values)
+    )
+    if detected_start is None or not np.isfinite(float(detected_start)):
+        detected_start = _detect_signal_motion_start_s(time_values, field_values)
+    plot_start = (
+        nonzero_start
+        if nonzero_start is not None and np.isfinite(nonzero_start)
+        else float(detected_start)
+        if detected_start is not None and np.isfinite(float(detected_start))
+        else float(np.nanmin(time_values))
+    )
     plot_end = nonzero_end if nonzero_end is not None and np.isfinite(nonzero_end) else float(np.nanmax(time_values))
     if target_end is not None and np.isfinite(target_end):
         plot_end = max(float(plot_end), float(target_end))
@@ -1497,7 +1556,7 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     field_values = field_values[keep]
 
     # Do not recenter the support preview: this trace is the measured support
-    # source used for phase inspection, so only smoothing and scale-to-50mT are
+    # source used for phase inspection, so only smoothing and target-peak scale are
     # applied after the detected motion start.
     window = max(3, min(51, int(len(field_values) // 20) * 2 + 1))
     smoothed = (
@@ -1519,6 +1578,14 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     frame.attrs["support_reference_plot_timebase"] = "native_measured_source_until_zero_return"
     frame.attrs["support_reference_native_start_s"] = plot_start
     frame.attrs["support_reference_native_end_s"] = plot_end
+    frame.attrs["support_reference_native_rebased_to_motion_start"] = True
+    frame.attrs["support_reference_motion_start_detection_source"] = (
+        "metadata"
+        if nonzero_start is not None and np.isfinite(nonzero_start)
+        else "voltage_or_field_signal"
+        if detected_start is not None and np.isfinite(float(detected_start))
+        else "source_min_time_fallback"
+    )
     frame.attrs["support_reference_native_scale_to_50mT"] = scale
     frame.attrs["support_reference_native_normalization_mode"] = "scale_only_abs_peak_to_50mT_after_motion_start"
     frame.attrs["support_reference_native_offset_removed_mT"] = 0.0
@@ -1666,7 +1733,7 @@ def _prepare_semantic_compensation_plot_profile(command_profile: pd.DataFrame) -
 
     predicted_column = _first_available_column(
         plot_profile,
-        ("predicted_field_mT", "expected_field_mT", "expected_output", "modeled_output"),
+        ("measured_field_aligned_mT", "predicted_field_mT", "expected_field_mT", "expected_output", "modeled_output"),
     )
     if predicted_column is not None:
         plot_profile["expected_output"] = plot_profile[predicted_column]
@@ -2188,7 +2255,7 @@ def _render_field_only_quick_lut_banner() -> None:
     st.caption("최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.")
     st.caption(
         "Runtime: Quick LUT renderer · target_shape=fixed_rounded_triangle · "
-        "field_normalization_reference=±50mT · source=repo-local src"
+        "field_normalization_reference=user_target_peak_mT · command_limit=±10V · source=repo-local src"
     )
     st.caption(
         "변경 후에도 legacy target control이 보이면 기존 Streamlit 프로세스를 종료하고 "
@@ -2458,7 +2525,7 @@ def _render_quick_lut_tab_v2(
         st.markdown("#### 1. LUT 데이터 준비")
         st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
         st.markdown("#### 2. 1차 모델링 command")
-        st.caption("아래 동작은 모두 같은 fixed rounded triangle 목표 개형과 ±50mT 내부 정규화 기준을 사용합니다.")
+        st.caption("아래 동작은 모두 같은 fixed rounded triangle 목표 개형과 사용자 목표 피크 자기장 기준 정규화를 사용합니다.")
         user_target_peak_field_mT = float(
             st.number_input(
                 "목표 피크 자기장 (mT)",
@@ -2529,7 +2596,7 @@ def _render_quick_lut_tab_v2(
             key="lut_comp_button_v2",
         )
         st.caption(
-            "`크기 LUT 계산`은 fixed rounded-triangle target shape와 내부 ±50mT 정규화 기준으로 scalar voltage estimate를 계산합니다. "
+            "`크기 LUT 계산`은 fixed rounded-triangle target shape와 사용자 목표 피크 자기장 기준 정규화로 scalar voltage estimate를 계산합니다. "
             f"`{compensation_button_label}`은 같은 target shape로 recommended voltage waveform을 계산합니다."
         )
         st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
@@ -2725,7 +2792,7 @@ def _render_quick_lut_tab_v2(
                 if compensation.get("finite_support_used"):
                     st.success("finite empirical support route로 추천 전압 파형을 계산했습니다.")
                 else:
-                    st.success("harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.")
+                    st.success("Legacy/Experimental harmonic inverse diagnostic을 계산했습니다. Final LUT export에는 사용하지 않습니다.")
             if compensation["frequency_mode"] == "frequency_interpolated":
                 st.info(
                     f"주파수 trend 보간 사용: 요청 {compensation['requested_freq_hz']:.3f} Hz, "
@@ -2754,6 +2821,8 @@ def _render_quick_lut_tab_v2(
                 support_voltage = compensation.get("selected_support_source_voltage_v")
                 support_voltage_start = compensation.get("selected_support_voltage_nonzero_start_s")
                 support_voltage_end = compensation.get("selected_support_voltage_nonzero_end_s")
+                support_original_start = compensation.get("selected_support_original_nonzero_start_s")
+                support_original_end = compensation.get("selected_support_original_nonzero_end_s")
                 if support_time is not None and support_field is not None:
                     first_command_profile.attrs["selected_support_source_time_s"] = support_time
                     first_command_profile.attrs["selected_support_source_mT"] = support_field
@@ -2763,6 +2832,10 @@ def _render_quick_lut_tab_v2(
                         first_command_profile.attrs["selected_support_voltage_nonzero_start_s"] = support_voltage_start
                     if support_voltage_end is not None:
                         first_command_profile.attrs["selected_support_voltage_nonzero_end_s"] = support_voltage_end
+                    if support_original_start is not None:
+                        first_command_profile.attrs["selected_support_original_nonzero_start_s"] = support_original_start
+                    if support_original_end is not None:
+                        first_command_profile.attrs["selected_support_original_nonzero_end_s"] = support_original_end
                     first_command_profile.attrs["selected_support_source_file"] = compensation.get("selected_support_source_file")
             finite_first_phase_meta: dict[str, object] = {}
             if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:
@@ -3256,7 +3329,7 @@ def _render_quick_lut_tab_v2(
         st.write(f"- template test: `{recommendation['template_test_id']}`")
         st.write(f"- support waveform family: `{recommendation['support_waveform_type']}` (`{recommendation['support_waveform_role']}`)")
         st.write(f"- target field shape: `{recommendation['field_only_target_shape']}`")
-        st.write("- modeling normalization reference: `±50mT`")
+        st.write("- modeling normalization reference: `user_target_peak_mT`")
         st.write(f"- target metric: `{target_metric_label(target_metric)}`")
         st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
         st.write(f"- finite cycle mode: `{recommendation['finite_cycle_mode']}`")

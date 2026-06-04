@@ -33,6 +33,8 @@ def infer_continuous_source_waveform(name: str | None) -> tuple[str | None, str 
     for family, pattern in _WAVEFORM_PATTERNS:
         if pattern.search(text):
             return family, "filename"
+    if re.search(r"continuous_\d+(?:\.\d+)?\s*hz\.csv$", text, re.IGNORECASE):
+        return "triangle", "default_triangle_filename"
     return None, None
 
 

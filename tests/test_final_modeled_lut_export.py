@@ -43,7 +43,6 @@ def test_export_final_modeled_lut_uses_limited_voltage_sample_by_sample() -> Non
         freq_hz=1.0,
         cycle_count=1.25,
         waveform="sine",
-        voltage_limit_v=5.0,
     )
 
     frame = payload["frame"]

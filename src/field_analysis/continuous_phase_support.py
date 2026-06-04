@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .finite_phase_sync_math import midpoint_between_peak_pair, nearest_zero_crossing_time
+
 
 def choose_supported_cycle(
     source: pd.DataFrame,
@@ -158,13 +160,37 @@ def continuous_peak_alignment_metadata(
 ) -> dict[str, Any]:
     voltage_peak = _first_positive_peak_time(time_s, voltage, 0.0, period_s)
     measured_peak = _first_positive_peak_time(time_s, measured, voltage_peak, period_s + 0.5 * period_s)
-    delay_s = max(float(measured_peak - voltage_peak), 0.0) if np.isfinite(voltage_peak) and np.isfinite(measured_peak) else 0.0
+    active_mask = np.isfinite(time_s) & (time_s >= 0.0) & (time_s <= period_s + 0.5 * period_s)
+    midpoint_time, midpoint_polarity, midpoint_left, midpoint_right = midpoint_between_peak_pair(
+        time_s,
+        measured,
+        active_mask,
+        pair_start_number=2,
+    )
+    target_zero = nearest_zero_crossing_time(
+        time_s,
+        voltage,
+        np.isfinite(time_s) & (time_s >= 0.0) & (time_s <= period_s),
+        reference_time_s=midpoint_time,
+    )
+    if midpoint_time is not None and target_zero is not None:
+        delay_s = max(float(midpoint_time - target_zero), 0.0)
+        method = "peak_pair_midpoint_to_voltage_zero_crossing"
+    else:
+        delay_s = max(float(measured_peak - voltage_peak), 0.0) if np.isfinite(voltage_peak) and np.isfinite(measured_peak) else 0.0
+        method = "field_peak_to_voltage_peak"
     return {
         "voltage_first_peak_time_s": float(voltage_peak) if np.isfinite(voltage_peak) else None,
         "measured_first_peak_time_s": float(measured_peak) if np.isfinite(measured_peak) else None,
         "continuous_phase_delay_s": float(delay_s),
         "continuous_phase_delay_cycles": float(delay_s / max(period_s, 1e-12)),
         "measured_aligned_first_peak_time_s": float(measured_peak - delay_s) if np.isfinite(measured_peak) else None,
+        "continuous_phase_alignment_method": method,
+        "continuous_phase_sync_midpoint_time_s": midpoint_time,
+        "continuous_phase_sync_midpoint_left_peak_time_s": midpoint_left,
+        "continuous_phase_sync_midpoint_right_peak_time_s": midpoint_right,
+        "continuous_phase_sync_midpoint_polarity": midpoint_polarity,
+        "continuous_phase_sync_target_zero_crossing_time_s": target_zero,
     }
 
 

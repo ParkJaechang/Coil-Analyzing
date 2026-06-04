@@ -12,6 +12,10 @@ from .finite_first_normalization import (
     normalize_smoothed_field_to_pm50,
     scale_target_field_columns_to_peak,
 )
+from .first_modeling_voltage_response import (
+    field_per_volt_response_metadata,
+    residual_to_voltage_delta_from_field_per_volt,
+)
 from .finite_phase_sync_support import (
     active_end_kink_detected,
     native_measured_support_source,
@@ -21,11 +25,14 @@ from .finite_phase_sync_support import (
 from .finite_phase_sync_math import (
     dominant_peak_time as _dominant_peak_time,
     interp_no_extrapolation as _interp,
+    midpoint_between_peak_pair as _midpoint_between_peak_pair,
+    nearest_zero_crossing_time as _nearest_zero_crossing_time,
     peak_abs as _peak_abs,
     phase_peak_detection_signal as _phase_peak_detection_signal,
     phase_support_margin_s as _phase_support_margin_s,
     reference_voltage_peak_for_measured_peak as _reference_voltage_peak_for_measured_peak,
 )
+from .modeling_error_metrics import peak_error_metrics
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
@@ -125,7 +132,24 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_measured=measured_raw,
     )
-    source_active_start_s = resolve_source_active_start_s(frame, native_time_s, output_start_s)
+    base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
+    native_voltage_time_s, native_input_voltage, input_voltage_source = native_voltage_support_source(
+        frame,
+        fallback_time_s=time_s,
+        fallback_voltage=base_voltage,
+    )
+    source_active_start_s = resolve_source_active_start_s(
+        frame,
+        native_time_s,
+        output_start_s,
+        native_voltage_v=native_input_voltage
+        if native_voltage_time_s.size == native_time_s.size
+        and str(input_voltage_source).startswith("selected_support_source_voltage_v")
+        else None,
+        native_measured_mT=native_measured_raw
+        if str(measured_alignment_source).startswith("selected_support_source_native")
+        else None,
+    )
     source_time_for_output = source_active_start_s + (time_s - output_start_s)
     source_active_end_s = source_active_start_s + active_duration_s
     native_active_mask = (
@@ -137,12 +161,6 @@ def apply_finite_first_phase_sync_modeling(
         native_measured_raw,
         measured_column,
         native_active_mask,
-    )
-    base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
-    native_voltage_time_s, native_input_voltage, input_voltage_source = native_voltage_support_source(
-        frame,
-        fallback_time_s=time_s,
-        fallback_voltage=base_voltage,
     )
     if str(input_voltage_source).startswith("selected_support_source_voltage_v"):
         input_lut_voltage = _interp(native_voltage_time_s, native_input_voltage, source_time_for_output)
@@ -188,11 +206,37 @@ def apply_finite_first_phase_sync_modeling(
         measured_peak_rel_s=measured_peak_rel_for_voltage,
         output_start_s=output_start_s,
     )
+    midpoint_time_s, midpoint_polarity, midpoint_left_s, midpoint_right_s = _midpoint_between_peak_pair(
+        native_time_s,
+        peak_detection_signal,
+        native_active_mask,
+        pair_start_number=2,
+    )
+    target_zero_time_s = _nearest_zero_crossing_time(
+        time_s,
+        target,
+        active_mask,
+        reference_time_s=(
+            output_start_s + float(midpoint_time_s - source_active_start_s)
+            if midpoint_time_s is not None and np.isfinite(source_active_start_s)
+            else None
+        ),
+    )
     phase_delay_s = 0.0
     measured_peak_plot_time = measured_peak_time
     measured_peak_source_time = measured_peak_time
     alignment_status = "peak_detection_failed"
-    if voltage_peak_time is not None and measured_peak_time is not None:
+    phase_sync_method = "field_peak_to_voltage_peak"
+    if midpoint_time_s is not None and target_zero_time_s is not None:
+        midpoint_rel = float(midpoint_time_s - source_active_start_s)
+        target_zero_rel = float(target_zero_time_s - output_start_s)
+        phase_delay_s = float(midpoint_rel - target_zero_rel)
+        measured_peak_plot_time = float(output_start_s + midpoint_rel)
+        measured_peak_source_time = float(midpoint_time_s)
+        alignment_status = "ok"
+        phase_sync_method = "peak_pair_midpoint_to_target_zero_crossing"
+        peak_reference_label = "second_to_third_peak_midpoint"
+    elif voltage_peak_time is not None and measured_peak_time is not None:
         voltage_peak_rel = float(voltage_peak_time - output_start_s)
         measured_peak_rel = float(measured_peak_time - source_active_start_s)
         phase_delay_s = float(measured_peak_rel - voltage_peak_rel)
@@ -205,9 +249,21 @@ def apply_finite_first_phase_sync_modeling(
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     smoothed = _interp(native_time_s, native_smoothed, source_time_for_output)
     aligned = _interp(native_time_s, native_smoothed, source_time_for_output + phase_delay_s)
-    field_scale_to_50mT = float(measured_norm_meta.get("measured_field_scale_to_50mT") or 1.0)
-    input_lut_voltage_normalized = input_lut_voltage * field_scale_to_50mT
+    field_scale_to_target_mT = float(
+        measured_norm_meta.get("measured_field_scale_to_target_mT")
+        or measured_norm_meta.get("measured_field_scale_to_target_peak_mT")
+        or measured_norm_meta.get("measured_field_scale_to_50mT")
+        or 1.0
+    )
+    input_lut_voltage_normalized = input_lut_voltage * field_scale_to_target_mT
     base_voltage = np.where(np.isfinite(input_lut_voltage_normalized), input_lut_voltage_normalized, base_voltage)
+    field_response_meta = field_per_volt_response_metadata(
+        input_lut_voltage,
+        active_mask,
+        target_peak_mT=target_peak_reference_mT,
+        field_scale_to_target=field_scale_to_target_mT,
+        prefix="finite_first",
+    )
     active_aligned_ok = bool(np.asarray(active_mask, dtype=bool).sum() > 0 and np.isfinite(aligned[np.asarray(active_mask, dtype=bool)]).all())
     if not support_ok or not active_aligned_ok:
         invalid_residual = target - aligned
@@ -246,7 +302,13 @@ def apply_finite_first_phase_sync_modeling(
             "actual_source_time_end_s": source_end,
             "phase_support_status": "insufficient",
             "phase_sync_peak_reference": peak_reference_label,
-            "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
+            "phase_sync_voltage_reference": "target_zero_crossing" if phase_sync_method == "peak_pair_midpoint_to_target_zero_crossing" else "nearest_same_polarity_peak_to_measured_peak",
+            "phase_sync_midpoint_left_peak_time_s": midpoint_left_s,
+            "phase_sync_midpoint_right_peak_time_s": midpoint_right_s,
+            "phase_sync_midpoint_time_s": midpoint_time_s,
+            "phase_sync_midpoint_polarity": midpoint_polarity,
+            "phase_sync_target_zero_crossing_time_s": target_zero_time_s,
+            "phase_sync_alignment_anchor": phase_sync_method,
             "phase_sync_peak_polarity": measured_peak_polarity,
             "voltage_first_peak_time_s": voltage_peak_time,
             "measured_first_peak_time_s": measured_peak_plot_time,
@@ -266,7 +328,9 @@ def apply_finite_first_phase_sync_modeling(
             "phase_sync_source_active_start_s": source_active_start_s,
             "phase_sync_source_active_end_s": source_active_end_s,
             "finite_first_input_voltage_source": input_voltage_source,
-            "finite_first_input_voltage_normalization_scale": field_scale_to_50mT,
+            "measured_field_scale_to_target_mT": field_scale_to_target_mT,
+            "finite_first_input_voltage_normalization_scale": field_scale_to_target_mT,
+            **field_response_meta,
             "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
             if input_voltage_source == "selected_support_source_voltage_v"
             else input_voltage_source,
@@ -274,26 +338,44 @@ def apply_finite_first_phase_sync_modeling(
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
     residual = target - aligned
+    eval_start_cycle, eval_end_cycle = _evaluation_cycle_window(float(cycle_count))
+    evaluation_start_s = output_start_s + eval_start_cycle / max(float(freq_hz), 1e-12)
+    evaluation_end_s = output_start_s + eval_end_cycle / max(float(freq_hz), 1e-12)
+    evaluation_mask = (
+        finite_active
+        & (time_s >= evaluation_start_s - 1e-12)
+        & (time_s <= evaluation_end_s + 1e-12)
+    )
     active_residual_valid = np.asarray(active_mask, dtype=bool) & np.isfinite(residual)
+    evaluation_residual_valid = np.asarray(evaluation_mask, dtype=bool) & np.isfinite(residual)
     active_count = int(np.asarray(active_mask, dtype=bool).sum())
     active_residual_finite_ratio = float(active_residual_valid.sum() / active_count) if active_count else 0.0
+    evaluation_count = int(np.asarray(evaluation_mask, dtype=bool).sum())
+    evaluation_residual_finite_ratio = float(evaluation_residual_valid.sum() / evaluation_count) if evaluation_count else 0.0
     measured_on_output = _interp(native_time_s, native_smoothed, source_time_for_output)
     identity_meta = _merge_identity_metadata(
         _measured_target_identity_metadata(target, measured_on_output, active_mask),
         _measured_target_identity_metadata(target, aligned, finite_active),
     )
-    unit_delta = residual / target_peak_reference_mT * float(voltage_limit_v)
-    unit_delta[~finite_active] = np.nan
+    unit_delta = residual_to_voltage_delta_from_field_per_volt(
+        residual,
+        float(field_response_meta.get("field_per_volt_mT_per_v") or float("nan")),
+    )
+    unit_delta_for_gain = unit_delta.copy()
+    unit_delta_for_gain[~evaluation_mask] = np.nan
+    unit_delta_for_correction = unit_delta.copy()
+    unit_delta_for_correction[~finite_active] = np.nan
     gain, gain_meta = compute_second_modeling_gain(
-        unit_delta,
+        unit_delta_for_gain,
         base_voltage,
-        finite_active,
+        evaluation_mask,
         manual_gain=0.25,
         gain_mode="auto",
         voltage_limit_v=float(voltage_limit_v),
         tail_mask=np.zeros_like(finite_active, dtype=bool),
+        error_ratio_for_gain=np.abs(residual) / max(float(target_peak_reference_mT), 1e-12),
     )
-    raw_delta = unit_delta * float(gain)
+    raw_delta = unit_delta_for_correction * float(gain)
     correction_delta, stabilization_meta, arrays = stabilize_correction_delta(
         raw_delta,
         base_voltage,
@@ -317,6 +399,7 @@ def apply_finite_first_phase_sync_modeling(
     frame["measured_field_smoothed_mT"] = smoothed
     frame["measured_field_aligned_mT"] = aligned
     frame["residual_for_modeling_mT"] = residual
+    frame["modeling_error_evaluation_mask"] = evaluation_mask
     frame["phase_delay_s"] = phase_delay_s
     frame["phase_delay_cycles"] = phase_delay_s * float(freq_hz)
     frame["phase_sync_enabled"] = True
@@ -357,9 +440,15 @@ def apply_finite_first_phase_sync_modeling(
         "phase_kernel_source_validation_status": "ok",
         "phase_kernel_reference_as_measured_allowed": False,
         "phase_sync_enabled": True,
-        "phase_sync_method": "field_peak_to_voltage_peak",
+        "phase_sync_method": phase_sync_method,
         "phase_sync_peak_reference": peak_reference_label,
-        "phase_sync_voltage_reference": "nearest_same_polarity_peak_to_measured_peak",
+        "phase_sync_voltage_reference": "target_zero_crossing" if phase_sync_method == "peak_pair_midpoint_to_target_zero_crossing" else "nearest_same_polarity_peak_to_measured_peak",
+        "phase_sync_midpoint_left_peak_time_s": midpoint_left_s,
+        "phase_sync_midpoint_right_peak_time_s": midpoint_right_s,
+        "phase_sync_midpoint_time_s": midpoint_time_s,
+        "phase_sync_midpoint_polarity": midpoint_polarity,
+        "phase_sync_target_zero_crossing_time_s": target_zero_time_s,
+        "phase_sync_alignment_anchor": phase_sync_method,
         "phase_sync_peak_polarity": measured_peak_polarity,
         "voltage_first_peak_time_s": voltage_peak_time,
         "measured_first_peak_time_s": measured_peak_plot_time,
@@ -390,12 +479,16 @@ def apply_finite_first_phase_sync_modeling(
         **target_scale_meta,
         "correction_delta_v_target_peak_reference_mT": target_peak_reference_mT,
         "correction_delta_v_uses_scaled_target_field": True,
+        "legacy_residual_over_target_peak_voltage_limit": False,
+        "residual_to_voltage_conversion_basis": "measured_field_per_input_volt",
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
         "source_voltage_raw_peak_v": _peak_abs(base_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
         "finite_first_input_voltage_source": input_voltage_source,
-        "finite_first_input_voltage_normalization_scale": field_scale_to_50mT,
+        "measured_field_scale_to_target_mT": field_scale_to_target_mT,
+        "finite_first_input_voltage_normalization_scale": field_scale_to_target_mT,
+        **field_response_meta,
         "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
         if input_voltage_source == "selected_support_source_voltage_v"
         else input_voltage_source,
@@ -414,6 +507,20 @@ def apply_finite_first_phase_sync_modeling(
         "phase_support_status": "ok" if support_ok and active_residual_finite_ratio >= 0.999 else "insufficient",
         "active_residual_finite_through_end": bool(np.isfinite(residual[active_mask]).all()) if np.any(active_mask) else False,
         "active_residual_finite_ratio": active_residual_finite_ratio,
+        "error_evaluation_start_cycle": eval_start_cycle,
+        "error_evaluation_cycle_count": eval_end_cycle,
+        "error_evaluation_end_cycle": eval_end_cycle,
+        "error_evaluation_start_s": evaluation_start_s,
+        "error_evaluation_end_s": evaluation_end_s,
+        "error_evaluation_policy": "evaluate_after_startup_from_0.25cycle_to_0.75cycle_or_1.25cycle",
+        "error_evaluation_sample_count": evaluation_count,
+        "error_evaluation_finite_ratio": evaluation_residual_finite_ratio,
+        **peak_error_metrics(
+            target,
+            aligned,
+            evaluation_mask,
+            reference_peak_mT=target_peak_reference_mT,
+        ),
         "active_end_kink_detected": active_end_kink_detected(limited, residual, active_mask),
         "nonfinite_active_residual_policy": "block_or_warning",
         "command_voltage_scaling_mode": "normalized_modeling_with_field_scale",
@@ -431,6 +538,14 @@ def apply_finite_first_phase_sync_modeling(
         if key in frame.columns:
             metadata[key] = _first_text_value(frame, key) if key == "target_template_type" else first_numeric(frame[key])
     return output_frame, metadata
+
+
+def _evaluation_cycle_window(cycle_count: float) -> tuple[float, float]:
+    if float(cycle_count) <= 1.0 + 1e-9:
+        return 0.25, 0.75
+    if float(cycle_count) <= 1.5 + 1e-9:
+        return 0.25, 1.25
+    return 0.25, max(float(cycle_count) - 0.25, 0.25)
 
 
 def _first_existing_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:

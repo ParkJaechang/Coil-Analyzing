@@ -12,6 +12,8 @@ from .ui_continuous_final_lut_export import (
     normalize_continuous_result_contract,
     render_continuous_final_voltage_lut_export_section,
 )
+from .ui_modeling_error_summary import render_error_ratio_metrics
+from .ui_second_modeling_plots import add_max_error_marker
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
@@ -58,6 +60,7 @@ def render_continuous_first_modeling_controls(*, waveform_type: str | None, freq
         return
     st.markdown("#### Phase alignment 확인")
     st.plotly_chart(_phase_alignment_plot(command), use_container_width=True)
+    render_error_ratio_metrics(st, metadata, title="Continuous 1차 보정 오차율 요약")
     st.markdown("#### 목표 자기장 vs phase-aligned 실측 자기장")
     st.plotly_chart(_target_residual_plot(command), use_container_width=True)
     st.markdown("#### Continuous 1차 modeling command")
@@ -90,6 +93,20 @@ def _target_residual_plot(command: pd.DataFrame) -> go.Figure:
     _add_trace(fig, command, "target_field_1cycle_mT", "목표 자기장")
     _add_trace(fig, command, "measured_field_aligned_mT", "phase-aligned measured field")
     _add_trace(fig, command, "residual_for_modeling_mT", "residual")
+    marker_frame = command.rename(
+        columns={
+            "target_field_1cycle_mT": "target field",
+            "residual_for_modeling_mT": "residual",
+        }
+    )
+    add_max_error_marker(
+        fig,
+        marker_frame,
+        residual_label="residual",
+        target_label="target field",
+        marker_label="최대 오차 지점",
+        mask_column="modeling_error_evaluation_mask",
+    )
     fig.update_layout(template="plotly_white", height=320, title="목표 자기장 vs phase-aligned 실측 자기장")
     return fig
 
@@ -125,6 +142,8 @@ def _summary(metadata: dict[str, Any], command: pd.DataFrame) -> dict[str, Any]:
         "command_profile_rows": len(command),
         "continuous_base_voltage_peak_v": metadata.get("continuous_base_voltage_peak_v"),
         "source_voltage_base_normalized_peak_v": metadata.get("source_voltage_base_normalized_peak_v"),
+        "field_per_volt_mT_per_v": metadata.get("field_per_volt_mT_per_v"),
+        "correction_delta_mode": metadata.get("correction_delta_mode"),
         "continuous_clipping_fraction": metadata.get("continuous_clipping_fraction", 0.0),
         "continuous_voltage_clip_status": metadata.get("continuous_voltage_clip_status") or "ok",
     }

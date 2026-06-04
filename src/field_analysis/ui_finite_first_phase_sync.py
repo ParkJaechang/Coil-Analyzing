@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from .ui_modeling_error_summary import render_error_ratio_metrics
+from .ui_second_modeling_plots import add_max_error_marker
 from .utils import first_number
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_LIMIT_V
 
@@ -30,7 +32,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "phase_delay_s": metadata.get("phase_delay_s"),
         "phase_delay_cycles": metadata.get("phase_delay_cycles"),
         "실측 field abs peak (mT)": metadata.get("measured_abs_peak_effective_mT"),
-        "field 정규화 scale": metadata.get("measured_field_scale_to_50mT"),
+        "field 정규화 scale": metadata.get("measured_field_scale_to_target_mT"),
         "normalization mode": metadata.get("measured_field_normalization_mode"),
         "normalized aligned peak (mT)": metadata.get("measured_aligned_normalized_peak_mT"),
         "correction_gain": metadata.get("correction_gain_used"),
@@ -70,6 +72,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         return
 
     st.plotly_chart(_finite_first_phase_sync_plot(command_profile, metadata), use_container_width=True)
+    render_error_ratio_metrics(st, metadata, title="1차 보정 오차율 요약")
     st.plotly_chart(_finite_first_residual_plot(command_profile), use_container_width=True)
     st.caption("다운로드 voltage_v source: limited_voltage_v")
     st.plotly_chart(_finite_first_command_plot(command_profile), use_container_width=True)
@@ -81,11 +84,12 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
     st.markdown("##### Phase sync residual -> 1차 command 반영 기준")
     st.caption(
         "phase-aligned measured field를 목표 피크 자기장 기준으로 정규화한 뒤 residual을 계산하고, "
-        "residual을 전압 기준 unit delta로 변환한 다음 auto gain과 smoothing/stabilization을 적용합니다."
+        "실측 응답비(mT/V)를 기준으로 residual을 전압 delta로 변환한 다음 auto gain과 smoothing/stabilization을 적용합니다."
     )
     rows = [
         {"항목": "residual 계산", "계산/의미": "target_normalized_mT - measured_aligned_normalized_mT", "현재값": ""},
-        {"항목": "unit delta 변환", "계산/의미": f"residual_mT / target_peak_mT * {COMMAND_VOLTAGE_LIMIT_V:g}V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
+        {"항목": "field per volt", "계산/의미": "measured_peak_mT / original_input_voltage_peak_V", "현재값": metadata.get("field_per_volt_mT_per_v")},
+        {"항목": "unit delta 변환", "계산/의미": "residual_mT / field_per_volt_mT_per_V", "현재값": metadata.get("auto_gain_unit_delta_peak_v")},
         {
             "항목": "auto gain 기준",
             "계산/의미": "unit_delta 95% peak, base voltage peak, headroom percentile",
@@ -94,7 +98,7 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
         {"항목": "gain clamp", "계산/의미": "0.05 ~ 0.50", "현재값": metadata.get("auto_gain_clamped")},
         {"항목": "최종 command", "계산/의미": f"clip(base_voltage + correction_delta, {COMMAND_VOLTAGE_LIMIT_LABEL})", "현재값": metadata.get("clipping_fraction")},
         {"항목": "실측 abs peak", "계산/의미": "max(abs(smoothed measured field))", "현재값": metadata.get("measured_field_smoothed_abs_peak_mT")},
-        {"항목": "field scale", "계산/의미": "target_peak / measured_field_smoothed_abs_peak_mT", "현재값": metadata.get("measured_field_scale_to_50mT")},
+        {"항목": "field scale", "계산/의미": "target_peak / measured_field_smoothed_abs_peak_mT", "현재값": metadata.get("measured_field_scale_to_target_mT")},
         {"항목": "base voltage peak", "계산/의미": "field scale 적용 후 1차 입력 전압 peak", "현재값": metadata.get("auto_gain_first_voltage_peak_v")},
         {"항목": "safe headroom", "계산/의미": f"{COMMAND_VOLTAGE_LIMIT_LABEL} limit 대비 headroom percentile", "현재값": metadata.get("auto_gain_headroom_safe_v")},
         {"항목": "target delta peak", "계산/의미": "auto gain이 허용하는 correction delta peak", "현재값": metadata.get("auto_gain_target_delta_peak_v")},
@@ -128,6 +132,20 @@ def _finite_first_residual_plot(command_profile: pd.DataFrame) -> go.Figure:
     _add_profile_trace(fig, command_profile, "physical_target_output_mT", "target field")
     _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", "phase-aligned measured field")
     _add_profile_trace(fig, command_profile, "residual_for_modeling_mT", "residual")
+    marker_frame = command_profile.rename(
+        columns={
+            "physical_target_output_mT": "target field",
+            "residual_for_modeling_mT": "residual",
+        }
+    )
+    add_max_error_marker(
+        fig,
+        marker_frame,
+        residual_label="residual",
+        target_label="target field",
+        marker_label="최대 오차 지점",
+        mask_column="modeling_error_evaluation_mask",
+    )
     fig.update_layout(template="plotly_white", height=320, title="목표 자기장 vs phase-aligned 실측 자기장", xaxis_title="time_s")
     return fig
 

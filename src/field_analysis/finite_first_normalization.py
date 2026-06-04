@@ -85,6 +85,7 @@ def measured_normalization_metadata(
         "measured_abs_peak_raw_mT": float(raw_peak),
         "measured_abs_peak_effective_mT": float(effective_peak),
         "measured_field_scale_to_50mT": float(scale),
+        "measured_field_scale_to_target_mT": float(scale),
         "measured_field_scale_to_target_peak_mT": float(scale),
         "field_modeling_normalization_reference_mT": float(target_peak),
         "measured_field_normalization_status": status,

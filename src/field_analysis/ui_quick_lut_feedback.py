@@ -113,7 +113,7 @@ def render_quick_lut_feedback_input_section(
     st.markdown("#### 2차 보정 입력 source")
     st.caption("지정된 2nd 폴더 / upload memory에서 실구동 결과를 자동 로드해 2차 보정 입력으로 사용합니다.")
     st.caption("TimeMs / Voltage1_V / HallBz 컬럼이 있으면 실구동 결과 후보로 사용할 수 있습니다.")
-    st.caption(f"Raw/absolute gain 평가는 하지 않고, ±50mT / {COMMAND_VOLTAGE_LIMIT_LABEL} 정규화 기준으로 개형과 타이밍을 봅니다.")
+    st.caption(f"Raw/absolute gain 평가는 하지 않고, 사용자 목표 피크 자기장 / {COMMAND_VOLTAGE_LIMIT_LABEL} 정규화 기준으로 개형과 타이밍을 봅니다.")
     st.caption("Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.")
     st.caption("1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다.")
     st.caption("2-cycle production 정책은 폐기되었습니다.")
@@ -468,7 +468,7 @@ def render_actual_drive_review_from_selection(
         "metadata": {
             **metadata,
             "hallbz_sign_applied": True,
-            "field_normalization_mode": "peak_to_50mT",
+            "field_normalization_mode": "peak_to_target_peak_mT",
             "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE,
         },
     }
@@ -527,7 +527,7 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     raw_frame["Raw HallBz"] = pd.to_numeric(raw_hallbz, errors="coerce")
     raw_frame["부호 보정 자기장 (-HallBz)"] = pd.to_numeric(frame.get("measured_field_effective_mT"), errors="coerce")
     raw_frame["기준선 제거 후 자기장"] = pd.to_numeric(frame.get("baseline_removed_effective_field_mT", frame.get("measured_field_mT")), errors="coerce")
-    raw_frame["정규화 자기장 (±50mT)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    raw_frame["정규화 자기장 (target peak mT)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
     raw_frame["Raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
     normalized_voltage_label = f"정규화 전압 ({COMMAND_VOLTAGE_LIMIT_LABEL})"
     raw_frame[normalized_voltage_label] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
@@ -536,7 +536,7 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         _render_plot(
             raw_frame,
-            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "기준선 제거 후 자기장", "정규화 자기장 (±50mT)", "Raw Voltage1_V", normalized_voltage_label, "전류"],
+            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "기준선 제거 후 자기장", "정규화 자기장 (target peak mT)", "Raw Voltage1_V", normalized_voltage_label, "전류"],
             "1차 실구동 데이터 원본 확인",
             yaxis_title="측정값",
         )
@@ -621,7 +621,7 @@ def render_feedback_correction_review(command_profile: pd.DataFrame, metadata: d
     ]
     with st.expander("상세 진단", expanded=False):
         st.caption("HallBz 부호 보정 적용")
-        st.caption("실측 자기장 peak를 ±50mT 기준으로 정규화")
+        st.caption("실측 자기장 peak를 사용자 목표 피크 자기장 기준으로 정규화")
         st.caption(f"전압을 {COMMAND_VOLTAGE_LIMIT_LABEL} 기준으로 정규화/제한")
         st.caption("Raw peak 값은 참고용입니다.")
         st.markdown("##### 예측 출력 상태")

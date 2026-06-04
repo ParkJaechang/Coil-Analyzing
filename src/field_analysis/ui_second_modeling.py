@@ -14,7 +14,9 @@ from .quick_lut_target_config import target_config_snapshot
 from .ui_finite_tail_policy import render_finite_tail_policy_controls
 from .ui_second_modeling_cards import render_actual_drive_data_card
 from .ui_second_modeling_plots import add_peak_alignment_markers
+from .ui_second_modeling_plots import add_max_error_marker
 from .ui_second_modeling_plots import plot_labeled_frame
+from .ui_modeling_error_summary import build_error_ratio_summary_frame
 from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_LIMIT_V
@@ -40,11 +42,17 @@ ACTIVE_CORRECTION_DELTA_LABEL = "active 보정 전압 변화량"
 TAIL_ZERO_RETURN_VOLTAGE_LABEL = "tail 자기장 0 복귀 전압"
 RAW_HALLBZ_LABEL = "Raw HallBz"
 EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
-NORMALIZED_FIELD_LABEL = "정규화 자기장 (±50mT)"
+NORMALIZED_FIELD_LABEL = "정규화 자기장 (target peak mT)"
 BASELINE_REMOVED_FIELD_LABEL = "기준선 제거 후 자기장"
 RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
 NORMALIZED_VOLTAGE_LABEL = f"정규화 전압 ({COMMAND_VOLTAGE_LIMIT_LABEL})"
-# UI contract marker: 보정 전압 변화량 = gain × 오차 / 50mT × 10V
+# UI contract marker: 보정 전압 변화량 = gain × 오차 / target_peak_mT × 10V
+def _render_second_error_ratio_summary(metadata: dict[str, object]) -> None:
+    st.markdown("##### 보정 오차율 요약")
+    st.dataframe(build_error_ratio_summary_frame(metadata), use_container_width=True, hide_index=True)
+    st.caption("전체 오차율은 시간축 전체 RMS 오차율입니다. 최대 순간 오차율은 국소 spike 진단용이며, 자동 보정 중단/권장 판단의 주 기준은 아닙니다.")
+
+
 def _set_second_debug_step(step: str, *, clicked: bool = False) -> None:
     if clicked:
         st.session_state["quick_lut_second_button_clicked"] = True
@@ -146,7 +154,7 @@ def render_second_modeling_controls(
     with st.expander("2차 보정 gain 설명", expanded=False):
         st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다. 0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
         st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다. 기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
-        st.caption(f"오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / 50mT × {COMMAND_VOLTAGE_LIMIT_V:g}V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 {COMMAND_VOLTAGE_LIMIT_LABEL}로 제한됩니다.")
+        st.caption(f"오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / target_peak_mT × {COMMAND_VOLTAGE_LIMIT_V:g}V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 {COMMAND_VOLTAGE_LIMIT_LABEL}로 제한됩니다.")
         st.caption("자동 추천 gain은 residual 크기와 남은 전압 headroom을 보고 보정량이 과해지지 않도록 계산합니다. 수동 gain은 사용자가 직접 보정 반영 비율을 지정합니다.")
     residual_help = "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. 첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. 첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다."
     residual_mode_label = st.selectbox("2차 보정 residual 계산 방식", options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"], index=0, key="second_modeling_residual_alignment_mode", help=residual_help)
@@ -383,22 +391,31 @@ def _render_second_modeling_result(
         f"전압 제한 상태: {metadata.get('voltage_limit_status', 'unknown')}\n\n"
         f"HallBz 부호 보정 적용: {metadata.get('hallbz_sign_applied', False)}"
     )
+    _render_second_error_ratio_summary(metadata)
     plot_frames = build_second_modeling_plot_frames(command_profile)
     st.markdown("##### 실구동 결과 검토")
+    field_figure = plot_labeled_frame(
+        plot_frames["field"],
+        [
+            TARGET_FIELD_LABEL,
+            MEASURED_FIELD_LABEL,
+            SMOOTHED_FIELD_LABEL,
+            ALIGNED_FIELD_LABEL,
+            SECOND_MODELING_FIELD_LABEL,
+            RESIDUAL_LABEL,
+        ],
+        title="목표 자기장 vs 실측 자기장",
+        yaxis_title="자기장 / 오차 (mT)",
+    )
+    add_max_error_marker(
+        field_figure,
+        plot_frames["field"],
+        residual_label=RESIDUAL_LABEL,
+        target_label=TARGET_FIELD_LABEL,
+        marker_label="최대 오차 지점",
+    )
     st.plotly_chart(
-        plot_labeled_frame(
-            plot_frames["field"],
-            [
-                TARGET_FIELD_LABEL,
-                MEASURED_FIELD_LABEL,
-                SMOOTHED_FIELD_LABEL,
-                ALIGNED_FIELD_LABEL,
-                SECOND_MODELING_FIELD_LABEL,
-                RESIDUAL_LABEL,
-            ],
-            title="목표 자기장 vs 실측 자기장",
-            yaxis_title="자기장 / 오차 (mT)",
-        ),
+        field_figure,
         use_container_width=True,
     )
     st.caption("Raw 실측 자기장은 그대로 표시합니다. 2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")

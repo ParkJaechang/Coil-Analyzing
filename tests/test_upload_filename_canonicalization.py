@@ -12,6 +12,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from field_analysis.continuous_candidate_discovery import discover_continuous_candidate_frames
 from field_analysis.continuous_steady_state_schema import adapt_continuous_source_frame
+from field_analysis.parser import infer_dataset_filename_metadata
 from field_analysis.ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 from field_analysis.ui_upload_state import UploadStatePaths, build_upload_memory_items, category_payloads
 
@@ -52,6 +53,39 @@ def test_prefixed_finite_and_continuous_names_recover_canonical_metadata() -> No
     assert continuous["waveform_type"] == "triangle"
     assert continuous["freq_hz"] == 2.0
     assert second["source_type"] is None
+
+
+def test_default_triangle_lut_names_parse_without_waveform_token() -> None:
+    continuous = infer_new_dataset_filename_metadata("continuous_2hz.csv")
+    finite_one = infer_new_dataset_filename_metadata("finite_1cycle_2hz.csv")
+    finite_one_half = infer_new_dataset_filename_metadata("finite_1.5cycle_2hz.csv")
+
+    assert continuous["source_type"] == "continuous"
+    assert continuous["waveform_type"] == "triangle"
+    assert continuous["waveform_source"] == "default_triangle_filename"
+    assert continuous["freq_hz"] == 2.0
+    assert finite_one["source_type"] == "finite-cycle"
+    assert finite_one["waveform_type"] == "triangle"
+    assert finite_one["freq_hz"] == 2.0
+    assert finite_one["cycle_count"] == 1.0
+    assert finite_one_half["waveform_type"] == "triangle"
+    assert finite_one_half["freq_hz"] == 2.0
+    assert finite_one_half["cycle_count"] == 1.5
+
+
+def test_parser_default_triangle_lut_names_parse_without_waveform_token() -> None:
+    continuous = infer_dataset_filename_metadata("continuous_0.25hz.csv")
+    finite = infer_dataset_filename_metadata("finite_1.5cycle_0.25hz.csv")
+
+    assert continuous["source_type"] == "continuous"
+    assert continuous["waveform_type"] == "triangle"
+    assert continuous["waveform_source"] == "default_triangle_filename"
+    assert continuous["freq_hz"] == 0.25
+    assert finite["source_type"] == "finite_cycle"
+    assert finite["waveform_type"] == "triangle"
+    assert finite["waveform_source"] == "default_triangle_filename"
+    assert finite["freq_hz"] == 0.25
+    assert finite["cycle_count"] == 1.5
 
 
 def test_scanned_prefixed_upload_memory_item_uses_canonical_filename_without_renaming(tmp_path: Path) -> None:
@@ -113,6 +147,24 @@ def test_continuous_triangle_candidate_discovered_despite_hash_prefix() -> None:
     assert detail["storage_filename"] == "166756f8b28c75c9_continuous_tri_2Hz.csv"
     assert detail["continuous_source_waveform_family"] == "triangle"
     assert candidates[names[0]].attrs["upload_filename_prefix_stripped"] is True
+
+
+def test_continuous_default_triangle_candidate_discovered_without_waveform_token() -> None:
+    names, candidates, scan = discover_continuous_candidate_frames(
+        {},
+        upload_payloads=[("continuous_2hz.csv", _measured_csv())],
+        dataset_library_payloads=[],
+        target_freq_hz=2.0,
+        source_waveform_filter="triangle",
+    )
+
+    assert names == ["upload_memory:continuous_2hz.csv"]
+    assert scan["continuous_candidate_rejected_count"] == 0
+    detail = scan["continuous_candidate_details"][0]
+    assert detail["filename"] == "continuous_2hz.csv"
+    assert detail["continuous_source_waveform_family"] == "triangle"
+    assert detail["continuous_source_waveform_source"] == "default_triangle_filename"
+    assert candidates[names[0]].attrs["continuous_source_waveform_family"] == "triangle"
 
 
 def test_schema_adapter_accepts_bz_mt_alias_but_rejects_final_lut() -> None:

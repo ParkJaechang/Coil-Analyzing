@@ -70,10 +70,20 @@ def active_end_kink_detected(voltage: np.ndarray, residual: np.ndarray, active_m
     return bool(voltage_step > 1.0 and residual_step > 5.0)
 
 
-def source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output_start_s: float) -> float:
+def source_active_start_s(
+    frame: pd.DataFrame,
+    native_time_s: np.ndarray,
+    output_start_s: float,
+    *,
+    native_voltage_v: np.ndarray | None = None,
+    native_measured_mT: np.ndarray | None = None,
+) -> float:
     for key in (
         "selected_support_voltage_nonzero_start_s",
         "selected_support_command_nonzero_start_s",
+        "selected_support_original_nonzero_start_s",
+        "support_reference_source_window_start_s",
+        "selected_support_source_window_start_s",
     ):
         value = frame.attrs.get(key)
         if isinstance(value, (int, float)) and np.isfinite(float(value)):
@@ -90,10 +100,71 @@ def source_active_start_s(frame: pd.DataFrame, native_time_s: np.ndarray, output
             if isinstance(value, (int, float)) and np.isfinite(float(value)):
                 return float(value)
     finite = np.asarray(native_time_s, dtype=float)
+    detected_from_voltage = _detect_motion_start_s(finite, _native_signal_from_frame(frame, native_voltage_v, "selected_support_source_voltage_v"))
+    if detected_from_voltage is not None:
+        return detected_from_voltage
+    detected_from_measured = _detect_motion_start_s(finite, _native_signal_from_frame(frame, native_measured_mT, "selected_support_source_mT"))
+    if detected_from_measured is not None:
+        return detected_from_measured
     finite = finite[np.isfinite(finite)]
     if finite.size:
         return float(np.nanmin(finite))
     return float(output_start_s)
+
+
+def _native_signal_from_frame(frame: pd.DataFrame, supplied: np.ndarray | None, attr_column: str) -> np.ndarray | None:
+    if supplied is not None:
+        values = np.asarray(supplied, dtype=float)
+        if values.size >= 3:
+            return values
+    attr_values = frame.attrs.get(attr_column)
+    if attr_values is not None:
+        values = np.asarray(attr_values, dtype=float)
+        if values.size >= 3:
+            return values
+    first_values = _first_sequence_value(frame, attr_column)
+    if first_values is not None:
+        values = np.asarray(first_values, dtype=float)
+        if values.size >= 3:
+            return values
+    column_values = _numeric_column_sequence(frame, attr_column)
+    if column_values is not None and column_values.size >= 3:
+        return column_values
+    return None
+
+
+def _detect_motion_start_s(time_s: np.ndarray, signal: np.ndarray | None) -> float | None:
+    if signal is None:
+        return None
+    time_arr = np.asarray(time_s, dtype=float)
+    signal_arr = np.asarray(signal, dtype=float)
+    if time_arr.size != signal_arr.size or time_arr.size < 3:
+        return None
+    finite = np.isfinite(time_arr) & np.isfinite(signal_arr)
+    if finite.sum() < 3:
+        return None
+    time_arr = time_arr[finite]
+    signal_arr = signal_arr[finite]
+    order = np.argsort(time_arr)
+    time_arr = time_arr[order]
+    signal_arr = signal_arr[order]
+    peak = float(np.nanmax(np.abs(signal_arr)))
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return None
+    threshold = max(peak * 0.02, 1e-9)
+    active = np.abs(signal_arr) > threshold
+    if not active.any():
+        return None
+    # Require a short consecutive run when possible so isolated noise before the
+    # actual voltage/field motion does not become the phase-sync anchor.
+    run_length = min(3, int(active.sum()))
+    if run_length <= 1:
+        return float(time_arr[np.flatnonzero(active)[0]])
+    kernel = np.ones(run_length, dtype=int)
+    consecutive = np.convolve(active.astype(int), kernel, mode="valid") >= run_length
+    if consecutive.any():
+        return float(time_arr[int(np.flatnonzero(consecutive)[0])])
+    return float(time_arr[np.flatnonzero(active)[0]])
 
 
 def _validate_native_support_arrays(

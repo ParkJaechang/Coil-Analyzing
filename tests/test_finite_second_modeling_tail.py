@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -13,7 +14,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from field_analysis.finite_second_modeling import generate_second_modeled_voltage_lut
 from field_analysis.finite_second_modeling_stabilization import stabilize_correction_delta
-from field_analysis.finite_second_modeling_tail import resolve_finite_tail_policy
+from field_analysis.finite_second_modeling_tail import compute_second_modeling_gain, resolve_finite_tail_policy
 from tests.test_finite_actual_drive_response import _write_actual_drive_csv
 from tests.test_finite_second_modeling import _first_profile, _write_delayed_actual_drive_csv
 
@@ -478,7 +479,11 @@ def test_second_modeling_tail_uses_post_active_measured_field_when_available(tmp
     assert tail.any()
     assert metadata["tail_field_source"] == "measured_post_active"
     assert metadata["tail_extrapolation_used"] is False
-    assert np.nanmax(np.abs(frame.loc[tail, "raw_tail_correction_delta_v"])) > 0.0
+    if bool(metadata.get("goal_reached", False)):
+        assert np.nanmax(np.abs(frame.loc[tail, "raw_tail_correction_delta_v"])) == pytest.approx(0.0)
+        assert metadata["next_correction_recommended"] is False
+    else:
+        assert np.nanmax(np.abs(frame.loc[tail, "raw_tail_correction_delta_v"])) > 0.0
 
 
 def test_second_modeling_warns_when_tail_support_is_missing_without_fake_line_to_zero(tmp_path: Path) -> None:
@@ -549,13 +554,107 @@ def test_second_modeling_auto_gain_is_default_and_respects_headroom(tmp_path: Pa
     _frame_low, meta_low = generate_second_modeled_voltage_lut(low_headroom, actual, freq_hz=1.0, cycle_count=1.0)
 
     assert meta_high["correction_gain_mode"] == "auto"
-    assert 0.05 <= float(meta_high["correction_gain_auto"]) <= 0.50
+    if bool(meta_high.get("goal_reached", False)):
+        assert float(meta_high["correction_gain_auto"]) == pytest.approx(0.0)
+    else:
+        assert 0.05 <= float(meta_high["correction_gain_auto"]) <= 0.50
     assert meta_high["correction_gain_used"] == meta_high["correction_gain_auto"]
     assert meta_low["correction_gain_auto"] <= meta_high["correction_gain_auto"]
     assert "auto_gain_unit_delta_peak_v" in meta_high
     assert "auto_gain_headroom_safe_v" in meta_high
     assert "auto_gain_target_delta_peak_v" in meta_high
     assert "tail_gain_used" in meta_high
+    assert meta_high["auto_gain_policy"] == "target_rms_error_goal_adaptive_headroom_limited"
+    assert meta_high["goal_error_metric"] == "rms_error_ratio"
+
+
+def test_second_modeling_auto_gain_does_not_shrink_just_because_residual_is_larger() -> None:
+    first_voltage = np.zeros(200, dtype=float)
+    active = np.ones_like(first_voltage, dtype=bool)
+    small_residual_unit_delta = np.linspace(-0.4, 0.4, first_voltage.size)
+    large_residual_unit_delta = small_residual_unit_delta * 4.0
+    very_large_residual_unit_delta = small_residual_unit_delta * 8.0
+
+    small_gain, small_meta = compute_second_modeling_gain(
+        small_residual_unit_delta,
+        first_voltage,
+        active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=10.0,
+    )
+    large_gain, large_meta = compute_second_modeling_gain(
+        large_residual_unit_delta,
+        first_voltage,
+        active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=10.0,
+    )
+    very_large_gain, very_large_meta = compute_second_modeling_gain(
+        very_large_residual_unit_delta,
+        first_voltage,
+        active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=10.0,
+    )
+
+    assert 0.10 <= small_gain < large_gain < very_large_gain <= 1.0
+    assert large_meta["auto_gain_unit_delta_peak_v"] > small_meta["auto_gain_unit_delta_peak_v"]
+    assert large_meta["auto_gain_target_delta_peak_v"] > small_meta["auto_gain_target_delta_peak_v"]
+    assert large_meta["auto_gain_policy"] == "target_rms_error_goal_adaptive_headroom_limited"
+    assert small_meta["adaptive_gain_reason"] == "error_proportional_to_one_percent_goal"
+    assert large_meta["adaptive_gain_reason"] == "error_proportional_to_one_percent_goal"
+    assert very_large_meta["adaptive_gain_reason"] == "error_proportional_to_one_percent_goal"
+    assert small_meta["goal_error_metric"] == "rms_error_ratio"
+    assert large_meta["goal_error_ratio"] > small_meta["goal_error_ratio"]
+    assert very_large_meta["goal_error_ratio"] > large_meta["goal_error_ratio"]
+
+
+def test_second_modeling_auto_gain_stops_when_one_percent_goal_is_reached() -> None:
+    first_voltage = np.zeros(200, dtype=float)
+    active = np.ones_like(first_voltage, dtype=bool)
+    unit_delta_inside_goal = np.linspace(-0.08, 0.08, first_voltage.size)
+
+    gain, metadata = compute_second_modeling_gain(
+        unit_delta_inside_goal,
+        first_voltage,
+        active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=10.0,
+    )
+
+    assert gain == pytest.approx(0.0)
+    assert metadata["goal_reached"] is True
+    assert metadata["next_correction_recommended"] is False
+    assert metadata["samples_above_1pct"] == 0
+    assert metadata["goal_error_metric"] == "rms_error_ratio"
+    assert metadata["adaptive_gain_reason"] == "target_rms_error_goal_reached"
+
+
+def test_second_modeling_one_percent_goal_uses_time_rms_not_single_spike() -> None:
+    first_voltage = np.zeros(400, dtype=float)
+    active = np.ones_like(first_voltage, dtype=bool)
+    unit_delta_with_single_spike = np.zeros_like(first_voltage)
+    unit_delta_with_single_spike[200] = 0.20  # 2% instantaneous error at 10 V, but tiny time-RMS error.
+
+    gain, metadata = compute_second_modeling_gain(
+        unit_delta_with_single_spike,
+        first_voltage,
+        active,
+        manual_gain=0.25,
+        gain_mode="auto",
+        voltage_limit_v=10.0,
+    )
+
+    assert gain == pytest.approx(0.0)
+    assert metadata["goal_error_metric"] == "rms_error_ratio"
+    assert metadata["goal_reached"] is True
+    assert metadata["rms_error_ratio"] <= metadata["target_error_ratio_goal"]
+    assert metadata["max_error_ratio"] > metadata["target_error_ratio_goal"]
+    assert metadata["samples_above_1pct"] == 1
 
 
 def test_second_modeling_manual_gain_mode_is_preserved(tmp_path: Path) -> None:

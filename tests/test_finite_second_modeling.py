@@ -501,7 +501,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "단계별 trace" in source
     assert "실측 자기장 smoothing" in source
     assert "오차 (목표 - 보정 계산용 실측)" in source
-    assert "보정 전압 변화량 = gain × 오차 / 50mT × 10V" in source
+    assert "보정 전압 변화량 = gain × 오차 / target_peak_mT × 10V" in source
     assert "2차 command = 1차 command + 안정화된 보정 전압 변화량" in source
     assert "2차 보정 residual 계산 방식" in source
     assert "첫 피크 정렬 + 안정화" in source
@@ -573,6 +573,24 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     )
     assert native["time_s"].tolist() == [0.0, 0.2, 0.5]
     assert native["Raw HallBz"].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_second_modeling_plot_can_highlight_max_error_point() -> None:
+    from field_analysis.ui_second_modeling_plots import add_max_error_marker, plot_labeled_frame
+
+    frame = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.1, 0.2, 0.3],
+            "target": [0.0, 50.0, 0.0, -50.0],
+            "residual": [0.0, -5.0, 18.0, -7.0],
+        }
+    )
+    figure = plot_labeled_frame(frame, ["target", "residual"], title="field", yaxis_title="mT")
+    add_max_error_marker(figure, frame, residual_label="residual", target_label="target")
+
+    marker_trace = next(trace for trace in figure.data if trace.name == "최대 오차 지점")
+    assert np.isclose(float(marker_trace.x[0]), 0.2)
+    assert np.isclose(float(marker_trace.y[0]), 18.0)
 
 
 def test_second_modeling_ui_does_not_auto_switch_final_export_source() -> None:

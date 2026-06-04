@@ -108,6 +108,20 @@ def test_continuous_first_modeling_uses_target_peak_reference_for_residual_delta
     assert not command.empty
     assert metadata["field_modeling_normalization_reference_mT"] == pytest.approx(80.0, rel=0.02)
     assert metadata["continuous_residual_unit_delta_reference_mT"] == pytest.approx(80.0, rel=0.02)
+    assert np.isfinite(float(metadata["peak_to_peak_error_ratio"]))
+    assert np.isfinite(float(metadata["positive_peak_error_ratio"]))
+    assert np.isfinite(float(metadata["negative_peak_error_ratio"]))
+    assert metadata["error_evaluation_start_cycle"] == pytest.approx(0.25)
+    assert metadata["error_evaluation_end_cycle"] == pytest.approx(0.75)
+    assert metadata["error_evaluation_start_s"] == pytest.approx(0.25)
+    assert metadata["error_evaluation_end_s"] == pytest.approx(0.75)
+    assert "modeling_error_evaluation_mask" in command.columns
+    assert not bool(command.loc[command["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
+    assert bool(command.loc[(command["time_s"] >= 0.25) & (command["time_s"] <= 0.75), "modeling_error_evaluation_mask"].all())
+    assert not bool(command.loc[command["time_s"] > 0.75, "modeling_error_evaluation_mask"].any())
+    excluded = command.loc[command["time_s"] > 0.75, "correction_delta_v"].to_numpy(dtype=float)
+    assert np.isfinite(excluded).all()
+    assert np.nanmax(np.abs(excluded)) > 1e-6
 
 
 def test_continuous_first_modeling_scales_raw_input_voltage_by_field_peak() -> None:
@@ -147,6 +161,49 @@ def test_continuous_first_modeling_scales_raw_input_voltage_by_field_peak() -> N
     assert metadata["source_voltage_base_normalization_scale"] == pytest.approx(2.0, rel=0.02)
     assert command["source_voltage_v"].abs().max() == pytest.approx(3.0, rel=0.02)
     assert command["base_voltage_v"].abs().max() == pytest.approx(6.0, rel=0.02)
+
+
+def test_continuous_first_residual_delta_uses_measured_field_per_input_volt() -> None:
+    time_s = np.linspace(0.0, 1.1, 220, endpoint=False)
+    active = time_s < 1.0
+    phase = 2.0 * np.pi * time_s
+    raw_voltage = 1.0 * np.sin(phase)
+    frame = pd.DataFrame(
+        {
+            "time_s": time_s[active],
+            "measured_field_normalized_mT": 40.0 * np.sin(phase[active]),
+            "normalized_physical_target_output_mT": 50.0 * np.sin(phase[active]),
+            "raw_voltage_v": raw_voltage[active],
+            "measured_field_normalization_scale_to_target_mT": 50.0 / 40.0,
+        }
+    )
+    support = pd.DataFrame(
+        {
+            "time_s": time_s,
+            "measured_field_normalized_mT": 40.0 * np.sin(phase),
+            "raw_voltage_v": raw_voltage,
+            "measured_field_normalization_scale_to_target_mT": 50.0 / 40.0,
+        }
+    )
+
+    command, metadata = build_continuous_phase_aligned_command_profile(
+        frame,
+        support_frame=support,
+        freq_hz=1.0,
+    )
+
+    assert not command.empty
+    assert metadata["field_per_volt_mT_per_v"] == pytest.approx(40.0, rel=0.03)
+    assert metadata["continuous_field_per_volt_mT_per_v"] == pytest.approx(40.0, rel=0.03)
+    assert metadata["correction_delta_mode"] == "residual_div_field_per_volt"
+    assert metadata["correction_delta_v_uses_field_per_volt"] is True
+    assert command["base_voltage_v"].abs().max() == pytest.approx(1.25, rel=0.03)
+    residual = command["residual_for_modeling_mT"].to_numpy(dtype=float)
+    raw_delta = command["raw_correction_delta_v"].to_numpy(dtype=float)
+    gain = float(metadata["correction_gain_used"])
+    field_per_volt = float(metadata["field_per_volt_mT_per_v"])
+    finite = np.isfinite(residual) & np.isfinite(raw_delta)
+    assert np.nanmax(np.abs(raw_delta[finite] - residual[finite] / field_per_volt * gain)) < 1e-6
 
 
 def test_continuous_runtime_scales_input_voltage_by_extraction_field_normalization() -> None:
