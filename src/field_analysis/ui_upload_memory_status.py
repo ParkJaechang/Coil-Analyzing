@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from .upload_category_aliases import UPLOAD_CATEGORIES, normalize_upload_category
@@ -53,13 +54,12 @@ def activate_cached_uploads(category: str, *, paths: UploadStatePaths | None = N
         raise ValueError(f"Unsupported upload category: {category}")
     resolved_paths = paths or build_upload_state_paths()
     manifest = load_upload_manifest(paths=resolved_paths)
-    category_dir = resolved_paths.category_dir(category)
     active_names: list[str] = []
-    for entry in manifest["files"].get(category, []):
+    for entry in list_persisted_uploads(category, paths=resolved_paths):
         cache_name = str(entry.get("cache_name") or entry.get("stored_filename") or entry.get("file_name") or "").strip()
         if not cache_name:
             continue
-        path = category_dir / cache_name
+        path = Path(str(entry.get("path") or entry.get("stored_path") or ""))
         if path.exists() and path.is_file():
             active_names.append(cache_name)
     manifest.setdefault("active_uploads", {})[category] = sorted(set(active_names))

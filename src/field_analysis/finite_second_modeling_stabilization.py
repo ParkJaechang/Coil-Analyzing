@@ -278,6 +278,15 @@ def stabilize_correction_delta(
         taper_start = max(tail_start_time, tail_end_time - taper_duration)
         taper_x = np.clip((time[tail_indices] - taper_start) / max(tail_end_time - taper_start, 1e-12), 0.0, 1.0)
         taper_gate[tail_indices] = 1.0 - _smoothstep(taper_x)
+    else:
+        active_end_time = float(time[active_indices[-1]])
+        active_taper_start = max(start_time, active_end_time - start_gate_duration)
+        active_taper_x = np.clip(
+            (time[active_indices] - active_taper_start) / max(active_end_time - active_taper_start, 1e-12),
+            0.0,
+            1.0,
+        )
+        taper_gate[active_indices] = 1.0 - _smoothstep(active_taper_x)
     envelope = start_gate * taper_gate
 
     cleaned = raw.copy()
@@ -290,6 +299,8 @@ def stabilize_correction_delta(
     stabilized[start_index] = 0.0
     if tail_indices.size:
         stabilized[int(tail_indices[-1])] = 0.0
+    else:
+        stabilized[int(active_indices[-1])] = 0.0
     arrays = {
         "smoothed_correction_delta_v": smoothed,
         "start_gate": start_gate,
@@ -311,8 +322,12 @@ def stabilize_correction_delta(
         "correction_start_gate_type": "smoothstep",
         "correction_start_gate_applied_only_to_initial_segment": True,
         "correction_ramp_in_duration_s": float(start_gate_duration),
-        "active_taper_out_enabled": False,
-        "active_end_correction_preserved": True,
+        "active_taper_out_enabled": not bool(tail_indices.size),
+        "active_end_correction_preserved": bool(tail_indices.size),
+        "active_end_correction_zero_taper_enabled": not bool(tail_indices.size),
+        "correction_end_gate_cycle_fraction": 0.25 if not tail_indices.size else 0.0,
+        "correction_end_gate_duration_s": float(start_gate_duration if not tail_indices.size else 0.0),
+        "correction_end_gate_type": "smoothstep" if not tail_indices.size else "not_applied",
         "correction_tail_taper_enabled": bool(tail_indices.size),
         "correction_tail_taper_gate": "tail_segment_only" if tail_indices.size else "not_applied",
         "correction_taper_out_cycle_fraction": 0.10,

@@ -115,6 +115,8 @@ def test_continuous_first_modeling_uses_target_peak_reference_for_residual_delta
     assert metadata["error_evaluation_end_cycle"] == pytest.approx(0.75)
     assert metadata["error_evaluation_start_s"] == pytest.approx(0.25)
     assert metadata["error_evaluation_end_s"] == pytest.approx(0.75)
+    assert metadata["active_taper_out_enabled"] is True
+    assert metadata["active_end_correction_zero_taper_enabled"] is True
     assert "modeling_error_evaluation_mask" in command.columns
     assert not bool(command.loc[command["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
     assert bool(command.loc[(command["time_s"] >= 0.25) & (command["time_s"] <= 0.75), "modeling_error_evaluation_mask"].all())
@@ -122,6 +124,8 @@ def test_continuous_first_modeling_uses_target_peak_reference_for_residual_delta
     excluded = command.loc[command["time_s"] > 0.75, "correction_delta_v"].to_numpy(dtype=float)
     assert np.isfinite(excluded).all()
     assert np.nanmax(np.abs(excluded)) > 1e-6
+    assert command["correction_delta_v"].iloc[0] == pytest.approx(0.0, abs=1e-12)
+    assert command["correction_delta_v"].iloc[-1] == pytest.approx(0.0, abs=1e-12)
 
 
 def test_continuous_first_modeling_scales_raw_input_voltage_by_field_peak() -> None:

@@ -641,10 +641,14 @@ def test_finite_first_error_evaluation_excludes_discharge_tail() -> None:
     assert one_meta["error_evaluation_start_cycle"] == pytest.approx(0.25)
     assert one_meta["error_evaluation_end_cycle"] == pytest.approx(0.75)
     assert one_meta["error_evaluation_end_s"] == pytest.approx(0.75)
+    assert one_meta["active_taper_out_enabled"] is True
+    assert one_meta["active_end_correction_zero_taper_enabled"] is True
     assert one_half_meta["error_evaluation_cycle_count"] == pytest.approx(1.25)
     assert one_half_meta["error_evaluation_start_cycle"] == pytest.approx(0.25)
     assert one_half_meta["error_evaluation_end_cycle"] == pytest.approx(1.25)
     assert one_half_meta["error_evaluation_end_s"] == pytest.approx(1.25)
+    assert one_half_meta["active_taper_out_enabled"] is True
+    assert one_half_meta["active_end_correction_zero_taper_enabled"] is True
     assert np.isfinite(float(one_meta["peak_to_peak_error_ratio"]))
     assert np.isfinite(float(one_meta["positive_peak_error_ratio"]))
     assert np.isfinite(float(one_meta["negative_peak_error_ratio"]))
@@ -669,6 +673,10 @@ def test_finite_first_error_evaluation_excludes_discharge_tail() -> None:
     assert np.isfinite(one_half_tail_residual).all()
     assert np.isfinite(one_tail_raw_delta).all()
     assert np.isfinite(one_half_tail_raw_delta).all()
+    assert one["correction_delta_v"].iloc[0] == pytest.approx(0.0, abs=1e-12)
+    assert one["correction_delta_v"].iloc[-1] == pytest.approx(0.0, abs=1e-12)
+    assert one_half["correction_delta_v"].iloc[0] == pytest.approx(0.0, abs=1e-12)
+    assert one_half["correction_delta_v"].iloc[-1] == pytest.approx(0.0, abs=1e-12)
 
 
 def test_deprecated_second_input_source_ui_is_not_called_from_quick_lut_main() -> None:

@@ -28,6 +28,10 @@ from .ui_raw_waveforms_labels import infer_new_dataset_filename_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_STATE_DIRNAME = "field_analysis_app_state"
+FIRST_RESULT_UPLOAD_DIRS_BY_CATEGORY = {
+    "continuous": ("Continuous_1st_Result",),
+    "transient": ("Transient_1st_Result",),
+}
 
 @dataclass(frozen=True)
 class UploadStatePaths:
@@ -40,6 +44,16 @@ class UploadStatePaths:
 
     def category_dir(self, category: str) -> Path:
         return self.uploads_dir / normalize_upload_category(category)
+
+
+def category_upload_dirs(paths: UploadStatePaths, category: str) -> list[Path]:
+    canonical = normalize_upload_category(category)
+    dirs = [paths.category_dir(canonical)]
+    for dirname in FIRST_RESULT_UPLOAD_DIRS_BY_CATEGORY.get(canonical, ()):
+        extra_dir = paths.uploads_dir / dirname
+        if extra_dir not in dirs:
+            dirs.append(extra_dir)
+    return dirs
 
 def build_upload_state_paths(repo_root: Path | None = None) -> UploadStatePaths:
     root = (repo_root or REPO_ROOT).resolve()
@@ -116,15 +130,16 @@ def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = No
     resolved_paths = paths or build_upload_state_paths()
     category = normalize_upload_category(category)
     category_dir = resolved_paths.category_dir(category)
+    category_dirs = category_upload_dirs(resolved_paths, category)
     manifest = load_upload_manifest(paths=resolved_paths)
     records: list[dict[str, Any]] = []
-    seen_cache_names: set[str] = set()
+    seen_paths: set[Path] = set()
 
     for entry in manifest["files"].get(category, []):
         cache_name = str(entry.get("cache_name") or entry.get("file_name") or "").strip()
         if not cache_name:
             continue
-        path = category_dir / cache_name
+        path = Path(str(entry.get("stored_path") or entry.get("path") or category_dir / cache_name))
         if not path.exists():
             continue
         display_name = str(entry.get("display_name") or entry.get("file_name") or cache_name)
@@ -142,23 +157,25 @@ def list_persisted_uploads(category: str, *, paths: UploadStatePaths | None = No
                 duplicate_of=str(entry.get("duplicate_of")) if entry.get("duplicate_of") else None,
             )
         )
-        seen_cache_names.add(cache_name)
+        seen_paths.add(path.resolve())
 
-    if category_dir.exists():
-        for path in sorted(child for child in category_dir.iterdir() if child.is_file()):
-            if path.name in seen_cache_names:
-                continue
-            records.append(
-                _manifest_record(
-                    category=category,
-                    display_name=path.name,
-                    cache_name=path.name,
-                    size_bytes=path.stat().st_size,
-                    path=path,
-                    source="scan",
-                    upload_item_id=_upload_item_id(category, path.name),
+    for scan_dir in category_dirs:
+        if scan_dir.exists():
+            for path in sorted(child for child in scan_dir.iterdir() if child.is_file()):
+                if path.resolve() in seen_paths:
+                    continue
+                records.append(
+                    _manifest_record(
+                        category=category,
+                        display_name=path.name,
+                        cache_name=path.name,
+                        size_bytes=path.stat().st_size,
+                        path=path,
+                        source="scan",
+                        upload_item_id=_upload_item_id(category, path.name),
+                    )
                 )
-            )
+                seen_paths.add(path.resolve())
 
     return sorted(records, key=lambda item: (str(item.get("display_name") or ""), str(item.get("cache_name") or "")))
 
@@ -302,31 +319,33 @@ def build_upload_memory_items(*, paths: UploadStatePaths | None = None) -> list[
     items: list[dict[str, Any]] = []
     for category in UPLOAD_CATEGORIES:
         category_dir = resolved_paths.category_dir(category)
-        seen_cache_names: set[str] = set()
+        seen_paths: set[Path] = set()
         for entry in manifest["files"].get(category, []):
             if not isinstance(entry, dict):
                 continue
             item = _upload_memory_item_from_entry(category, entry, category_dir=category_dir)
             if item is not None:
                 items.append(item)
-                seen_cache_names.add(str(item["stored_filename"]))
-        if category_dir.exists():
-            for path in sorted(child for child in category_dir.iterdir() if child.is_file()):
-                if path.name in seen_cache_names:
-                    continue
-                item = _upload_memory_item_from_entry(
-                    category,
-                    {
-                        "cache_name": path.name,
-                        "file_name": path.name,
-                        "display_name": path.name,
-                        "path": str(path),
-                        "size_bytes": path.stat().st_size,
-                    },
-                    category_dir=category_dir,
-                )
-                if item is not None:
-                    items.append(item)
+                seen_paths.add(Path(str(item["stored_path"])).resolve())
+        for scan_dir in category_upload_dirs(resolved_paths, category):
+            if scan_dir.exists():
+                for path in sorted(child for child in scan_dir.iterdir() if child.is_file()):
+                    if path.resolve() in seen_paths:
+                        continue
+                    item = _upload_memory_item_from_entry(
+                        category,
+                        {
+                            "cache_name": path.name,
+                            "file_name": path.name,
+                            "display_name": path.name,
+                            "path": str(path),
+                            "size_bytes": path.stat().st_size,
+                        },
+                        category_dir=scan_dir,
+                    )
+                    if item is not None:
+                        items.append(item)
+                        seen_paths.add(path.resolve())
     return sorted(
         items,
         key=lambda item: (

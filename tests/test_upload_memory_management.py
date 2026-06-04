@@ -246,6 +246,44 @@ def test_activate_cached_uploads_marks_cached_files_as_active(tmp_path: Path) ->
     assert len(remembered_payloads) == 1
 
 
+def test_first_result_folders_are_restored_as_continuous_and_transient_uploads(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    continuous_dir = paths.uploads_dir / "Continuous_1st_Result"
+    transient_dir = paths.uploads_dir / "Transient_1st_Result"
+    continuous_dir.mkdir(parents=True)
+    transient_dir.mkdir(parents=True)
+    (continuous_dir / "continuous_0.25hz.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+    (transient_dir / "0.25hz_1.5cycle.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+
+    items = build_upload_memory_items(paths=paths)
+    by_name = {str(item["original_filename"]): item for item in items}
+    summary = build_upload_memory_group_summary(items)
+
+    assert summary["continuous_cycle"]["count"] == 1
+    assert summary["finite_cycle"]["count"] == 1
+    assert by_name["continuous_0.25hz.csv"]["category"] == "continuous"
+    assert by_name["continuous_0.25hz.csv"]["waveform_family"] == "triangle"
+    assert by_name["continuous_0.25hz.csv"]["freq_hz"] == 0.25
+    assert by_name["0.25hz_1.5cycle.csv"]["category"] == "transient"
+    assert by_name["0.25hz_1.5cycle.csv"]["waveform_family"] == "triangle"
+    assert by_name["0.25hz_1.5cycle.csv"]["freq_hz"] == 0.25
+    assert by_name["0.25hz_1.5cycle.csv"]["cycle_count"] == 1.5
+
+
+def test_activate_cached_uploads_includes_first_result_folders(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    transient_dir = paths.uploads_dir / "Transient_1st_Result"
+    transient_dir.mkdir(parents=True)
+    (transient_dir / "2hz_1cycle.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+
+    result = activate_cached_uploads("transient", paths=paths)
+    payloads = category_payloads("finite-cycle", None, paths=paths)
+
+    assert result["activated_count"] == 1
+    assert len(payloads) == 1
+    assert payloads[0][0] == "2hz_1cycle.csv"
+
+
 def test_continuous_category_aliases_restore_as_canonical_continuous(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     upload = _Upload("continuous_tri_2Hz.csv", b"time_s,bz_mT\n0,0\n")

@@ -59,6 +59,8 @@ def test_default_triangle_lut_names_parse_without_waveform_token() -> None:
     continuous = infer_new_dataset_filename_metadata("continuous_2hz.csv")
     finite_one = infer_new_dataset_filename_metadata("finite_1cycle_2hz.csv")
     finite_one_half = infer_new_dataset_filename_metadata("finite_1.5cycle_2hz.csv")
+    finite_one_hz_first = infer_new_dataset_filename_metadata("2hz_1cycle.csv")
+    finite_one_half_hz_first = infer_new_dataset_filename_metadata("2hz_1.5cycle.csv")
 
     assert continuous["source_type"] == "continuous"
     assert continuous["waveform_type"] == "triangle"
@@ -71,11 +73,19 @@ def test_default_triangle_lut_names_parse_without_waveform_token() -> None:
     assert finite_one_half["waveform_type"] == "triangle"
     assert finite_one_half["freq_hz"] == 2.0
     assert finite_one_half["cycle_count"] == 1.5
+    assert finite_one_hz_first["source_type"] == "finite-cycle"
+    assert finite_one_hz_first["waveform_type"] == "triangle"
+    assert finite_one_hz_first["waveform_source"] == "default_triangle_filename_hz_cycle"
+    assert finite_one_hz_first["freq_hz"] == 2.0
+    assert finite_one_hz_first["cycle_count"] == 1.0
+    assert finite_one_half_hz_first["freq_hz"] == 2.0
+    assert finite_one_half_hz_first["cycle_count"] == 1.5
 
 
 def test_parser_default_triangle_lut_names_parse_without_waveform_token() -> None:
     continuous = infer_dataset_filename_metadata("continuous_0.25hz.csv")
     finite = infer_dataset_filename_metadata("finite_1.5cycle_0.25hz.csv")
+    finite_hz_first = infer_dataset_filename_metadata("0.25hz_1.5cycle.csv")
 
     assert continuous["source_type"] == "continuous"
     assert continuous["waveform_type"] == "triangle"
@@ -86,6 +96,11 @@ def test_parser_default_triangle_lut_names_parse_without_waveform_token() -> Non
     assert finite["waveform_source"] == "default_triangle_filename"
     assert finite["freq_hz"] == 0.25
     assert finite["cycle_count"] == 1.5
+    assert finite_hz_first["source_type"] == "finite_cycle"
+    assert finite_hz_first["waveform_type"] == "triangle"
+    assert finite_hz_first["waveform_source"] == "default_triangle_filename_hz_cycle"
+    assert finite_hz_first["freq_hz"] == 0.25
+    assert finite_hz_first["cycle_count"] == 1.5
 
 
 def test_scanned_prefixed_upload_memory_item_uses_canonical_filename_without_renaming(tmp_path: Path) -> None:
