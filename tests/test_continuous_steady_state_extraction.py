@@ -392,6 +392,7 @@ def test_continuous_first_modeling_reports_clipping_warning_for_manual_high_gain
         base_voltage_peak_v=5.0,
         correction_gain_mode="manual",
         correction_gain=1.0,
+        voltage_limit_v=3.0,
     )
 
     assert metadata["continuous_voltage_clip_sample_count"] > 0

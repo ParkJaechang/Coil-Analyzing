@@ -24,6 +24,7 @@ LEGACY_OVERSIZED_ALLOWLIST: dict[str, str] = {
         "extract new UI logic into ui_*.py modules."
     ),
     "src/field_analysis/compensation.py": "Legacy compensation runtime with multiple code paths.",
+    "src/field_analysis/finite_first_phase_sync.py": "Finite first modeling bridge expanded in PR61; split after core contract stabilizes.",
     "src/field_analysis/lut.py": "Legacy LUT runtime that still needs follow-up module extraction.",
     "src/field_analysis/parser.py": "Legacy parser module with multiple import flows.",
     "src/field_analysis/plotting.py": "Legacy plotting bundle awaiting feature splits.",
@@ -35,6 +36,9 @@ LEGACY_OVERSIZED_ALLOWLIST: dict[str, str] = {
     "src/field_analysis/validation_retune_catalog.py": "Legacy catalog helper bundle.",
     "src/field_analysis/plant_model/harmonic_surface.py": "Legacy harmonic surface model bundle.",
     "tests/test_continuous_steady_state_quick_lut.py": "Legacy broad continuous Quick LUT regression suite.",
+    "tests/test_finite_first_phase_sync_modeling.py": "Expanded PR61 finite first modeling contract suite.",
+    "tests/test_finite_second_modeling.py": "Legacy broad finite second modeling regression suite.",
+    "tests/test_finite_second_modeling_tail.py": "Legacy broad finite second modeling tail regression suite.",
 }
 
 

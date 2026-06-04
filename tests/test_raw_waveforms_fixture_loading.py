@@ -73,6 +73,7 @@ def test_fixture_filename_metadata_supports_continuous_and_finite_names() -> Non
         "waveform_type": "triangle",
         "freq_hz": 5.0,
         "cycle_count": None,
+        "waveform_source": "filename",
     }
     assert finite["source_type"] == "finite-cycle"
     assert finite["waveform_type"] == "sine"

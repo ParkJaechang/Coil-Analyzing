@@ -2792,7 +2792,7 @@ def _render_quick_lut_tab_v2(
                 if compensation.get("finite_support_used"):
                     st.success("finite empirical support route로 추천 전압 파형을 계산했습니다.")
                 else:
-                    st.success("Legacy/Experimental harmonic inverse diagnostic을 계산했습니다. Final LUT export에는 사용하지 않습니다.")
+                    st.success("harmonic inverse compensation으로 추천 전압 파형을 계산했습니다.")
             if compensation["frequency_mode"] == "frequency_interpolated":
                 st.info(
                     f"주파수 trend 보간 사용: 요청 {compensation['requested_freq_hz']:.3f} Hz, "
