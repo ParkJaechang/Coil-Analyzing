@@ -183,19 +183,9 @@ def build_actual_drive_review_case(
     time_abs = frame["time_s_abs"].to_numpy(dtype=float)
     first_voltage = frame["first_voltage_v"].to_numpy(dtype=float)
     raw_hallbz = frame["hallbz_raw_mT"].to_numpy(dtype=float)
-    effective_field = (
-        frame["measured_field_effective_mT"].to_numpy(dtype=float)
-        if "measured_field_effective_mT" in frame.columns
-        else -raw_hallbz
-    )
     command_start_s, command_end_s = _nonzero_window(time_abs, first_voltage)
     if not np.isfinite(command_start_s):
         command_start_s = float(np.nanmin(time_abs))
-    pre_mask = time_abs < command_start_s
-    baseline_source = "pre_command_window" if pre_mask.any() else "median_fallback_no_pre_command_window"
-    baseline = float(np.nanmedian(effective_field[pre_mask])) if pre_mask.any() else float(np.nanmedian(effective_field))
-    measured_field = effective_field - baseline
-    field_start_s = _field_motion_start(time_abs, effective_field, baseline)
     relative_time = time_abs - float(command_start_s)
     finite_time = time_abs[np.isfinite(time_abs)]
     diffs = np.diff(finite_time) if finite_time.size > 1 else np.array([], dtype=float)
@@ -211,6 +201,19 @@ def build_actual_drive_review_case(
         target_output_pp=float(FIELD_ROUTE_NORMALIZED_TARGET_PP),
         force_rounded_triangle=True,
     )
+    polarity = _select_effective_field_polarity(
+        raw_hallbz=raw_hallbz,
+        time_s=time_abs,
+        command_start_s=command_start_s,
+        active_mask=active_mask,
+        target=physical_target,
+    )
+    effective_field = polarity["effective_field"]
+    measured_field = polarity["measured_field"]
+    baseline = float(polarity["baseline"])
+    baseline_source = str(polarity["baseline_source"])
+    pre_mask = time_abs < command_start_s
+    field_start_s = _field_motion_start(time_abs, effective_field, baseline)
     normalized_measured_field, field_norm_meta = normalize_peak_to_limit(
         measured_field,
         active_mask,
@@ -327,9 +330,16 @@ def build_actual_drive_review_case(
         "source_time_monotonic": source_time_monotonic,
         "duplicate_time_count": duplicate_time_count,
         "interpolation_status": "not_interpolated_review_native_timebase",
-        "hallbz_sign_applied": True,
-        "double_sign_flip_detected": False,
-        "field_convention": "raw_hallbz -> effective=-raw -> baseline_removed -> normalized",
+        "hallbz_sign_applied": bool(polarity["effective_sign"] == -1.0),
+        "hallbz_sign_inverted": bool(polarity["effective_sign"] == -1.0),
+        "hallbz_effective_sign": float(polarity["effective_sign"]),
+        "hallbz_sign_selection_status": polarity["selection_status"],
+        "hallbz_sign_auto_corrected": bool(polarity["effective_sign"] != -1.0),
+        "hallbz_negative_convention_corr": polarity["negative_convention_corr"],
+        "hallbz_positive_convention_corr": polarity["positive_convention_corr"],
+        "effective_field_convention": polarity["effective_field_convention"],
+        "double_sign_flip_detected": bool(polarity["effective_sign"] != -1.0),
+        "field_convention": f"raw_hallbz -> {polarity['effective_field_convention']} -> baseline_removed -> normalized",
         "field_normalization_enabled": True,
         "field_normalization_mode": "peak_to_50mT",
         "field_normalization_status": field_norm_meta["status"],
@@ -480,6 +490,84 @@ def _field_motion_start(time_s: np.ndarray, field: np.ndarray, baseline: float) 
     residual = np.asarray(field, dtype=float) - float(baseline)
     start, _ = _nonzero_window(time_s, residual, threshold_fraction=0.02)
     return start
+
+
+def _select_effective_field_polarity(
+    *,
+    raw_hallbz: np.ndarray,
+    time_s: np.ndarray,
+    command_start_s: float,
+    active_mask: np.ndarray,
+    target: np.ndarray,
+) -> dict[str, Any]:
+    """Choose the HallBz polarity that best matches the target shape for review/modeling."""
+
+    negative = _polarity_candidate(
+        raw_hallbz=raw_hallbz,
+        sign=-1.0,
+        time_s=time_s,
+        command_start_s=command_start_s,
+        active_mask=active_mask,
+        target=target,
+    )
+    positive = _polarity_candidate(
+        raw_hallbz=raw_hallbz,
+        sign=1.0,
+        time_s=time_s,
+        command_start_s=command_start_s,
+        active_mask=active_mask,
+        target=target,
+    )
+    neg_corr = float(negative["shape_corr"])
+    pos_corr = float(positive["shape_corr"])
+    choose_positive = np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr + 0.05)
+    selected = positive if choose_positive else negative
+    convention = "effective_field_mT = +HallBz_raw" if choose_positive else "effective_field_mT = -HallBz_raw"
+    return {
+        **selected,
+        "selection_status": "auto_selected_by_target_correlation",
+        "negative_convention_corr": neg_corr,
+        "positive_convention_corr": pos_corr,
+        "effective_field_convention": convention,
+    }
+
+
+def _polarity_candidate(
+    *,
+    raw_hallbz: np.ndarray,
+    sign: float,
+    time_s: np.ndarray,
+    command_start_s: float,
+    active_mask: np.ndarray,
+    target: np.ndarray,
+) -> dict[str, Any]:
+    effective = np.asarray(raw_hallbz, dtype=float) * float(sign)
+    pre_mask = np.asarray(time_s, dtype=float) < float(command_start_s)
+    baseline_source = "pre_command_window" if pre_mask.any() else "median_fallback_no_pre_command_window"
+    baseline = float(np.nanmedian(effective[pre_mask])) if pre_mask.any() else float(np.nanmedian(effective))
+    measured = effective - baseline
+    normalized_measured, _ = normalize_peak_to_limit(
+        measured,
+        active_mask,
+        limit=50.0,
+        unavailable_status="unavailable_zero_peak",
+    )
+    normalized_target, _ = normalize_peak_to_limit(
+        target,
+        active_mask,
+        limit=50.0,
+        unavailable_status="unavailable_zero_peak",
+    )
+    corr, nrmse = _shape_corr_and_nrmse(normalized_target[active_mask], normalized_measured[active_mask])
+    return {
+        "effective_sign": float(sign),
+        "effective_field": effective,
+        "measured_field": measured,
+        "baseline": baseline,
+        "baseline_source": baseline_source,
+        "shape_corr": corr,
+        "shape_nrmse": nrmse,
+    }
 
 
 def _clipping_or_spike_suspected(voltage: np.ndarray, field: np.ndarray) -> bool:

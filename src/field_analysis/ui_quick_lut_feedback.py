@@ -504,7 +504,8 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     plot_frame[RESIDUAL_LABEL] = plot_frame[FIELD_TARGET_LABEL] - plot_frame[MEASURED_FIELD_LABEL]
     plot_frame[FIRST_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
     plot_frame[ACTUAL_VOLTAGE_LABEL] = pd.to_numeric(
-        frame.get("normalized_actual_drive_voltage_v", frame.get("normalized_first_voltage_v")), errors="coerce"
+        frame.get("actual_drive_voltage_v", frame.get("raw_actual_drive_voltage_v", frame.get("raw_first_voltage_v"))),
+        errors="coerce",
     )
     if "second_limited_voltage_v" in command_profile.columns:
         plot_frame[SECOND_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "second_limited_voltage_v")
