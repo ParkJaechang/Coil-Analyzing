@@ -108,7 +108,7 @@ def test_second_modeling_tail_timebase_is_monotonic_and_continuous(tmp_path: Pat
     assert metadata["tail_continuity_blend_enabled"] is True
 
 
-def test_second_modeling_tail_start_does_not_reset_to_zero_when_active_end_is_nonzero(tmp_path: Path) -> None:
+def test_second_modeling_tail_zeroes_when_actual_drive_voltage_has_ended(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
     _write_slow_zero_return_actual_drive_csv(actual)
     profile = _first_profile()
@@ -118,21 +118,14 @@ def test_second_modeling_tail_start_does_not_reset_to_zero_when_active_end_is_no
 
     frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
 
-    active = frame["active_window_mask"].astype(bool).to_numpy()
     tail = frame["tail_window_mask"].astype(bool).to_numpy()
-    active_end_index = int(np.flatnonzero(active)[-1])
     tail_start_index = int(np.flatnonzero(tail)[0])
 
-    assert metadata["tail_voltage_generated_independently_from_first_voltage"] is True
-    assert metadata["tail_start_reset_to_zero_detected"] is False
-    assert metadata["active_to_tail_zero_reset_detected"] is False
-    assert metadata["active_to_tail_voltage_jump_v"] <= 1e-9
-    assert np.isclose(
-        frame.loc[tail_start_index, "second_limited_voltage_v"],
-        frame.loc[active_end_index, "second_limited_voltage_v"],
-        atol=1e-9,
-    )
-    assert not np.isclose(frame.loc[tail_start_index, "second_limited_voltage_v"], 0.0, atol=1e-9)
+    assert metadata["tail_actual_drive_zero_passthrough"] is True
+    assert metadata["tail_voltage_generated_independently_from_first_voltage"] is False
+    assert metadata["tail_start_reset_to_zero_detected"] is True
+    assert metadata["active_to_tail_zero_reset_detected"] is True
+    assert np.isclose(frame.loc[tail_start_index, "second_limited_voltage_v"], 0.0, atol=1e-9)
     assert np.isclose(frame.loc[tail_start_index, "first_modeled_voltage_v"], 0.0, atol=1e-12)
 
 

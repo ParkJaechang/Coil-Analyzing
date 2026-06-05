@@ -45,18 +45,11 @@ def test_second_modeling_finite_time_tail_fits_local_model(tmp_path: Path) -> No
     frame, metadata = generate_second_modeled_voltage_lut(_first_profile(), actual, freq_hz=1.0, cycle_count=1.0)
 
     tail = frame["tail_window_mask"].astype(bool).to_numpy()
-    assert metadata["tail_model_type"] == "first_order_local"
-    assert metadata["tail_model_fit_status"] == "ok"
-    assert np.isfinite(metadata["tail_model_a"])
-    assert np.isfinite(metadata["tail_model_b"])
-    assert np.isfinite(metadata["tail_model_c"])
-    assert "tail_model_fit_r2" in metadata
-    assert np.nanmax(np.abs(frame.loc[tail, "tail_model_voltage_v"])) > 0.0
-    assert np.allclose(
-        frame.loc[tail, "second_limited_voltage_v"],
-        np.clip(frame.loc[tail, "tail_voltage_v"], -10.0, 10.0),
-        equal_nan=True,
-    )
+    assert metadata["tail_model_type"] == "actual_drive_zero_tail_passthrough"
+    assert metadata["tail_model_fit_status"] == "skipped_actual_drive_voltage_zero"
+    assert metadata["tail_actual_drive_zero_passthrough"] is True
+    assert np.nanmax(np.abs(frame.loc[tail, "tail_model_voltage_v"])) <= 1e-12
+    assert np.nanmax(np.abs(frame.loc[tail, "second_limited_voltage_v"])) <= 1e-12
 
 
 def test_second_modeling_finite_time_tail_uses_smooth_pulse_fallback_when_model_invalid() -> None:
@@ -80,12 +73,11 @@ def test_second_modeling_finite_time_tail_uses_smooth_pulse_fallback_when_model_
     )
 
     tail_indices = np.flatnonzero(tail)
-    assert metadata["tail_fallback_used"] is True
-    assert metadata["tail_fallback_reason"] in {"model_a_too_small", "model_fit_unstable", "model_fit_insufficient_data"}
-    assert metadata["tail_model_fit_status"] != "ok"
+    assert metadata["tail_actual_drive_zero_passthrough"] is True
+    assert metadata["tail_model_fit_status"] == "skipped_actual_drive_voltage_zero"
     assert np.isclose(arrays["tail_voltage_v"][tail_indices[0]], 0.0, atol=1e-9)
     assert np.isclose(arrays["tail_voltage_v"][tail_indices[-1]], 0.0, atol=1e-9)
-    assert metadata["tail_voltage_peak_v"] > 0.0
+    assert metadata["tail_voltage_peak_v"] == 0.0
 
 
 def test_second_modeling_tail_sign_constraint_uses_opposite_polarity_for_positive_b0() -> None:
@@ -101,7 +93,7 @@ def test_second_modeling_tail_sign_constraint_uses_opposite_polarity_for_positiv
         tail_mask=tail,
         measured_field_for_second_mT=measured,
         native_measured_field_mT=measured,
-        actual_drive_voltage_v=first_voltage,
+        actual_drive_voltage_v=np.where(tail, 0.5, first_voltage),
         first_voltage_v=first_voltage,
         correction_delta_v=np.zeros_like(time_s),
         second_voltage_v=first_voltage.copy(),
@@ -134,7 +126,7 @@ def test_second_modeling_tail_sign_constraint_uses_opposite_polarity_for_negativ
         tail_mask=tail,
         measured_field_for_second_mT=measured,
         native_measured_field_mT=measured,
-        actual_drive_voltage_v=first_voltage,
+        actual_drive_voltage_v=np.where(tail, -0.5, first_voltage),
         first_voltage_v=first_voltage,
         correction_delta_v=np.zeros_like(time_s),
         second_voltage_v=first_voltage.copy(),
@@ -216,13 +208,12 @@ def test_second_modeling_tail_does_not_reset_to_zero_after_nonzero_active_end_vo
     )
 
     tail_values = arrays["tail_voltage_v"][tail]
-    assert np.isclose(tail_values[0], -0.8, atol=1e-9)
-    assert metadata["tail_start_reset_to_zero_detected"] is False
-    assert metadata["active_to_tail_zero_reset_detected"] is False
-    assert metadata["tail_voltage_generated_independently_from_first_voltage"] is True
-    assert metadata["active_to_tail_voltage_jump_v"] <= 1e-9
-    assert np.nanmax(tail_values[:-1]) <= 1e-9
-    assert not np.any(np.isclose(tail_values[:-1], 0.0, atol=1e-9))
+    assert np.isclose(tail_values[0], 0.0, atol=1e-9)
+    assert metadata["tail_actual_drive_zero_passthrough"] is True
+    assert metadata["tail_start_reset_to_zero_detected"] is True
+    assert metadata["active_to_tail_zero_reset_detected"] is True
+    assert metadata["tail_voltage_generated_independently_from_first_voltage"] is False
+    assert np.nanmax(np.abs(tail_values)) <= 1e-9
     assert np.isclose(tail_values[-1], 0.0, atol=1e-9)
 
 

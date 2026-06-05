@@ -698,7 +698,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "오차 (목표 - 보정 계산용 실측)" in source
     assert "1차 모델링 전압" in source
     assert "2차 보정 전압" in source
-    assert "전압 제한 후 2차 command" in source
+    assert "2차 모델링 전압" in source
     assert "2차 보정 command" in source
     assert "사용 중인 1차 실구동 데이터" in source
     assert "보정 전압 변화량" in source
@@ -760,7 +760,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "목표 자기장" in frames["field"].columns
     assert "second_limited_voltage_v" not in frames["voltage"].columns
     assert "2차 보정 전압" in frames["voltage"].columns
-    assert "전압 제한 후 2차 command" in frames["voltage"].columns
+    assert "2차 모델링 전압" in frames["voltage"].columns
     assert "실측 자기장 smoothing" in frames["field"].columns
     assert "보정 계산용 실측 자기장" in frames["field"].columns
     assert "raw 보정 전압 변화량" in frames["voltage"].columns

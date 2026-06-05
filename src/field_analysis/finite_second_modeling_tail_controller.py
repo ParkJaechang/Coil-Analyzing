@@ -123,6 +123,83 @@ def apply_finite_time_zero_return_tail(
         tau[0] = 0.0
         tau[-1] = 1.0
     b_ref, db_ref = _cubic_hermite_zero_return(tau, tail_duration_s, b0, db0)
+    actual_tail_peak = peak_abs(actual_voltage[tail_indices])
+    actual_active_peak = peak_abs(actual_voltage[active_indices])
+    actual_tail_zero_threshold = max(1e-6, 0.02 * actual_active_peak)
+    if actual_tail_peak <= actual_tail_zero_threshold:
+        correction[tail_indices] = -first_voltage[tail_indices]
+        second_before_clip[tail_indices] = 0.0
+        second_limited[tail_indices] = 0.0
+        arrays.update(
+            {
+                "tail_B0_mT": _fill_scalar(n, tail, b0),
+                "tail_dB0_dt_mT_s": _fill_scalar(n, tail, db0),
+                "tail_B_ref_mT": _fill_tail(n, tail_indices, b_ref),
+                "tail_dB_ref_dt_mT_s": _fill_tail(n, tail_indices, db_ref),
+                "tail_model_voltage_v": _fill_tail(n, tail_indices, np.zeros_like(tau)),
+                "tail_voltage_before_clip_v": _fill_tail(n, tail_indices, np.zeros_like(tau)),
+                "tail_voltage_v": _fill_tail(n, tail_indices, np.zeros_like(tau)),
+                "correction_delta_v": correction,
+                "second_voltage_before_clip_v": second_before_clip,
+                "second_limited_voltage_v": second_limited,
+            }
+        )
+        active_end_voltage = float(second_limited[active_end_index]) if np.isfinite(second_limited[active_end_index]) else 0.0
+        tail_start_voltage = float(second_limited[tail_indices[0]]) if tail_indices.size else active_end_voltage
+        return arrays, {
+            "tail_return_mode": "finite_time_zero_return",
+            "tail_duration_mode": "seconds",
+            "tail_cycle_count": float(tail_cycle_count),
+            "tail_duration_s": float(tail_duration_s),
+            "tail_duration_cycle_count": float(tail_cycle_count),
+            "tail_terminal_target_mT": 0.0,
+            "tail_terminal_dBdt_target": 0.0,
+            "tail_B0_mT": b0,
+            "tail_B0_source": "native_smoothed_measured_at_active_end",
+            "tail_dB0_dt_mT_s": db0,
+            "tail_model_type": "actual_drive_zero_tail_passthrough",
+            "tail_model_fit_status": "skipped_actual_drive_voltage_zero",
+            "tail_model_a": float("nan"),
+            "tail_model_b": float("nan"),
+            "tail_model_c": float("nan"),
+            "tail_model_fit_r2": float("nan"),
+            "tail_model_fit_residual_rms": float("nan"),
+            "tail_fallback_used": False,
+            "tail_fallback_reason": None,
+            "tail_actual_drive_voltage_peak_v": float(actual_tail_peak),
+            "tail_actual_drive_voltage_zero_threshold_v": float(actual_tail_zero_threshold),
+            "tail_actual_drive_zero_passthrough": True,
+            "tail_voltage_peak_v": 0.0,
+            "tail_voltage_amplitude_source": "actual_drive_voltage_zero",
+            "tail_voltage_amplitude_v": 0.0,
+            "tail_voltage_projection_mode": "actual_drive_zero_passthrough",
+            "tail_voltage_attack_enabled": False,
+            "tail_voltage_attack_duration_s": 0.0,
+            "tail_voltage_release_shape": "zero",
+            "tail_voltage_projection_from_model_inverse": False,
+            "tail_voltage_sign_constraint_enabled": False,
+            "tail_voltage_expected_sign": 0,
+            "tail_voltage_sign_violation_detected": False,
+            "tail_voltage_sign_projection_applied": False,
+            "tail_voltage_single_lobe_status": "ok",
+            "tail_voltage_monotonic_to_zero_status": "ok",
+            "tail_voltage_monotonic_release_enabled": True,
+            "tail_voltage_monotonic_projection_applied": False,
+            "tail_voltage_monotonic_violation_count": 0,
+            "tail_voltage_final_v": 0.0,
+            "tail_voltage_generated_independently_from_first_voltage": False,
+            "tail_controller_gain_used": 0.0,
+            "tail_controller_scaling_mode": "actual_drive_zero_passthrough",
+            "tail_end_voltage_zero_status": "ok",
+            "second_command_final_voltage_v": float(second_limited[-1]) if n else 0.0,
+            "active_end_voltage_v": active_end_voltage,
+            "tail_start_voltage_v": tail_start_voltage,
+            "active_to_tail_voltage_jump_v": float(abs(tail_start_voltage - active_end_voltage)) if tail_indices.size else 0.0,
+            "tail_start_reset_to_zero_detected": bool(abs(active_end_voltage) > 1e-6 and abs(tail_start_voltage) <= 1e-9),
+            "active_to_tail_zero_reset_detected": bool(abs(active_end_voltage) > 1e-6 and abs(tail_start_voltage) <= 1e-9),
+            "active_to_tail_continuity_status": "ok" if abs(tail_start_voltage - active_end_voltage) <= 0.5 else "warning_jump_detected",
+            "tail_continuity_blend_enabled": bool(tail_indices.size),
+        }
     fit = _fit_first_order_model(time, native_measured, actual_voltage, active_end_s, tail_end_s)
     scaling = _tail_scaling(tail_controller_scaling_mode, tail_controller_gain)
     fallback_reason = None
