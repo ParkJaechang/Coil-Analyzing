@@ -8,6 +8,12 @@ import numpy as np
 import pandas as pd
 
 from .finite_actual_drive_normalization import peak_abs
+from .finite_phase_sync_math import (
+    dominant_peak_time,
+    midpoint_between_peak_pair,
+    nearest_zero_crossing_time,
+    phase_peak_detection_signal,
+)
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V
 
 
@@ -169,6 +175,7 @@ def align_measured_field_for_residual(
     active_mask: np.ndarray,
     *,
     freq_hz: float,
+    cycle_count: float,
     residual_alignment_mode: str,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     measured = np.asarray(measured_smoothed, dtype=float)
@@ -190,17 +197,81 @@ def align_measured_field_for_residual(
     time = np.asarray(time_s, dtype=float)
     target_values = np.asarray(target, dtype=float)
     active = np.asarray(active_mask, dtype=bool) & np.isfinite(time) & np.isfinite(target_values) & np.isfinite(measured)
+    preferred_peak_polarity = "positive" if float(cycle_count) <= 1.0 + 1e-9 else "negative"
+    phase_alignment_method = "first_positive_peak" if preferred_peak_polarity == "positive" else "peak_pair_midpoint_to_target_zero_crossing"
     target_peak = _first_positive_peak_time(time, target_values, active, freq_hz=freq_hz, allow_active_fallback=False)
-    measured_peak = _first_positive_peak_time(time, measured, active, freq_hz=freq_hz, allow_active_fallback=True)
+    measured_peak = None
+    measured_peak_polarity = None
+    measured_peak_value = None
+    midpoint_time = None
+    midpoint_left = None
+    midpoint_right = None
+    target_zero = None
+    peak_signal_meta: dict[str, Any] = {
+        "phase_peak_detection_signal": "smoothed_measured_field",
+        "phase_peak_detection_window_samples": None,
+    }
+    if preferred_peak_polarity == "positive":
+        measured_peak = _first_positive_peak_time(time, measured, active, freq_hz=freq_hz, allow_active_fallback=True)
+        measured_peak_polarity = "positive" if measured_peak is not None else None
+    else:
+        peak_signal, peak_signal_meta = phase_peak_detection_signal(measured, active)
+        midpoint_time, midpoint_polarity, midpoint_left, midpoint_right = midpoint_between_peak_pair(
+            time,
+            peak_signal,
+            active,
+            pair_start_number=2,
+        )
+        target_zero = nearest_zero_crossing_time(
+            time,
+            target_values,
+            active,
+            reference_time_s=midpoint_time,
+        )
+        measured_peak, measured_peak_polarity, measured_peak_value = dominant_peak_time(
+            time,
+            peak_signal,
+            active,
+            preferred_polarity="negative",
+        )
     base_meta: dict[str, Any] = {
         "residual_alignment_mode": residual_alignment_mode,
         "phase_alignment_enabled": True,
-        "phase_alignment_method": "first_positive_peak",
-        "target_first_peak_time_s": target_peak,
-        "measured_first_peak_time_s": measured_peak,
+        "phase_alignment_method": phase_alignment_method,
+        "phase_sync_peak_reference": "first_positive_peak" if preferred_peak_polarity == "positive" else "second_to_third_peak_midpoint",
+        "phase_sync_peak_polarity": preferred_peak_polarity,
+        "phase_sync_midpoint_time_s": midpoint_time,
+        "phase_sync_midpoint_left_peak_time_s": midpoint_left,
+        "phase_sync_midpoint_right_peak_time_s": midpoint_right,
+        "phase_sync_midpoint_polarity": midpoint_polarity if preferred_peak_polarity != "positive" else None,
+        "phase_sync_target_zero_crossing_time_s": target_zero,
+        "target_first_peak_time_s": target_peak if preferred_peak_polarity == "positive" else target_zero,
+        "measured_first_peak_time_s": measured_peak if preferred_peak_polarity == "positive" else midpoint_time,
+        "measured_peak_value_mT": measured_peak_value,
+        "measured_peak_polarity": measured_peak_polarity,
         "residual_source_for_second_modeling": "first_peak_aligned_smoothed_measured_field",
         "correction_delta_source": "first_model_residual_for_second_mT",
+        **peak_signal_meta,
     }
+    if preferred_peak_polarity != "positive":
+        if midpoint_time is None or target_zero is None:
+            return measured.copy(), _alignment_fallback_meta(base_meta, "peak_detection_failed")
+        shift_s = float(midpoint_time - target_zero)
+        shift_cycles = shift_s * max(float(freq_hz), 0.0)
+        if abs(shift_cycles) > 0.70:
+            return measured.copy(), {
+                **_alignment_fallback_meta(base_meta, "shift_too_large"),
+                "phase_alignment_shift_s": shift_s,
+                "phase_alignment_shift_cycles": shift_cycles,
+            }
+        aligned = _interp(time, measured, time + shift_s)
+        return aligned, {
+            **base_meta,
+            "phase_alignment_shift_s": shift_s,
+            "phase_alignment_shift_cycles": shift_cycles,
+            "phase_alignment_status": "ok",
+            "residual_alignment_interpolation_status": "ok_no_extrapolation",
+        }
     if target_peak is None or measured_peak is None:
         return measured.copy(), _alignment_fallback_meta(base_meta, "peak_detection_failed")
     shift_s = float(measured_peak - target_peak)

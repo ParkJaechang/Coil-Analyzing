@@ -523,20 +523,26 @@ def _select_effective_field_polarity(
     )
     neg_corr = float(negative["shape_corr"])
     pos_corr = float(positive["shape_corr"])
+    neg_aligned_corr = float(negative.get("aligned_shape_corr", neg_corr))
+    pos_aligned_corr = float(positive.get("aligned_shape_corr", pos_corr))
     target_sign = _dominant_peak_sign(target, active_mask)
     neg_sign = float(negative["dominant_peak_sign"])
     pos_sign = float(positive["dominant_peak_sign"])
-    choose_positive = np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr)
+    choose_positive = np.isfinite(pos_aligned_corr) and (
+        not np.isfinite(neg_aligned_corr) or pos_aligned_corr > neg_aligned_corr
+    )
     selected = positive if choose_positive else negative
     convention = "effective_field_mT = +HallBz_raw" if choose_positive else "effective_field_mT = -HallBz_raw"
     return {
         **selected,
-        "selection_status": "auto_selected_by_target_correlation",
+        "selection_status": "auto_selected_by_phase_aligned_target_correlation",
         "target_dominant_peak_sign": target_sign,
         "negative_convention_dominant_peak_sign": neg_sign,
         "positive_convention_dominant_peak_sign": pos_sign,
         "negative_convention_corr": neg_corr,
         "positive_convention_corr": pos_corr,
+        "negative_convention_aligned_corr": neg_aligned_corr,
+        "positive_convention_aligned_corr": pos_aligned_corr,
         "effective_field_convention": convention,
     }
 
@@ -568,6 +574,7 @@ def _polarity_candidate(
         unavailable_status="unavailable_zero_peak",
     )
     corr, nrmse = _shape_corr_and_nrmse(normalized_target[active_mask], normalized_measured[active_mask])
+    aligned_corr, aligned_lag_samples = _best_lagged_shape_corr(normalized_target, normalized_measured, active_mask)
     return {
         "effective_sign": float(sign),
         "effective_field": effective,
@@ -575,6 +582,8 @@ def _polarity_candidate(
         "baseline": baseline,
         "baseline_source": baseline_source,
         "shape_corr": corr,
+        "aligned_shape_corr": aligned_corr,
+        "aligned_shape_lag_samples": aligned_lag_samples,
         "shape_nrmse": nrmse,
         "dominant_peak_sign": _dominant_peak_sign(measured, active_mask),
     }
@@ -624,6 +633,33 @@ def _shape_corr_and_nrmse(target: np.ndarray, measured: np.ndarray) -> tuple[flo
     pp = _pp(left)
     nrmse = float(rmse / max(abs(pp) * 0.5, 1e-9)) if np.isfinite(pp) else float("nan")
     return corr, nrmse
+
+
+def _best_lagged_shape_corr(target: np.ndarray, measured: np.ndarray, active_mask: np.ndarray) -> tuple[float, int]:
+    target_values = np.asarray(target, dtype=float)
+    measured_values = np.asarray(measured, dtype=float)
+    active = np.asarray(active_mask, dtype=bool) & np.isfinite(target_values) & np.isfinite(measured_values)
+    indices = np.flatnonzero(active)
+    if indices.size < 5:
+        corr, _ = _shape_corr_and_nrmse(target_values[active], measured_values[active])
+        return corr, 0
+    max_lag = max(1, min(int(round(indices.size * 0.35)), indices.size // 2))
+    best_corr = float("nan")
+    best_lag = 0
+    for lag in range(-max_lag, max_lag + 1):
+        if lag >= 0:
+            t_idx = indices[:-lag] if lag else indices
+            m_idx = indices[lag:] if lag else indices
+        else:
+            t_idx = indices[-lag:]
+            m_idx = indices[:lag]
+        if t_idx.size < 5 or m_idx.size < 5:
+            continue
+        corr, _ = _shape_corr_and_nrmse(target_values[t_idx], measured_values[m_idx])
+        if np.isfinite(corr) and (not np.isfinite(best_corr) or corr > best_corr):
+            best_corr = corr
+            best_lag = int(lag)
+    return best_corr, best_lag
 
 
 def _estimate_phase_error(time_s: np.ndarray, target: np.ndarray, measured: np.ndarray, active_mask: np.ndarray) -> float:

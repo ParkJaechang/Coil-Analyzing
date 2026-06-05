@@ -201,6 +201,18 @@ def generate_second_modeled_voltage_lut(
     target = _target(profile, review, time_s)
     native_time_s = pd.to_numeric(review["time_s"], errors="coerce").to_numpy(dtype=float)
     native_measured = pd.to_numeric(review["normalized_measured_field_mT"], errors="coerce").to_numpy(dtype=float)
+    native_measured, second_polarity_meta = _select_second_measured_polarity(
+        native_time_s,
+        native_measured,
+        time_s,
+        target,
+        active_mask,
+    )
+    review_effective_sign = float(review_meta.get("hallbz_effective_sign", 1.0) or 1.0)
+    second_effective_sign = review_effective_sign * float(second_polarity_meta["second_measured_polarity_sign"])
+    second_effective_convention = (
+        "effective_field_mT = +HallBz_raw" if second_effective_sign > 0.0 else "effective_field_mT = -HallBz_raw"
+    )
     native_active_mask = np.isfinite(native_time_s) & (native_time_s >= -1e-12) & (native_time_s <= float(cycle_count) / max(float(freq_hz), 1e-12) + 0.5 / max(float(freq_hz), 1e-12))
     native_measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
@@ -214,9 +226,9 @@ def generate_second_modeled_voltage_lut(
     measured_smoothed = _interp(native_time_s, native_measured_smoothed, time_s)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
-    effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s)
-    baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s)
-    normalized_field = _interp(review["time_s"], review["normalized_measured_field_mT"], time_s)
+    effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s) * float(second_polarity_meta["second_measured_polarity_sign"])
+    baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s) * float(second_polarity_meta["second_measured_polarity_sign"])
+    normalized_field = measured
     residual_raw = target - measured
     residual_pointwise = target - measured_smoothed
     measured_aligned, residual_alignment_meta = align_measured_field_for_residual(
@@ -225,6 +237,7 @@ def generate_second_modeled_voltage_lut(
         measured_smoothed,
         active_mask,
         freq_hz=float(freq_hz),
+        cycle_count=float(cycle_count),
         residual_alignment_mode=alignment_mode,
     )
     active_support_meta: dict[str, Any] = {
@@ -512,7 +525,8 @@ def generate_second_modeled_voltage_lut(
         "measured_support_missing_time_ranges": _missing_time_ranges(time_s, ~measured_support_valid_mask & (active_mask | tail_mask)),
         "residual_tail_available": not missing_tail_measured,
         "residual_tail_unavailable_reason": None if not missing_tail_measured else "phase_shifted_tail_source_range_insufficient",
-        "double_sign_flip_detected": bool(review_meta.get("hallbz_sign_auto_corrected", False)),
+        "double_sign_flip_detected": False,
+        "double_sign_flip_detected_in_review_only": bool(review_meta.get("hallbz_sign_auto_corrected", False)),
         "correction_delta_peak_v": peak_abs(stabilized_delta),
         "voltage_limit_status": "clamped" if np.any(np.abs(second_voltage - second_limited) > 1e-9) else "ok",
         "final_export_voltage_source_column": "second_limited_voltage_v",
@@ -524,6 +538,12 @@ def generate_second_modeled_voltage_lut(
         "automatic_pass_fail_judgement": False,
         "field_normalization_scale_factor": review_meta.get("field_normalization_scale_factor"),
         "voltage_normalization_scale_factor": review_meta.get("voltage_normalization_scale_factor"),
+        **second_polarity_meta,
+        "hallbz_sign_applied": bool(second_effective_sign < 0.0),
+        "hallbz_sign_inverted": bool(second_effective_sign < 0.0),
+        "hallbz_effective_sign": float(second_effective_sign),
+        "effective_field_convention": second_effective_convention,
+        "second_modeling_effective_field_convention": second_effective_convention,
         **smoothing_meta,
         **residual_alignment_meta,
         **active_support_meta,
@@ -553,6 +573,102 @@ def generate_second_modeled_voltage_lut(
         "active_correction_finite_through_end": bool(active_invalid_meta.get("active_end_residual_support_status") == "ok"),
     }
     return result, metadata
+
+
+def _select_second_measured_polarity(
+    native_time_s: np.ndarray,
+    native_measured: np.ndarray,
+    output_time_s: np.ndarray,
+    target: np.ndarray,
+    active_mask: np.ndarray,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    target_on_native = _interp(output_time_s, target, native_time_s)
+    output_start = float(np.nanmin(output_time_s[np.isfinite(output_time_s)])) if np.isfinite(output_time_s).any() else 0.0
+    output_end = float(np.nanmax(output_time_s[np.asarray(active_mask, dtype=bool) & np.isfinite(output_time_s)])) if np.any(active_mask) else float(np.nanmax(output_time_s))
+    native_active = (
+        np.isfinite(native_time_s)
+        & np.isfinite(native_measured)
+        & np.isfinite(target_on_native)
+        & (native_time_s >= output_start - 1e-12)
+        & (native_time_s <= output_end + 1e-12)
+    )
+    pos_corr, pos_lag = _best_lagged_corr(target_on_native, native_measured, native_active)
+    neg_corr, neg_lag = _best_lagged_corr(target_on_native, -native_measured, native_active)
+    target_peak_sign = _dominant_sign(target_on_native, native_active)
+    measured_peak_sign = _dominant_sign(native_measured, native_active)
+    choose_negative = np.isfinite(neg_corr) and (not np.isfinite(pos_corr) or neg_corr > pos_corr)
+    if (
+        np.isfinite(target_peak_sign)
+        and np.isfinite(measured_peak_sign)
+        and target_peak_sign != 0.0
+        and measured_peak_sign != 0.0
+        and target_peak_sign != measured_peak_sign
+    ):
+        choose_negative = True
+    sign = -1.0 if choose_negative else 1.0
+    return np.asarray(native_measured, dtype=float) * sign, {
+        "second_measured_polarity_selection_status": "target_profile_phase_aligned_correlation",
+        "second_measured_polarity_sign": sign,
+        "second_measured_positive_aligned_corr": pos_corr,
+        "second_measured_negative_aligned_corr": neg_corr,
+        "second_measured_positive_lag_samples": pos_lag,
+        "second_measured_negative_lag_samples": neg_lag,
+        "second_measured_target_dominant_sign": target_peak_sign,
+        "second_measured_raw_dominant_sign": measured_peak_sign,
+        "second_measured_polarity_flipped_after_review": bool(sign < 0.0),
+    }
+
+
+def _best_lagged_corr(target: np.ndarray, measured: np.ndarray, mask: np.ndarray) -> tuple[float, int]:
+    target_values = np.asarray(target, dtype=float)
+    measured_values = np.asarray(measured, dtype=float)
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(target_values) & np.isfinite(measured_values)
+    indices = np.flatnonzero(valid)
+    if indices.size < 5:
+        return float("nan"), 0
+    max_lag = max(1, min(int(round(indices.size * 0.35)), indices.size // 2))
+    best_corr = float("nan")
+    best_lag = 0
+    for lag in range(-max_lag, max_lag + 1):
+        if lag >= 0:
+            t_idx = indices[:-lag] if lag else indices
+            m_idx = indices[lag:] if lag else indices
+        else:
+            t_idx = indices[-lag:]
+            m_idx = indices[:lag]
+        if t_idx.size < 5:
+            continue
+        corr = _corr(target_values[t_idx], measured_values[m_idx])
+        if np.isfinite(corr) and (not np.isfinite(best_corr) or corr > best_corr):
+            best_corr = corr
+            best_lag = int(lag)
+    return best_corr, best_lag
+
+
+def _corr(left: np.ndarray, right: np.ndarray) -> float:
+    x = np.asarray(left, dtype=float)
+    y = np.asarray(right, dtype=float)
+    valid = np.isfinite(x) & np.isfinite(y)
+    if valid.sum() < 3:
+        return float("nan")
+    x = x[valid] - float(np.nanmean(x[valid]))
+    y = y[valid] - float(np.nanmean(y[valid]))
+    denom = float(np.sqrt(np.sum(x * x) * np.sum(y * y)))
+    if denom <= 1e-12:
+        return float("nan")
+    return float(np.sum(x * y) / denom)
+
+
+def _dominant_sign(values: np.ndarray, mask: np.ndarray) -> float:
+    data = np.asarray(values, dtype=float)
+    valid = np.asarray(mask, dtype=bool) & np.isfinite(data)
+    if not valid.any():
+        return float("nan")
+    active_values = data[valid]
+    peak = float(active_values[int(np.nanargmax(np.abs(active_values)))])
+    if abs(peak) <= 1e-12:
+        return 0.0
+    return 1.0 if peak > 0.0 else -1.0
 
 
 __all__ = ["generate_second_modeled_voltage_lut"]

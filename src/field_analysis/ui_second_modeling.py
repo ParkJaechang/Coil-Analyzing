@@ -397,57 +397,34 @@ def _render_second_modeling_result(
     )
     _render_second_error_ratio_summary(metadata)
     plot_frames = build_second_modeling_plot_frames(command_profile)
-    st.markdown("##### 실구동 결과 검토")
-    field_figure = plot_labeled_frame(
-        plot_frames["field"],
-        [
-            TARGET_FIELD_LABEL,
-            MEASURED_FIELD_LABEL,
-            SMOOTHED_FIELD_LABEL,
-            ALIGNED_FIELD_LABEL,
-            SECOND_MODELING_FIELD_LABEL,
-            RESIDUAL_LABEL,
-        ],
-        title="목표 자기장 vs 실측 자기장",
-        yaxis_title="자기장 / 오차 (mT)",
+    st.markdown("##### 2차 phase sync 확인")
+    st.caption("피크 정렬 확인: smoothing된 실측 자기장을 기준으로 phase sync를 확인합니다.")
+    st.plotly_chart(
+        _plot_peak_alignment_frame(
+            plot_frames["field"],
+            metadata,
+            title="2차 phase sync 확인",
+            yaxis_title="자기장 (mT)",
+        ),
+        use_container_width=True,
     )
+    st.caption("2차 보정 계산에는 smoothing된 실측 자기장을 사용합니다. 그 다음 phase sync를 적용한 실측 자기장으로 residual을 계산합니다.")
+    st.caption(f"phase sync 기준: {metadata.get('phase_alignment_method', 'unknown')} / shift={metadata.get('phase_alignment_shift_s', 'unknown')} s")
+    st.markdown("##### 목표 자기장 vs phase-aligned 실측 자기장")
+    residual_figure = _plot_second_residual_frame(plot_frames["field"])
     add_max_error_marker(
-        field_figure,
+        residual_figure,
         plot_frames["field"],
         residual_label=RESIDUAL_LABEL,
         target_label=TARGET_FIELD_LABEL,
         marker_label="최대 오차 지점",
     )
-    st.plotly_chart(
-        field_figure,
-        use_container_width=True,
-    )
-    st.caption("Raw 실측 자기장은 그대로 표시합니다. 2차 보정 계산에는 Hall sensor noise를 줄이기 위해 smoothing된 실측 자기장을 사용합니다.")
-    st.caption("보정 계산용 실측은 선택한 residual 계산 방식에 따라 달라집니다. 첫 피크 정렬 residual 모드에서는 실측 자기장을 phase delay만큼 앞으로 당긴 뒤 오차를 계산합니다.")
-    st.caption("오차는 목표 자기장 - 보정 계산용 실측 자기장으로 계산됩니다. active 구간에서는 목표 자기장 추종 보정을 적용합니다. tail 구간에서는 자기장을 0으로 복귀시키기 위한 추가 전압을 적용합니다. active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다. tail 끝에서는 전압이 0으로 수렴합니다.")
-    st.markdown("##### 피크 정렬 확인")
-    st.plotly_chart(
-        _plot_peak_alignment_frame(
-            plot_frames["field"],
-            metadata,
-            title="피크 정렬 확인",
-            yaxis_title="자기장 (mT)",
-        ),
-        use_container_width=True,
-    )
+    st.plotly_chart(residual_figure, use_container_width=True)
+    st.caption("오차 = 목표 자기장 - phase-aligned smoothed 실측 자기장입니다. active 구간 끝에서 residual을 0으로 fake fill하지 않습니다.")
+    st.caption("active 구간 끝에서는 보정을 강제로 0으로 줄이지 않습니다. tail OFF이면 active 전체 보정을 유지하고, tail ON이면 tail 구간에서만 0 복귀 전압을 계산합니다.")
     st.markdown("##### 2차 보정 command")
     st.plotly_chart(
-        plot_labeled_frame(
-            plot_frames["voltage"],
-            [
-                FIRST_VOLTAGE_LABEL,
-                CORRECTION_DELTA_LABEL,
-                SECOND_VOLTAGE_LABEL,
-                SECOND_LIMITED_VOLTAGE_LABEL,
-            ],
-            title="2차 보정 command",
-            yaxis_title="전압 (V)",
-        ),
+        _plot_second_command_frame(plot_frames["voltage"]),
         use_container_width=True,
     )
     st.caption("active와 tail을 따로 계산해 붙이지 않고, active+tail 전체에서 하나의 residual과 하나의 보정 전압을 계산합니다.")
@@ -623,4 +600,27 @@ def _plot_peak_alignment_frame(frame: pd.DataFrame, metadata: dict[str, object],
         target_peak_label=PEAK_TARGET_LABEL,
         measured_peak_label=PEAK_MEASURED_LABEL,
         aligned_peak_label=PEAK_ALIGNED_LABEL,
+    )
+
+
+def _plot_second_residual_frame(frame: pd.DataFrame):
+    return plot_labeled_frame(
+        frame,
+        [TARGET_FIELD_LABEL, ALIGNED_FIELD_LABEL, RESIDUAL_LABEL],
+        title="목표 자기장 vs phase-aligned 실측 자기장",
+        yaxis_title="자기장 / 오차 (mT)",
+    )
+
+
+def _plot_second_command_frame(frame: pd.DataFrame):
+    return plot_labeled_frame(
+        frame,
+        [
+            FIRST_VOLTAGE_LABEL,
+            ACTUAL_VOLTAGE_LABEL,
+            CORRECTION_DELTA_LABEL,
+            SECOND_LIMITED_VOLTAGE_LABEL,
+        ],
+        title="2차 보정 command",
+        yaxis_title="전압 (V)",
     )
