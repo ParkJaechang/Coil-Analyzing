@@ -476,10 +476,44 @@ def test_second_modeling_first_peak_aligned_without_stabilization_is_preserved(t
 
     assert metadata["residual_alignment_mode"] == "first_peak_aligned"
     assert metadata["correction_stabilization_enabled"] is False
-    expected_delta = frame["first_model_residual_for_second_mT"] / 50.0 * 10.0 * 0.25
+    expected_delta = (
+        frame["first_model_residual_for_second_mT"]
+        / float(metadata["finite_second_field_per_volt_mT_per_v"])
+        * 0.25
+    )
     active = frame["active_window_mask"].astype(bool).to_numpy()
     interior = active & np.isfinite(expected_delta.to_numpy())
     assert np.nanmean(np.abs(frame.loc[interior, "second_correction_delta_v"] - expected_delta[interior])) < 0.08
+
+
+def test_second_modeling_uses_actual_drive_field_per_volt_for_delta(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=1.0,
+        correction_gain_mode="manual",
+        residual_alignment_mode="first_peak_aligned",
+    )
+
+    assert metadata["second_correction_delta_mode"] == "residual_div_field_per_volt"
+    assert metadata["second_correction_delta_v_uses_field_per_volt"] is True
+    assert metadata["second_field_per_volt_source"] == "actual_drive_measured_peak_div_raw_actual_voltage_peak"
+    assert np.isclose(metadata["finite_second_measured_peak_for_field_per_volt_mT"], 40.0, atol=0.3)
+    assert np.isclose(metadata["finite_second_input_voltage_peak_for_field_per_volt_v"], 2.0, atol=0.05)
+    assert np.isclose(metadata["finite_second_field_per_volt_mT_per_v"], 20.0, atol=0.5)
+
+    residual = frame["first_model_residual_for_second_mT"].to_numpy(dtype=float)
+    raw_delta = frame["raw_second_correction_delta_v"].to_numpy(dtype=float)
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    valid = active & np.isfinite(residual) & np.isfinite(raw_delta) & (np.abs(residual) > 1e-6)
+    ratio = np.nanmedian(raw_delta[valid] / residual[valid])
+    assert np.isclose(ratio, 1.0 / metadata["finite_second_field_per_volt_mT_per_v"], atol=1e-6)
+    assert not np.isclose(ratio, 10.0 / 50.0, atol=0.02)
 
 
 def test_second_modeling_pointwise_residual_mode_is_preserved(tmp_path: Path) -> None:

@@ -41,6 +41,8 @@ from .finite_second_modeling_tail_controller import normalize_tail_duration_mode
 from .finite_second_modeling_tail_controller import normalize_tail_return_mode as _normalize_tail_return_mode
 from .finite_second_modeling_tail_controller import tail_cycle_count_from_duration as _tail_cycle_count_from_duration
 from .finite_second_modeling_tail_controller import unified_tail_diagnostics as _unified_tail_diagnostics
+from .first_modeling_voltage_response import field_per_volt_response_metadata
+from .first_modeling_voltage_response import residual_to_voltage_delta_from_field_per_volt
 from .modeling_error_metrics import peak_error_metrics
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE
 
@@ -48,6 +50,14 @@ SUPPORTED_SECOND_MODELING_CYCLES = (1.0, 1.5)
 UNSUPPORTED_SECOND_MODELING_CYCLES = (1.25, 1.75, 2.0)
 PRODUCTION_CYCLE_POLICY = "1p0_1p5_cycles"
 UNSUPPORTED_CYCLE_STATUS = "unsupported_cycle_policy_1p0_1p5_only"
+
+
+def _finite_float(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return parsed if np.isfinite(parsed) else float("nan")
 
 
 def generate_second_modeled_voltage_lut(
@@ -341,7 +351,28 @@ def generate_second_modeled_voltage_lut(
     residual_aligned_diag = residual_aligned.copy()
     residual_pointwise_diag[tail_mask] = residual_for_second[tail_mask]
     residual_aligned_diag[tail_mask] = residual_for_second[tail_mask]
-    unit_delta = (residual_for_second / 50.0) * float(voltage_limit_v)
+    target_peak_reference_mT = peak_abs(target_for_second[active_mask])
+    measured_source_peak_mT = _finite_float(review_meta.get("field_normalization_source_peak_mT"))
+    if not np.isfinite(measured_source_peak_mT) or measured_source_peak_mT <= 1e-12:
+        measured_source_peak_mT = peak_abs(baseline_removed_effective[active_mask])
+    if not np.isfinite(measured_source_peak_mT) or measured_source_peak_mT <= 1e-12:
+        measured_source_peak_mT = peak_abs(measured_for_second[active_mask])
+    field_scale_to_target = (
+        float(target_peak_reference_mT) / float(measured_source_peak_mT)
+        if target_peak_reference_mT > 1e-12 and measured_source_peak_mT > 1e-12
+        else float("nan")
+    )
+    field_response_meta = field_per_volt_response_metadata(
+        actual_voltage,
+        active_mask,
+        target_peak_mT=float(target_peak_reference_mT),
+        field_scale_to_target=float(field_scale_to_target),
+        prefix="finite_second",
+    )
+    unit_delta = residual_to_voltage_delta_from_field_per_volt(
+        residual_for_second,
+        float(field_response_meta.get("field_per_volt_mT_per_v") or float("nan")),
+    )
     correction_mask = active_mask | tail_mask
     unit_delta, active_invalid_mask, active_invalid_meta = protect_active_unit_delta(
         unit_delta,
@@ -350,7 +381,6 @@ def generate_second_modeled_voltage_lut(
         correction_mask,
         time_s,
     )
-    target_peak_reference_mT = peak_abs(target_for_second[active_mask])
     error_ratio_for_gain = np.abs(residual_for_second) / max(float(target_peak_reference_mT), 1e-12)
     gain_used, gain_meta = _compute_second_modeling_gain(
         unit_delta,
@@ -578,6 +608,14 @@ def generate_second_modeled_voltage_lut(
         ),
         "actual_drive_voltage_source_for_second_modeling": "raw_actual_drive_voltage_v",
         "actual_drive_voltage_normalized_diagnostic_only": True,
+        **field_response_meta,
+        "second_correction_delta_mode": "residual_div_field_per_volt",
+        "second_correction_delta_v_uses_field_per_volt": True,
+        "second_field_per_volt_source": "actual_drive_measured_peak_div_raw_actual_voltage_peak",
+        "second_measured_field_source_peak_mT": float(measured_source_peak_mT),
+        "second_measured_field_scale_to_target_mT": float(field_scale_to_target),
+        "second_target_peak_for_correction_mT": float(target_peak_reference_mT),
+        "legacy_residual_over_reference_peak_voltage_limit": False,
         "residual_tail_available": not missing_tail_measured,
         "residual_tail_unavailable_reason": None if not missing_tail_measured else "phase_shifted_tail_source_range_insufficient",
         "double_sign_flip_detected": False,
