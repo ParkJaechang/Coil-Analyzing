@@ -523,16 +523,10 @@ def _select_effective_field_polarity(
     )
     neg_corr = float(negative["shape_corr"])
     pos_corr = float(positive["shape_corr"])
-    target_sign = _positive_target_peak_sign(target, active_mask)
+    target_sign = _dominant_peak_sign(target, active_mask)
     neg_sign = float(negative["dominant_peak_sign"])
     pos_sign = float(positive["dominant_peak_sign"])
-    neg_matches = bool(np.isfinite(target_sign) and np.isfinite(neg_sign) and target_sign == neg_sign)
-    pos_matches = bool(np.isfinite(target_sign) and np.isfinite(pos_sign) and target_sign == pos_sign)
-    choose_positive = (
-        pos_matches
-        if pos_matches != neg_matches
-        else np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr + 0.05)
-    )
+    choose_positive = np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr)
     selected = positive if choose_positive else negative
     convention = "effective_field_mT = +HallBz_raw" if choose_positive else "effective_field_mT = -HallBz_raw"
     return {
@@ -598,18 +592,6 @@ def _dominant_peak_sign(values: np.ndarray, active_mask: np.ndarray) -> float:
     if abs(peak) <= 1e-12:
         return 0.0
     return 1.0 if peak > 0.0 else -1.0
-
-
-def _positive_target_peak_sign(values: np.ndarray, active_mask: np.ndarray) -> float:
-    data = np.asarray(values, dtype=float)
-    valid = np.asarray(active_mask, dtype=bool) & np.isfinite(data)
-    if not valid.any():
-        return float("nan")
-    peak = float(np.nanmax(data[valid]))
-    if peak <= 1e-12:
-        return _dominant_peak_sign(data, active_mask)
-    return 1.0
-
 
 def _clipping_or_spike_suspected(voltage: np.ndarray, field: np.ndarray) -> bool:
     voltage_values = np.asarray(voltage, dtype=float)

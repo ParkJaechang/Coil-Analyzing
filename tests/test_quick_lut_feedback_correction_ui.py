@@ -388,7 +388,7 @@ def test_quick_lut_feedback_source_contract_markers_present_and_no_mojibake() ->
         "unknown",
         "현재 Quick LUT 설정의 실구동 결과로 사용",
         "1차 실구동 데이터 원본 확인",
-        "실측 자기장 (HallBz 부호 보정, ±50mT)",
+        "실측 자기장 (선택 부호, 정규화)",
         "정규화 전압 (±10V)",
         "보정 전압 변화량",
         "피드백 보정 후 제한 전압",
