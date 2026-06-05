@@ -503,7 +503,7 @@ def _select_effective_field_polarity(
     active_mask: np.ndarray,
     target: np.ndarray,
 ) -> dict[str, Any]:
-    """Choose the HallBz polarity that best matches the target shape for review/modeling."""
+    """Apply the project HallBz convention and keep correlation diagnostics informational."""
 
     negative = _polarity_candidate(
         raw_hallbz=raw_hallbz,
@@ -528,14 +528,11 @@ def _select_effective_field_polarity(
     target_sign = _dominant_peak_sign(target, active_mask)
     neg_sign = float(negative["dominant_peak_sign"])
     pos_sign = float(positive["dominant_peak_sign"])
-    choose_positive = np.isfinite(pos_aligned_corr) and (
-        not np.isfinite(neg_aligned_corr) or pos_aligned_corr > neg_aligned_corr
-    )
-    selected = positive if choose_positive else negative
-    convention = "effective_field_mT = +HallBz_raw" if choose_positive else "effective_field_mT = -HallBz_raw"
+    selected = negative
+    convention = "effective_field_mT = -HallBz_raw"
     return {
         **selected,
-        "selection_status": "auto_selected_by_phase_aligned_target_correlation",
+        "selection_status": "fixed_project_convention_negative_hallbz",
         "target_dominant_peak_sign": target_sign,
         "negative_convention_dominant_peak_sign": neg_sign,
         "positive_convention_dominant_peak_sign": pos_sign,

@@ -10,8 +10,8 @@ import pandas as pd
 import streamlit as st
 from .finite_actual_drive import build_actual_drive_review_case, read_actual_drive_result
 from .finite_second_modeling import generate_second_modeled_voltage_lut
+from .finite_second_modeling_tail import resolve_finite_tail_policy
 from .quick_lut_target_config import target_config_snapshot
-from .ui_finite_tail_policy import render_finite_tail_policy_controls
 from .ui_second_modeling_cards import render_actual_drive_data_card
 from .ui_second_modeling_plots import add_peak_alignment_markers
 from .ui_second_modeling_plots import add_max_error_marker
@@ -19,7 +19,7 @@ from .ui_second_modeling_plots import plot_labeled_frame
 from .ui_modeling_error_summary import build_error_ratio_summary_frame
 from .ui_second_modeling_plots import render_correction_discontinuity_diagnostics
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel
-from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_LIMIT_V
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL
 
 TARGET_FIELD_LABEL = "목표 자기장"
 MEASURED_FIELD_LABEL = "실측 자기장"
@@ -47,6 +47,10 @@ BASELINE_REMOVED_FIELD_LABEL = "기준선 제거 후 자기장"
 RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
 NORMALIZED_VOLTAGE_LABEL = f"정규화 전압 ({COMMAND_VOLTAGE_LIMIT_LABEL})"
 # UI contract marker: 보정 전압 변화량 = gain × 오차 / target_peak_mT × 10V
+# UI contract marker: 2차 command = 1차 command + 안정화된 보정 전압 변화량
+# Internal default policy: 자동 추천 gain
+# Legacy UI removed from main flow: 수동 gain
+# Legacy UI removed from main flow: 2차 보정 residual 계산 방식 / 첫 피크 정렬 + 안정화 / 첫 피크 정렬 residual / 시간축 그대로 residual
 def _render_second_error_ratio_summary(metadata: dict[str, object]) -> None:
     st.markdown("##### 보정 오차율 요약")
     st.dataframe(build_error_ratio_summary_frame(metadata), use_container_width=True, hide_index=True)
@@ -150,32 +154,14 @@ def render_second_modeling_controls(
         _render_second_runtime_trace(expanded=False)
         st.info("2차 보정 command를 만들려면 지정 업로드 폴더에 현재 target과 일치하는 1차 실구동 결과 CSV가 필요합니다.")
         return
-    gain_mode_label = st.selectbox("2차 보정 gain mode", options=["자동 추천 gain", "수동 gain"], index=0, key="second_modeling_correction_gain_mode")
-    correction_gain_mode = "manual" if gain_mode_label == "수동 gain" else "auto"
-    gain = float(
-        st.number_input("수동 2차 보정 gain", min_value=0.0, max_value=1.0, value=0.25, step=0.05, key="second_modeling_correction_gain")
-    )
-    with st.expander("2차 보정 gain 설명", expanded=False):
-        st.caption("2차 보정 gain은 목표 자기장과 실측 자기장 차이를 전압 보정량으로 변환할 때 적용하는 비율입니다. 0.25는 계산된 보정량의 25%만 반영한다는 뜻입니다.")
-        st.caption("값이 클수록 2차 전압이 더 크게 바뀌지만, 과보정이나 노이즈 영향도 커질 수 있습니다. 기본값 0.25는 한 번에 과하게 보정하지 않기 위한 보수적인 값입니다.")
-        st.caption(f"오차 = 목표 자기장 - 보정 계산용 실측 자기장 / 보정 전압 변화량 = gain × 오차 / target_peak_mT × {COMMAND_VOLTAGE_LIMIT_V:g}V / 2차 command = 1차 command + 안정화된 보정 전압 변화량 / 최종 2차 command는 {COMMAND_VOLTAGE_LIMIT_LABEL}로 제한됩니다.")
-        st.caption("자동 추천 gain은 residual 크기와 남은 전압 headroom을 보고 보정량이 과해지지 않도록 계산합니다. 수동 gain은 사용자가 직접 보정 반영 비율을 지정합니다.")
-    residual_help = "시간축 그대로 residual은 목표와 실측을 같은 time_s에서 바로 비교합니다. 첫 피크 정렬 residual은 phase delay 영향을 줄이기 위해 목표 자기장 첫 피크와 실측 자기장 첫 피크를 맞춘 뒤 오차를 계산합니다. 첫 피크 정렬 + 안정화는 zero-start/ramp/taper/polarity guard를 적용합니다."
-    residual_mode_label = st.selectbox("2차 보정 residual 계산 방식", options=["첫 피크 정렬 + 안정화", "첫 피크 정렬 residual", "시간축 그대로 residual"], index=0, key="second_modeling_residual_alignment_mode", help=residual_help)
-    residual_alignment_mode = {
-        "시간축 그대로 residual": "pointwise",
-        "첫 피크 정렬 residual": "first_peak_aligned",
-    }.get(residual_mode_label, "first_peak_aligned_stabilized")
-    finite_tail_policy = render_finite_tail_policy_controls(freq_hz=float(freq_hz))
-    tail_help = "residual 기반 tail은 목표 0mT와 실측 자기장의 차이를 보정 전압으로 변환합니다. 지정 시간 0 복귀 제어는 active 종료 시점의 자기장 상태를 기준으로 지정 시간 안에 자기장이 0으로 수렴하도록 tail 전압을 계산합니다. tail 끝에서는 전압도 0V로 수렴합니다."
-    tail_mode_label = st.selectbox("자기장 0 복귀 tail 방식", options=["지정 시간 0 복귀 제어", "residual 기반 tail", "사용 안 함"], index=0, key="second_modeling_tail_return_mode", help=tail_help)
-    tail_return_mode = {"사용 안 함": "disabled", "residual 기반 tail": "residual"}.get(tail_mode_label, "finite_time_zero_return")
-    if not bool(finite_tail_policy.get("finite_tail_effective_enabled")):
-        tail_return_mode = "disabled"
-    tail_seconds = float(st.number_input("자기장 0 복귀 시간 (s)", min_value=0.05, max_value=2.0, value=0.25, step=0.05, key="second_modeling_tail_duration_s"))
+    correction_gain_mode = "auto"
+    gain = 0.25
+    residual_alignment_mode = "first_peak_aligned_stabilized"
+    finite_tail_policy = resolve_finite_tail_policy(freq_hz=float(freq_hz))
+    tail_return_mode = "finite_time_zero_return" if bool(finite_tail_policy.get("finite_tail_effective_enabled")) else "disabled"
+    tail_seconds = 0.25
     tail_cycle_count = float(tail_seconds * freq_hz) if np.isfinite(freq_hz) else 0.0
-    st.caption(f"cycle 종료 후 이 시간 동안 자기장을 0으로 복귀시키는 tail 전압을 생성합니다. 이 값은 tail command 길이와 동일합니다. 현재 주파수 기준 약 {tail_cycle_count:.2f} cycle입니다.")
-    st.caption("이 시간 안에 tail 전압이 자기장을 0으로 보내도록 계산합니다. 실측 데이터가 부족해도 가짜 보정 계산용 실측 자기장을 만들지 않습니다.")
+    st.caption("2차 보정은 1차와 같은 흐름으로 실행합니다: 실측 smoothing → phase sync → residual 계산 → 보정 전압 생성.")
     selected_file = feedback_selection.get("filename")
     cached_metadata = dict(cached.get("metadata") or {}) if isinstance(cached, dict) else {}
     dirty = bool(cached_metadata) and (

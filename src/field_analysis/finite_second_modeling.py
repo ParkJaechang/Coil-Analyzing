@@ -596,18 +596,9 @@ def _select_second_measured_polarity(
     neg_corr, neg_lag = _best_lagged_corr(target_on_native, -native_measured, native_active)
     target_peak_sign = _dominant_sign(target_on_native, native_active)
     measured_peak_sign = _dominant_sign(native_measured, native_active)
-    choose_negative = np.isfinite(neg_corr) and (not np.isfinite(pos_corr) or neg_corr > pos_corr)
-    if (
-        np.isfinite(target_peak_sign)
-        and np.isfinite(measured_peak_sign)
-        and target_peak_sign != 0.0
-        and measured_peak_sign != 0.0
-        and target_peak_sign != measured_peak_sign
-    ):
-        choose_negative = True
-    sign = -1.0 if choose_negative else 1.0
+    sign = 1.0
     return np.asarray(native_measured, dtype=float) * sign, {
-        "second_measured_polarity_selection_status": "target_profile_phase_aligned_correlation",
+        "second_measured_polarity_selection_status": "fixed_project_convention_from_actual_drive_review",
         "second_measured_polarity_sign": sign,
         "second_measured_positive_aligned_corr": pos_corr,
         "second_measured_negative_aligned_corr": neg_corr,
