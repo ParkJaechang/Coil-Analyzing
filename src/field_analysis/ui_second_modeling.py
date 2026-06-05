@@ -390,6 +390,7 @@ def _render_second_modeling_result(
         residual_label=RESIDUAL_LABEL,
         target_label=TARGET_FIELD_LABEL,
         marker_label="최대 오차 지점",
+        mask_column="오차 평가 구간",
     )
     st.plotly_chart(residual_figure, use_container_width=True)
     st.caption("오차 = 목표 자기장 - phase-aligned smoothed 실측 자기장입니다. active 구간 끝에서 residual을 0으로 fake fill하지 않습니다.")
@@ -497,9 +498,12 @@ def build_second_modeling_plot_frames(command_profile: pd.DataFrame) -> dict[str
         field[SECOND_MODELING_FIELD_LABEL] = field[ALIGNED_FIELD_LABEL]
     _copy_numeric(command_profile, field, "first_model_residual_mT", RESIDUAL_LABEL)
     _copy_numeric(command_profile, field, "residual_for_second_mT", "2차 계산용 residual")
+    if "modeling_error_evaluation_mask" in command_profile.columns:
+        field["오차 평가 구간"] = pd.Series(command_profile["modeling_error_evaluation_mask"]).astype(bool).to_numpy()
 
     _copy_numeric(command_profile, voltage, "first_modeled_voltage_v", FIRST_VOLTAGE_LABEL)
-    _copy_numeric(command_profile, voltage, "actual_drive_voltage_normalized_v", ACTUAL_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "actual_drive_voltage_v", ACTUAL_VOLTAGE_LABEL)
+    _copy_numeric(command_profile, voltage, "actual_drive_voltage_normalized_v", "정규화 실제 구동 전압 (진단)")
     _copy_numeric(command_profile, voltage, "second_modeled_voltage_v", SECOND_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "second_limited_voltage_v", SECOND_LIMITED_VOLTAGE_LABEL)
     _copy_numeric(command_profile, voltage, "raw_second_correction_delta_v", RAW_CORRECTION_DELTA_LABEL)

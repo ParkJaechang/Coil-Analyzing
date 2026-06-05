@@ -31,6 +31,20 @@ def _first_profile() -> pd.DataFrame:
     )
 
 
+def _first_profile_for_cycle(cycle_count: float) -> pd.DataFrame:
+    time_s = np.linspace(0.0, float(cycle_count), int(float(cycle_count) * 100) + 1)
+    target = 50.0 * np.sin(np.pi * time_s)
+    voltage = 3.0 * np.sin(np.pi * time_s)
+    return pd.DataFrame(
+        {
+            "time_s": time_s,
+            "physical_target_output_mT": target,
+            "limited_voltage_v": voltage,
+            "recommended_voltage_v": voltage,
+        }
+    )
+
+
 def _write_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
     rows = []
     time_ms = np.linspace(0.0, 1400.0, 201)
@@ -54,6 +68,36 @@ def _write_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
         "# CurrentSamples,201",
         "# CommonRange(ms),0.00~1400.00 (span 1400.00)",
         "# Rows,201, GridStep(ms),7.000",
+        "# AutoSyncHallLag,applied 0.00ms (r=1.000)",
+        "#",
+        "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V",
+    ]
+    path.write_text("\n".join([*preamble, *rows]), encoding="utf-8")
+
+
+def _write_delayed_actual_drive_csv_for_cycle(path: Path, *, delay_s: float, cycle_count: float) -> None:
+    rows = []
+    time_ms = np.linspace(0.0, (float(cycle_count) + delay_s + 0.4) * 1000.0, 260)
+    relative_s = (time_ms - 200.0) / 1000.0
+    voltage = np.zeros_like(time_ms)
+    active = (relative_s >= 0.0) & (relative_s <= float(cycle_count))
+    voltage[active] = 2.0 * np.sin(np.pi * relative_s[active])
+    effective_field = 40.0 * np.sin(np.pi * np.clip(relative_s - delay_s, 0.0, float(cycle_count)))
+    hallbz = -effective_field
+    for index, (t_raw, v, h) in enumerate(zip(time_ms, voltage, hallbz, strict=False)):
+        rows.append(f"{index},{t_raw:.6f},0.0,0.0,{h:.6f},0.1,0.0,{v:.6f},0.0")
+    preamble = [
+        "# Date,2026-05-06 16:00:02",
+        "# Frequency(Hz),1.000",
+        "# Amplitude(V),0.000",
+        f"# Cycles,{float(cycle_count):.3f}",
+        "# Repeat,1.000",
+        "# PreDelay(s),1.000",
+        "# PostDelay(s),1.000",
+        "# HallSamples,260",
+        "# CurrentSamples,260",
+        f"# CommonRange(ms),0.00~{time_ms[-1]:.2f} (span {time_ms[-1]:.2f})",
+        "# Rows,260, GridStep(ms),7.000",
         "# AutoSyncHallLag,applied 0.00ms (r=1.000)",
         "#",
         "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V",
@@ -114,6 +158,9 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"], equal_nan=True)
     assert metadata["double_sign_flip_detected"] is False
     assert metadata["source_time_monotonic"] is True
+    assert np.isclose(np.nanmax(np.abs(frame["actual_drive_voltage_v"])), 2.0, atol=1e-6)
+    assert np.isclose(np.nanmax(np.abs(frame["actual_drive_voltage_normalized_v"])), 10.0, atol=1e-6)
+    assert metadata["actual_drive_voltage_source_for_second_modeling"] == "raw_actual_drive_voltage_v"
 
 
 def test_second_modeling_flips_measured_polarity_before_smoothing_when_review_is_inverted(tmp_path: Path) -> None:
@@ -172,6 +219,41 @@ def test_second_modeling_final_aligned_measured_matches_target_polarity(tmp_path
     smoothed = frame.loc[active, "measured_field_smoothed_mT"].to_numpy(dtype=float)
     assert np.corrcoef(target, aligned)[0, 1] > 0.85
     assert np.corrcoef(target, smoothed)[0, 1] > 0.5
+
+
+def test_second_modeling_uses_same_error_evaluation_window_as_first_modeling(tmp_path: Path) -> None:
+    one_cycle = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_delayed_actual_drive_csv(one_cycle, delay_s=0.12)
+    one_frame, one_meta = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        one_cycle,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+    )
+
+    assert one_meta["error_evaluation_start_cycle"] == 0.25
+    assert one_meta["error_evaluation_end_cycle"] == 0.75
+    assert "modeling_error_evaluation_mask" in one_frame.columns
+    assert not bool(one_frame.loc[one_frame["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
+    assert bool(one_frame.loc[(one_frame["time_s"] >= 0.25) & (one_frame["time_s"] <= 0.75), "modeling_error_evaluation_mask"].all())
+    assert not bool(one_frame.loc[one_frame["time_s"] > 0.75, "modeling_error_evaluation_mask"].any())
+
+    one_half = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1.5cycle_result.csv"
+    _write_delayed_actual_drive_csv_for_cycle(one_half, delay_s=0.12, cycle_count=1.5)
+    one_half_frame, one_half_meta = generate_second_modeled_voltage_lut(
+        _first_profile_for_cycle(1.5),
+        one_half,
+        freq_hz=1.0,
+        cycle_count=1.5,
+        correction_gain=0.25,
+    )
+
+    assert one_half_meta["error_evaluation_start_cycle"] == 0.25
+    assert one_half_meta["error_evaluation_end_cycle"] == 1.25
+    assert not bool(one_half_frame.loc[one_half_frame["time_s"] < 0.25, "modeling_error_evaluation_mask"].any())
+    assert bool(one_half_frame.loc[(one_half_frame["time_s"] >= 0.25) & (one_half_frame["time_s"] <= 1.25), "modeling_error_evaluation_mask"].all())
+    assert not bool(one_half_frame.loc[one_half_frame["time_s"] > 1.25, "modeling_error_evaluation_mask"].any())
 
 
 def test_second_modeling_uses_smoothed_measured_field_for_residual(tmp_path: Path) -> None:

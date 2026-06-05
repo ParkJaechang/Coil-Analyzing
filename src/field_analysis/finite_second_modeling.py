@@ -41,6 +41,7 @@ from .finite_second_modeling_tail_controller import normalize_tail_duration_mode
 from .finite_second_modeling_tail_controller import normalize_tail_return_mode as _normalize_tail_return_mode
 from .finite_second_modeling_tail_controller import tail_cycle_count_from_duration as _tail_cycle_count_from_duration
 from .finite_second_modeling_tail_controller import unified_tail_diagnostics as _unified_tail_diagnostics
+from .modeling_error_metrics import peak_error_metrics
 from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE
 
 SUPPORTED_SECOND_MODELING_CYCLES = (1.0, 1.5)
@@ -220,7 +221,8 @@ def generate_second_modeled_voltage_lut(
     )
     measured = _interp(native_time_s, native_measured, time_s)
     measured_smoothed = _interp(native_time_s, native_measured_smoothed, time_s)
-    actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
+    actual_voltage = _interp(review["time_s"], review["raw_actual_drive_voltage_v"], time_s)
+    actual_voltage_normalized = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
     effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s) * total_polarity_sign
     baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s) * total_polarity_sign
@@ -295,6 +297,16 @@ def generate_second_modeled_voltage_lut(
         active_mask,
         tail_mask,
     )
+    eval_start_cycle, eval_end_cycle = _evaluation_cycle_window(float(cycle_count))
+    evaluation_start_s = eval_start_cycle / max(float(freq_hz), 1e-12)
+    evaluation_end_s = eval_end_cycle / max(float(freq_hz), 1e-12)
+    evaluation_mask = (
+        active_mask
+        & np.isfinite(target_for_second)
+        & np.isfinite(measured_for_second)
+        & (time_s >= evaluation_start_s - 1e-12)
+        & (time_s <= evaluation_end_s + 1e-12)
+    )
     measured_support_valid_mask = np.isfinite(measured_for_second)
     missing_tail_measured = bool(np.any(tail_mask & ~measured_support_valid_mask))
     if tail_return_mode == "residual" and tail_effective_enabled and missing_tail_measured:
@@ -338,14 +350,17 @@ def generate_second_modeled_voltage_lut(
         correction_mask,
         time_s,
     )
+    target_peak_reference_mT = peak_abs(target_for_second[active_mask])
+    error_ratio_for_gain = np.abs(residual_for_second) / max(float(target_peak_reference_mT), 1e-12)
     gain_used, gain_meta = _compute_second_modeling_gain(
         unit_delta,
         first_voltage,
-        correction_mask,
+        evaluation_mask,
         manual_gain=float(correction_gain),
         gain_mode=str(correction_gain_mode),
         voltage_limit_v=float(voltage_limit_v),
-        tail_mask=tail_mask,
+        tail_mask=np.zeros_like(tail_mask, dtype=bool),
+        error_ratio_for_gain=error_ratio_for_gain,
     )
     raw_delta = unit_delta * float(gain_used)
     delta, stabilization_meta, stabilization_arrays = stabilize_correction_delta(
@@ -437,7 +452,7 @@ def generate_second_modeled_voltage_lut(
             "first_modeled_voltage_v": first_voltage,
             "first_limited_voltage_v": first_limited_voltage,
             "actual_drive_voltage_v": actual_voltage,
-            "actual_drive_voltage_normalized_v": actual_voltage,
+            "actual_drive_voltage_normalized_v": actual_voltage_normalized,
             "raw_hallbz_mT": raw_hallbz,
             "hallbz_raw_mT": raw_hallbz,
             "measured_field_raw_mT": raw_hallbz,
@@ -509,6 +524,7 @@ def generate_second_modeled_voltage_lut(
             "correction_active_mask": stabilization_arrays["correction_active_mask"],
             "source_range_valid_mask": stabilization_arrays["source_range_valid_mask"],
             "measured_support_valid_mask": measured_support_valid_mask,
+            "modeling_error_evaluation_mask": evaluation_mask,
             "correction_invalid_mask": stabilization_arrays["correction_invalid_mask"],
             "correction_zero_flat_segment_mask": stabilization_arrays["correction_zero_flat_segment_mask"],
             "polarity_guard_applied_mask": polarity_mask,
@@ -546,6 +562,22 @@ def generate_second_modeled_voltage_lut(
         "measured_tail_fake_decay_used": False,
         "measured_tail_actual_data_only": True,
         "measured_support_missing_time_ranges": _missing_time_ranges(time_s, ~measured_support_valid_mask & (active_mask | tail_mask)),
+        "error_evaluation_start_cycle": eval_start_cycle,
+        "error_evaluation_cycle_count": eval_end_cycle - eval_start_cycle,
+        "error_evaluation_end_cycle": eval_end_cycle,
+        "error_evaluation_start_s": evaluation_start_s,
+        "error_evaluation_end_s": evaluation_end_s,
+        "error_evaluation_policy": "evaluate_after_startup_from_0.25cycle_to_0.75cycle_or_1.25cycle",
+        "error_evaluation_sample_count": int(np.asarray(evaluation_mask, dtype=bool).sum()),
+        "error_evaluation_finite_ratio": float(np.isfinite(residual_for_second[evaluation_mask]).mean()) if np.asarray(evaluation_mask, dtype=bool).any() else 0.0,
+        **peak_error_metrics(
+            target_for_second,
+            measured_for_second,
+            evaluation_mask,
+            reference_peak_mT=target_peak_reference_mT,
+        ),
+        "actual_drive_voltage_source_for_second_modeling": "raw_actual_drive_voltage_v",
+        "actual_drive_voltage_normalized_diagnostic_only": True,
         "residual_tail_available": not missing_tail_measured,
         "residual_tail_unavailable_reason": None if not missing_tail_measured else "phase_shifted_tail_source_range_insufficient",
         "double_sign_flip_detected": False,
@@ -642,6 +674,14 @@ def _select_second_measured_polarity(
         "second_measured_raw_dominant_sign": measured_peak_sign,
         "second_measured_polarity_flipped_after_review": bool(sign < 0.0),
     }
+
+
+def _evaluation_cycle_window(cycle_count: float) -> tuple[float, float]:
+    if float(cycle_count) <= 1.0 + 1e-9:
+        return 0.25, 0.75
+    if float(cycle_count) <= 1.5 + 1e-9:
+        return 0.25, 1.25
+    return 0.25, max(float(cycle_count) - 0.25, 0.25)
 
 
 def _best_lagged_corr(target: np.ndarray, measured: np.ndarray, mask: np.ndarray) -> tuple[float, int]:
