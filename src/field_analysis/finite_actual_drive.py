@@ -503,7 +503,14 @@ def _select_effective_field_polarity(
     active_mask: np.ndarray,
     target: np.ndarray,
 ) -> dict[str, Any]:
-    """Apply the project HallBz convention and keep correlation diagnostics informational."""
+    """Select the effective HallBz sign for measured-vs-target review.
+
+    The project hardware convention still treats ``-HallBz`` as the default
+    candidate, but measured first-drive result files can already be sign-corrected
+    upstream. In that case forcing ``-HallBz`` makes the review/second-modeling
+    plots visibly inverted. Pick the candidate that best matches the target after
+    lag-tolerant shape correlation, while keeping both convention diagnostics.
+    """
 
     negative = _polarity_candidate(
         raw_hallbz=raw_hallbz,
@@ -529,10 +536,25 @@ def _select_effective_field_polarity(
     neg_sign = float(negative["dominant_peak_sign"])
     pos_sign = float(positive["dominant_peak_sign"])
     selected = negative
-    convention = "effective_field_mT = -HallBz_raw"
+    selected_name = "negative_hallbz_default"
+    if np.isfinite(pos_aligned_corr) and (
+        not np.isfinite(neg_aligned_corr) or pos_aligned_corr > neg_aligned_corr + 1e-6
+    ):
+        selected = positive
+        selected_name = "positive_hallbz_auto"
+    convention = (
+        "effective_field_mT = -HallBz_raw"
+        if float(selected["effective_sign"]) < 0.0
+        else "effective_field_mT = +HallBz_raw"
+    )
+    selection_status = (
+        "auto_selected_by_target_correlation"
+        if selected_name == "positive_hallbz_auto"
+        else "fixed_project_convention_negative_hallbz"
+    )
     return {
         **selected,
-        "selection_status": "fixed_project_convention_negative_hallbz",
+        "selection_status": selection_status,
         "target_dominant_peak_sign": target_sign,
         "negative_convention_dominant_peak_sign": neg_sign,
         "positive_convention_dominant_peak_sign": pos_sign,

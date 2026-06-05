@@ -198,6 +198,7 @@ def render_second_modeling_controls(
         handle.write(bytes(feedback_selection["csv_bytes"]))
     _set_second_debug_step("temp file 생성 완료")
     native_review_frame: pd.DataFrame | None = None
+    native_review_metadata: dict[str, object] = {}
     try:
         use_current_metadata = bool(feedback_selection.get("use_current_quick_lut_metadata"))
         _set_second_debug_step("실구동 파일 선택 확인 완료")
@@ -299,7 +300,11 @@ def render_second_modeling_controls(
         "plot_available": metadata.get("second_modeling_status") == "ok",
         "source_file": feedback_selection.get("filename"),
         "review_frame": native_review_frame if isinstance(native_review_frame, pd.DataFrame) else second_profile,
-        "metadata": metadata,
+        "metadata": {
+            **native_review_metadata,
+            "field_normalization_mode": "peak_to_target_peak_mT",
+            "voltage_normalization_mode": "peak_to_10V_or_limit",
+        },
     }
     st.session_state["quick_lut_second_model_run_id"] = run_id
     st.session_state["quick_lut_second_model_status"] = metadata.get("second_modeling_status", "unavailable")
@@ -331,25 +336,6 @@ def _render_second_modeling_result(
     with st.expander("상세 진단", expanded=False):
         st.dataframe(pd.DataFrame([metadata]), use_container_width=True)
     render_actual_drive_data_card(metadata, cycle_count=cycle_count)
-    if isinstance(native_review_frame, pd.DataFrame):
-        st.markdown("##### 3. 1차 실구동 결과")
-        st.caption("이 데이터는 2차 모델링에 사용된 1차 실구동 결과입니다.")
-        st.plotly_chart(
-            plot_labeled_frame(
-                build_native_actual_drive_raw_plot_frame(native_review_frame),
-                [
-                    RAW_HALLBZ_LABEL,
-                    EFFECTIVE_FIELD_LABEL,
-                    NORMALIZED_FIELD_LABEL,
-                    RAW_VOLTAGE_LABEL,
-                    NORMALIZED_VOLTAGE_LABEL,
-                    "Current1_A",
-                ],
-                title="1차 실구동 데이터 확인",
-                yaxis_title="측정값",
-            ),
-            use_container_width=True,
-        )
     if metadata.get("second_modeling_status") != "ok":
         st.info(f"2차 보정 command 사용 불가: {metadata.get('second_modeling_status', 'unknown')}")
         if isinstance(native_review_frame, pd.DataFrame):
@@ -485,7 +471,7 @@ def _render_actual_drive_selection_status(
         ("현재 Quick LUT 설정", f"target waveform={waveform_type}, freq={freq_hz}, cycle={cycle_count}"),
         ("match 상태", feedback_selection.get("match_status", feedback_selection.get("selection_reason", "버튼 실행 시 검증"))),
         ("timebase status", feedback_selection.get("timebase_status", "버튼 실행 시 검증")),
-        ("HallBz convention", "target-correlation selected effective field sign"),
+        ("HallBz convention", "target-correlation selected effective field sign, fallback -HallBz"),
     ]
     st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
     st.caption("현재 이 파일을 2차 모델링 입력 후보로 사용합니다. production 2차 보정은 버튼 실행 시 schema, timebase, freq/cycle match를 다시 검증합니다.")
