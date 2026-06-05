@@ -208,11 +208,7 @@ def generate_second_modeled_voltage_lut(
         target,
         active_mask,
     )
-    review_effective_sign = float(review_meta.get("hallbz_effective_sign", 1.0) or 1.0)
-    second_effective_sign = review_effective_sign * float(second_polarity_meta["second_measured_polarity_sign"])
-    second_effective_convention = (
-        "effective_field_mT = +HallBz_raw" if second_effective_sign > 0.0 else "effective_field_mT = -HallBz_raw"
-    )
+    total_polarity_sign = float(second_polarity_meta["second_measured_polarity_sign"])
     native_active_mask = np.isfinite(native_time_s) & (native_time_s >= -1e-12) & (native_time_s <= float(cycle_count) / max(float(freq_hz), 1e-12) + 0.5 / max(float(freq_hz), 1e-12))
     native_measured_smoothed, smoothing_meta = smooth_measured_field_for_second_modeling(
         native_time_s,
@@ -226,11 +222,9 @@ def generate_second_modeled_voltage_lut(
     measured_smoothed = _interp(native_time_s, native_measured_smoothed, time_s)
     actual_voltage = _interp(review["time_s"], review["normalized_actual_drive_voltage_v"], time_s)
     raw_hallbz = _interp(review["time_s"], review["raw_hallbz_mT"], time_s)
-    effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s) * float(second_polarity_meta["second_measured_polarity_sign"])
-    baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s) * float(second_polarity_meta["second_measured_polarity_sign"])
+    effective_field = _interp(review["time_s"], review["measured_field_effective_mT"], time_s) * total_polarity_sign
+    baseline_removed_effective = _interp(review["time_s"], review["baseline_removed_effective_field_mT"], time_s) * total_polarity_sign
     normalized_field = measured
-    residual_raw = target - measured
-    residual_pointwise = target - measured_smoothed
     measured_aligned, residual_alignment_meta = align_measured_field_for_residual(
         time_s,
         target,
@@ -254,6 +248,33 @@ def generate_second_modeled_voltage_lut(
             phase_alignment_shift_s=float(residual_alignment_meta.get("phase_alignment_shift_s") or 0.0),
             tail_off_active_only=not tail_effective_enabled,
         )
+    phase_polarity_sign, phase_polarity_meta = _select_phase_aligned_measured_polarity(
+        target,
+        measured_aligned,
+        active_mask,
+    )
+    if phase_polarity_sign < 0.0:
+        total_polarity_sign *= phase_polarity_sign
+        native_measured = -native_measured
+        native_measured_smoothed = -native_measured_smoothed
+        measured = -measured
+        measured_smoothed = -measured_smoothed
+        measured_aligned = -measured_aligned
+        effective_field = -effective_field
+        baseline_removed_effective = -baseline_removed_effective
+        normalized_field = -normalized_field
+        second_polarity_meta["second_measured_polarity_sign"] = total_polarity_sign
+        second_polarity_meta["second_measured_polarity_flipped_after_phase_alignment"] = True
+    else:
+        second_polarity_meta["second_measured_polarity_flipped_after_phase_alignment"] = False
+    second_polarity_meta.update(phase_polarity_meta)
+    review_effective_sign = float(review_meta.get("hallbz_effective_sign", 1.0) or 1.0)
+    second_effective_sign = review_effective_sign * total_polarity_sign
+    second_effective_convention = (
+        "effective_field_mT = +HallBz_raw" if second_effective_sign > 0.0 else "effective_field_mT = -HallBz_raw"
+    )
+    residual_raw = target - measured
+    residual_pointwise = target - measured_smoothed
     residual_aligned = target - measured_aligned
     support_meta = measured_support_metadata(
         review["time_s"],
@@ -647,6 +668,31 @@ def _best_lagged_corr(target: np.ndarray, measured: np.ndarray, mask: np.ndarray
             best_corr = corr
             best_lag = int(lag)
     return best_corr, best_lag
+
+
+def _select_phase_aligned_measured_polarity(
+    target: np.ndarray,
+    measured_aligned: np.ndarray,
+    active_mask: np.ndarray,
+) -> tuple[float, dict[str, Any]]:
+    active = np.asarray(active_mask, dtype=bool)
+    target_values = np.asarray(target, dtype=float)
+    measured_values = np.asarray(measured_aligned, dtype=float)
+    valid = active & np.isfinite(target_values) & np.isfinite(measured_values)
+    positive_corr = _corr(target_values[valid], measured_values[valid])
+    negative_corr = _corr(target_values[valid], -measured_values[valid])
+    sign = 1.0
+    status = "kept_after_phase_alignment"
+    if np.isfinite(negative_corr) and (not np.isfinite(positive_corr) or negative_corr > positive_corr + 1e-6):
+        sign = -1.0
+        status = "flipped_after_phase_alignment_to_match_target"
+    return sign, {
+        "second_phase_aligned_polarity_check_status": status,
+        "second_phase_aligned_polarity_sign": sign,
+        "second_phase_aligned_positive_corr": positive_corr,
+        "second_phase_aligned_negative_corr": negative_corr,
+        "second_phase_aligned_polarity_valid_count": int(valid.sum()),
+    }
 
 
 def _corr(left: np.ndarray, right: np.ndarray) -> float:

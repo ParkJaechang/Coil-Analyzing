@@ -11,6 +11,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from field_analysis.finite_second_modeling import _select_phase_aligned_measured_polarity
 from field_analysis.finite_second_modeling import generate_second_modeled_voltage_lut
 from field_analysis.final_modeled_lut import build_final_modeled_voltage_lut_export
 from tests.test_finite_actual_drive_response import _write_actual_drive_csv
@@ -136,6 +137,41 @@ def test_second_modeling_flips_measured_polarity_before_smoothing_when_review_is
     smoothed = frame.loc[active, "measured_field_smoothed_mT"].to_numpy(dtype=float)
     assert np.corrcoef(target, smoothed)[0, 1] > 0.9
     assert np.nanmax(np.abs(frame.loc[active, "first_model_residual_mT"])) < 15.0
+
+
+def test_second_modeling_phase_aligned_polarity_check_rejects_inverted_aligned_trace() -> None:
+    time_s = np.linspace(0.0, 1.0, 101)
+    target = 50.0 * np.sin(np.pi * time_s)
+    measured_aligned = -target
+    active = np.ones_like(time_s, dtype=bool)
+
+    sign, metadata = _select_phase_aligned_measured_polarity(target, measured_aligned, active)
+
+    assert sign == -1.0
+    assert metadata["second_phase_aligned_polarity_check_status"] == "flipped_after_phase_alignment_to_match_target"
+    assert metadata["second_phase_aligned_negative_corr"] > metadata["second_phase_aligned_positive_corr"]
+
+
+def test_second_modeling_final_aligned_measured_matches_target_polarity(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_inverted_delayed_actual_drive_csv(actual, delay_s=0.12)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+    )
+
+    assert metadata["second_modeling_status"] == "ok"
+    assert "second_phase_aligned_polarity_check_status" in metadata
+    active = frame["active_window_mask"].astype(bool).to_numpy()
+    target = frame.loc[active, "physical_target_output_mT"].to_numpy(dtype=float)
+    aligned = frame.loc[active, "measured_field_aligned_mT"].to_numpy(dtype=float)
+    smoothed = frame.loc[active, "measured_field_smoothed_mT"].to_numpy(dtype=float)
+    assert np.corrcoef(target, aligned)[0, 1] > 0.85
+    assert np.corrcoef(target, smoothed)[0, 1] > 0.5
 
 
 def test_second_modeling_uses_smoothed_measured_field_for_residual(tmp_path: Path) -> None:
