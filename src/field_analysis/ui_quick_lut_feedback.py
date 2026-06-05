@@ -467,7 +467,6 @@ def render_actual_drive_review_from_selection(
         "review_frame": review_frame,
         "metadata": {
             **metadata,
-            "hallbz_sign_applied": True,
             "field_normalization_mode": "peak_to_target_peak_mT",
             "voltage_normalization_mode": COMMAND_VOLTAGE_NORMALIZATION_OR_LIMIT_MODE,
         },
@@ -525,8 +524,9 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
 
     raw_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
     raw_hallbz = frame.get("raw_hallbz_mT", frame.get("raw_measured_field_mT"))
+    effective_label = str(metadata.get("effective_field_convention") or "선택된 유효 자기장")
     raw_frame["Raw HallBz"] = pd.to_numeric(raw_hallbz, errors="coerce")
-    raw_frame["부호 보정 자기장 (-HallBz)"] = pd.to_numeric(frame.get("measured_field_effective_mT"), errors="coerce")
+    raw_frame[effective_label] = pd.to_numeric(frame.get("measured_field_effective_mT"), errors="coerce")
     raw_frame["기준선 제거 후 자기장"] = pd.to_numeric(frame.get("baseline_removed_effective_field_mT", frame.get("measured_field_mT")), errors="coerce")
     raw_frame["정규화 자기장 (target peak mT)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
     raw_frame["Raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
@@ -537,7 +537,7 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         _render_plot(
             raw_frame,
-            ["Raw HallBz", "부호 보정 자기장 (-HallBz)", "기준선 제거 후 자기장", "정규화 자기장 (target peak mT)", "Raw Voltage1_V", normalized_voltage_label, "전류"],
+            ["Raw HallBz", effective_label, "기준선 제거 후 자기장", "정규화 자기장 (target peak mT)", "Raw Voltage1_V", normalized_voltage_label, "전류"],
             "1차 실구동 데이터 원본 확인",
             yaxis_title="측정값",
         )

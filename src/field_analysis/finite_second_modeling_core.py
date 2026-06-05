@@ -25,6 +25,17 @@ def review_diagnostic_metadata(review_meta: dict[str, Any]) -> dict[str, Any]:
         "source_time_monotonic": review_meta.get("source_time_monotonic"),
         "duplicate_time_count": review_meta.get("duplicate_time_count"),
         "field_convention": review_meta.get("field_convention"),
+        "effective_field_convention": review_meta.get("effective_field_convention"),
+        "hallbz_effective_sign": review_meta.get("hallbz_effective_sign"),
+        "hallbz_sign_applied": review_meta.get("hallbz_sign_applied"),
+        "hallbz_sign_inverted": review_meta.get("hallbz_sign_inverted"),
+        "hallbz_sign_auto_corrected": review_meta.get("hallbz_sign_auto_corrected"),
+        "hallbz_sign_selection_status": review_meta.get("hallbz_sign_selection_status"),
+        "hallbz_target_dominant_peak_sign": review_meta.get("hallbz_target_dominant_peak_sign"),
+        "hallbz_negative_convention_dominant_peak_sign": review_meta.get("hallbz_negative_convention_dominant_peak_sign"),
+        "hallbz_positive_convention_dominant_peak_sign": review_meta.get("hallbz_positive_convention_dominant_peak_sign"),
+        "hallbz_negative_convention_corr": review_meta.get("hallbz_negative_convention_corr"),
+        "hallbz_positive_convention_corr": review_meta.get("hallbz_positive_convention_corr"),
     }
 
 

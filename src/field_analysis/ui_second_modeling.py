@@ -41,7 +41,7 @@ STABILIZED_CORRECTION_DELTA_LABEL = "안정화 후 보정 전압 변화량"
 ACTIVE_CORRECTION_DELTA_LABEL = "active 보정 전압 변화량"
 TAIL_ZERO_RETURN_VOLTAGE_LABEL = "tail 자기장 0 복귀 전압"
 RAW_HALLBZ_LABEL = "Raw HallBz"
-EFFECTIVE_FIELD_LABEL = "부호 보정 자기장 (-HallBz)"
+EFFECTIVE_FIELD_LABEL = "선택된 유효 자기장"
 NORMALIZED_FIELD_LABEL = "정규화 자기장 (target peak mT)"
 BASELINE_REMOVED_FIELD_LABEL = "기준선 제거 후 자기장"
 RAW_VOLTAGE_LABEL = "Raw Voltage1_V"
@@ -393,7 +393,7 @@ def _render_second_modeling_result(
         f"사용한 실구동 결과 파일: {metadata.get('quick_lut_actual_drive_selected_file') or metadata.get('actual_drive_source_file', 'unknown')}\n\n"
         f"보정 전압 최대값: {metadata.get('correction_delta_peak_v', 'unknown')}\n\n"
         f"전압 제한 상태: {metadata.get('voltage_limit_status', 'unknown')}\n\n"
-        f"HallBz 부호 보정 적용: {metadata.get('hallbz_sign_applied', False)}"
+        f"HallBz 유효 부호: {metadata.get('effective_field_convention', metadata.get('field_convention', 'unavailable'))}"
     )
     _render_second_error_ratio_summary(metadata)
     plot_frames = build_second_modeling_plot_frames(command_profile)
@@ -522,7 +522,7 @@ def _render_actual_drive_selection_status(
         ("현재 Quick LUT 설정", f"target waveform={waveform_type}, freq={freq_hz}, cycle={cycle_count}"),
         ("match 상태", feedback_selection.get("match_status", feedback_selection.get("selection_reason", "버튼 실행 시 검증"))),
         ("timebase status", feedback_selection.get("timebase_status", "버튼 실행 시 검증")),
-        ("HallBz convention", "effective field = -HallBz raw"),
+        ("HallBz convention", "target-correlation selected effective field sign"),
     ]
     st.dataframe(pd.DataFrame(rows, columns=["항목", "값"]), use_container_width=True, hide_index=True)
     st.caption("현재 이 파일을 2차 모델링 입력 후보로 사용합니다. production 2차 보정은 버튼 실행 시 schema, timebase, freq/cycle match를 다시 검증합니다.")

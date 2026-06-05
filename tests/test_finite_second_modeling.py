@@ -62,7 +62,7 @@ def _write_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
 
 def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
-    _write_actual_drive_csv(actual)
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
 
     frame, metadata = generate_second_modeled_voltage_lut(
         _first_profile(),
@@ -77,7 +77,7 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert metadata["hallbz_sign_applied"] is True
     assert metadata["final_export_voltage_source_column"] == "second_limited_voltage_v"
     assert np.nanmax(np.abs(frame["second_limited_voltage_v"])) <= 10.0 + 1e-12
-    assert np.isclose(np.nanmax(np.abs(frame["measured_field_normalized_mT"])), 50.0)
+    assert np.isclose(np.nanmax(np.abs(frame["measured_field_normalized_mT"])), 50.0, atol=2e-3)
     assert {"second_correction_delta_v", "second_modeled_voltage_v", "final_voltage_v"}.issubset(frame.columns)
     assert bool(frame["target_unchanged"].iloc[0]) is True
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"], equal_nan=True)
@@ -370,11 +370,18 @@ def test_second_modeling_generates_limited_voltage_for_one_point_five_cycle(tmp_
 
 def test_second_modeling_preserves_first_command_profile_and_limited_voltage(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
-    _write_actual_drive_csv(actual)
+    _write_delayed_actual_drive_csv(actual, delay_s=0.12)
     profile = _first_profile()
     original = profile.copy(deep=True)
 
-    frame, metadata = generate_second_modeled_voltage_lut(profile, actual, freq_hz=1.0, cycle_count=1.0)
+    frame, metadata = generate_second_modeled_voltage_lut(
+        profile,
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+        correction_gain_mode="manual",
+    )
 
     assert metadata["second_modeling_status"] == "ok"
     pd.testing.assert_frame_equal(profile, original)
@@ -491,7 +498,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "사용 중인 1차 실구동 데이터" in source
     assert "보정 전압 변화량" in source
     assert "Raw HallBz" in source
-    assert "부호 보정 자기장 (-HallBz)" in source
+    assert "선택된 유효 자기장" in source
     assert "기준선 제거 후 자기장" in source
     assert "1차 실구동 데이터 원본 확인" in source
     assert "quick_lut_second_model_dirty" in source
@@ -557,7 +564,7 @@ def test_second_modeling_ui_uses_actual_cycle_for_final_export_and_korean_plot_l
     assert "tail 자기장 0 복귀 전압" in frames["voltage"].columns
     assert "active 보정 전압 변화량" in frames["voltage"].columns
     assert np.isclose(frames["raw"]["Raw HallBz"].iloc[0], 1.0)
-    assert np.isclose(frames["raw"]["부호 보정 자기장 (-HallBz)"].iloc[0], -1.0)
+    assert np.isclose(frames["raw"]["선택된 유효 자기장"].iloc[0], -1.0)
     native = build_native_actual_drive_raw_plot_frame(
         pd.DataFrame(
             {

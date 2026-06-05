@@ -97,7 +97,7 @@ def test_actual_drive_feedback_review_is_button_gated_and_plotted() -> None:
     assert "quick_lut_actual_drive_review_result" in source
     assert "목표 자기장 vs 실측 자기장" in source
     assert "1차 실구동 데이터 원본 확인" in source
-    assert "부호 보정 자기장 (-HallBz)" in source
+    assert "선택된 유효 자기장" in source
 
 
 def test_first_drive_review_is_separate_from_first_model_feedback_correction() -> None:

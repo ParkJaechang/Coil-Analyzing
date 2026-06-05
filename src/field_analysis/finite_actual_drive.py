@@ -335,6 +335,9 @@ def build_actual_drive_review_case(
         "hallbz_effective_sign": float(polarity["effective_sign"]),
         "hallbz_sign_selection_status": polarity["selection_status"],
         "hallbz_sign_auto_corrected": bool(polarity["effective_sign"] != -1.0),
+        "hallbz_target_dominant_peak_sign": polarity["target_dominant_peak_sign"],
+        "hallbz_negative_convention_dominant_peak_sign": polarity["negative_convention_dominant_peak_sign"],
+        "hallbz_positive_convention_dominant_peak_sign": polarity["positive_convention_dominant_peak_sign"],
         "hallbz_negative_convention_corr": polarity["negative_convention_corr"],
         "hallbz_positive_convention_corr": polarity["positive_convention_corr"],
         "effective_field_convention": polarity["effective_field_convention"],
@@ -520,12 +523,24 @@ def _select_effective_field_polarity(
     )
     neg_corr = float(negative["shape_corr"])
     pos_corr = float(positive["shape_corr"])
-    choose_positive = np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr + 0.05)
+    target_sign = _positive_target_peak_sign(target, active_mask)
+    neg_sign = float(negative["dominant_peak_sign"])
+    pos_sign = float(positive["dominant_peak_sign"])
+    neg_matches = bool(np.isfinite(target_sign) and np.isfinite(neg_sign) and target_sign == neg_sign)
+    pos_matches = bool(np.isfinite(target_sign) and np.isfinite(pos_sign) and target_sign == pos_sign)
+    choose_positive = (
+        pos_matches
+        if pos_matches != neg_matches
+        else np.isfinite(pos_corr) and (not np.isfinite(neg_corr) or pos_corr > neg_corr + 0.05)
+    )
     selected = positive if choose_positive else negative
     convention = "effective_field_mT = +HallBz_raw" if choose_positive else "effective_field_mT = -HallBz_raw"
     return {
         **selected,
         "selection_status": "auto_selected_by_target_correlation",
+        "target_dominant_peak_sign": target_sign,
+        "negative_convention_dominant_peak_sign": neg_sign,
+        "positive_convention_dominant_peak_sign": pos_sign,
         "negative_convention_corr": neg_corr,
         "positive_convention_corr": pos_corr,
         "effective_field_convention": convention,
@@ -567,7 +582,33 @@ def _polarity_candidate(
         "baseline_source": baseline_source,
         "shape_corr": corr,
         "shape_nrmse": nrmse,
+        "dominant_peak_sign": _dominant_peak_sign(measured, active_mask),
     }
+
+
+def _dominant_peak_sign(values: np.ndarray, active_mask: np.ndarray) -> float:
+    data = np.asarray(values, dtype=float)
+    valid = np.asarray(active_mask, dtype=bool) & np.isfinite(data)
+    if not valid.any():
+        return float("nan")
+    active_values = data[valid]
+    if active_values.size == 0:
+        return float("nan")
+    peak = float(active_values[int(np.nanargmax(np.abs(active_values)))])
+    if abs(peak) <= 1e-12:
+        return 0.0
+    return 1.0 if peak > 0.0 else -1.0
+
+
+def _positive_target_peak_sign(values: np.ndarray, active_mask: np.ndarray) -> float:
+    data = np.asarray(values, dtype=float)
+    valid = np.asarray(active_mask, dtype=bool) & np.isfinite(data)
+    if not valid.any():
+        return float("nan")
+    peak = float(np.nanmax(data[valid]))
+    if peak <= 1e-12:
+        return _dominant_peak_sign(data, active_mask)
+    return 1.0
 
 
 def _clipping_or_spike_suspected(voltage: np.ndarray, field: np.ndarray) -> bool:
