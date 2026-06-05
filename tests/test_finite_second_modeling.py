@@ -60,6 +60,36 @@ def _write_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
     path.write_text("\n".join([*preamble, *rows]), encoding="utf-8")
 
 
+def _write_inverted_delayed_actual_drive_csv(path: Path, *, delay_s: float) -> None:
+    rows = []
+    time_ms = np.linspace(0.0, 1400.0, 201)
+    relative_s = (time_ms - 200.0) / 1000.0
+    voltage = np.zeros_like(time_ms)
+    active = (relative_s >= 0.0) & (relative_s <= 1.0)
+    voltage[active] = 2.0 * np.sin(np.pi * relative_s[active])
+    effective_field = 40.0 * np.sin(np.pi * np.clip(relative_s - delay_s, 0.0, 1.0))
+    hallbz = effective_field
+    for index, (t_raw, v, h) in enumerate(zip(time_ms, voltage, hallbz, strict=False)):
+        rows.append(f"{index},{t_raw:.6f},0.0,0.0,{h:.6f},0.1,0.0,{v:.6f},0.0")
+    preamble = [
+        "# Date,2026-05-06 16:00:02",
+        "# Frequency(Hz),1.000",
+        "# Amplitude(V),0.000",
+        "# Cycles,1.000",
+        "# Repeat,1.000",
+        "# PreDelay(s),1.000",
+        "# PostDelay(s),1.000",
+        "# HallSamples,201",
+        "# CurrentSamples,201",
+        "# CommonRange(ms),0.00~1400.00 (span 1400.00)",
+        "# Rows,201, GridStep(ms),7.000",
+        "# AutoSyncHallLag,applied 0.00ms (r=1.000)",
+        "#",
+        "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V",
+    ]
+    path.write_text("\n".join([*preamble, *rows]), encoding="utf-8")
+
+
 def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path) -> None:
     actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
     _write_delayed_actual_drive_csv(actual, delay_s=0.12)
@@ -83,6 +113,29 @@ def test_second_modeling_generates_limited_voltage_for_one_cycle(tmp_path: Path)
     assert np.allclose(frame["measured_field_effective_mT"], -frame["raw_hallbz_mT"], equal_nan=True)
     assert metadata["double_sign_flip_detected"] is False
     assert metadata["source_time_monotonic"] is True
+
+
+def test_second_modeling_flips_measured_polarity_before_smoothing_when_review_is_inverted(tmp_path: Path) -> None:
+    actual = tmp_path / "finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv"
+    _write_inverted_delayed_actual_drive_csv(actual, delay_s=0.0)
+
+    frame, metadata = generate_second_modeled_voltage_lut(
+        _first_profile(),
+        actual,
+        freq_hz=1.0,
+        cycle_count=1.0,
+        correction_gain=0.25,
+        residual_alignment_mode="pointwise",
+    )
+
+    assert metadata["second_modeling_status"] == "ok"
+    assert metadata["second_measured_polarity_selection_status"] == "flipped_to_match_target_before_smoothing"
+    assert metadata["second_measured_polarity_sign"] == -1.0
+    active = frame["time_s"].between(0.1, 0.9)
+    target = frame.loc[active, "physical_target_output_mT"].to_numpy(dtype=float)
+    smoothed = frame.loc[active, "measured_field_smoothed_mT"].to_numpy(dtype=float)
+    assert np.corrcoef(target, smoothed)[0, 1] > 0.9
+    assert np.nanmax(np.abs(frame.loc[active, "first_model_residual_mT"])) < 15.0
 
 
 def test_second_modeling_uses_smoothed_measured_field_for_residual(tmp_path: Path) -> None:

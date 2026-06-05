@@ -385,6 +385,8 @@ def generate_second_modeled_voltage_lut(
         tail_cycle_count=effective_tail_cycle_count,
         post_active_measured_available=post_active_measured_available,
     )
+    if support_meta.get("measured_support_coverage_status") == "insufficient_for_zero_return":
+        tail_meta["tail_field_source_status"] = "warning_insufficient_tail_support_no_fake_zero_return"
     discontinuity_meta = diagnose_correction_discontinuity(
         time_s,
         stabilized_delta,
@@ -597,8 +599,19 @@ def _select_second_measured_polarity(
     target_peak_sign = _dominant_sign(target_on_native, native_active)
     measured_peak_sign = _dominant_sign(native_measured, native_active)
     sign = 1.0
+    selection_status = "kept_actual_drive_review_polarity"
+    peak_sign_opposite = (
+        np.isfinite(target_peak_sign)
+        and np.isfinite(measured_peak_sign)
+        and abs(float(target_peak_sign)) > 0.0
+        and abs(float(measured_peak_sign)) > 0.0
+        and float(target_peak_sign) * float(measured_peak_sign) < 0.0
+    )
+    if peak_sign_opposite and np.isfinite(neg_corr) and (not np.isfinite(pos_corr) or neg_corr > pos_corr + 1e-6):
+        sign = -1.0
+        selection_status = "flipped_to_match_target_before_smoothing"
     return np.asarray(native_measured, dtype=float) * sign, {
-        "second_measured_polarity_selection_status": "fixed_project_convention_from_actual_drive_review",
+        "second_measured_polarity_selection_status": selection_status,
         "second_measured_polarity_sign": sign,
         "second_measured_positive_aligned_corr": pos_corr,
         "second_measured_negative_aligned_corr": neg_corr,
