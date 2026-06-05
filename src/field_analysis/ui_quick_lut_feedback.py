@@ -499,7 +499,11 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
 
     plot_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
     plot_frame[FIELD_TARGET_LABEL] = pd.to_numeric(frame["normalized_physical_target_output_mT"], errors="coerce")
-    plot_frame[MEASURED_FIELD_LABEL] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    measured_for_display, display_sign_meta = _align_measured_sign_for_review_display(
+        plot_frame[FIELD_TARGET_LABEL],
+        pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce"),
+    )
+    plot_frame[MEASURED_FIELD_LABEL] = measured_for_display
     plot_frame[RESIDUAL_LABEL] = plot_frame[FIELD_TARGET_LABEL] - plot_frame[MEASURED_FIELD_LABEL]
     plot_frame[FIRST_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
     plot_frame[ACTUAL_VOLTAGE_LABEL] = pd.to_numeric(
@@ -541,6 +545,36 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
             "1차 실구동 데이터 원본 확인",
             yaxis_title="측정값",
         )
+
+
+def _align_measured_sign_for_review_display(
+    target: pd.Series,
+    measured: pd.Series,
+) -> tuple[pd.Series, dict[str, float]]:
+    target_values = pd.to_numeric(target, errors="coerce").to_numpy(dtype=float)
+    measured_values = pd.to_numeric(measured, errors="coerce").to_numpy(dtype=float)
+    corr = _safe_shape_corr(target_values, measured_values)
+    flipped_corr = _safe_shape_corr(target_values, -measured_values)
+    display_sign = 1.0
+    if np.isfinite(flipped_corr) and (not np.isfinite(corr) or flipped_corr > corr + 1e-6):
+        display_sign = -1.0
+    return pd.Series(measured_values * display_sign, index=measured.index), {
+        "display_sign": float(display_sign),
+        "display_corr": float(corr) if np.isfinite(corr) else float("nan"),
+        "flipped_corr": float(flipped_corr) if np.isfinite(flipped_corr) else float("nan"),
+    }
+
+
+def _safe_shape_corr(left: np.ndarray, right: np.ndarray) -> float:
+    finite = np.isfinite(left) & np.isfinite(right)
+    if int(finite.sum()) < 3:
+        return float("nan")
+    left_values = left[finite] - float(np.nanmean(left[finite]))
+    right_values = right[finite] - float(np.nanmean(right[finite]))
+    denom = float(np.linalg.norm(left_values) * np.linalg.norm(right_values))
+    if denom <= 1e-12:
+        return float("nan")
+    return float(np.dot(left_values, right_values) / denom)
 
 
 def _interp_command_column(command_profile: pd.DataFrame, target_time_s: pd.Series, column: str) -> np.ndarray:

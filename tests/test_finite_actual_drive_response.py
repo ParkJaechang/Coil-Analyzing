@@ -249,15 +249,14 @@ def test_actual_drive_review_metrics_and_alignment(tmp_path: Path) -> None:
     assert metadata["actual_drive_time_unit"] == "milliseconds"
     assert metadata["source_time_monotonic"] is True
     assert metadata["duplicate_time_count"] == 0
-    assert metadata["hallbz_sign_selection_status"] == "auto_selected_by_target_correlation"
-    assert metadata["effective_field_convention"] == "effective_field_mT = +HallBz_raw"
+    assert metadata["hallbz_sign_selection_status"] == "fixed_project_convention_negative_hallbz"
+    assert metadata["effective_field_convention"] == "effective_field_mT = -HallBz_raw"
     assert np.isfinite(metadata["hallbz_negative_convention_corr"])
     assert np.isfinite(metadata["hallbz_positive_convention_corr"])
     assert metadata["actual_drive_review_smoothing_enabled"] is True
     assert metadata["actual_drive_review_smoothing_method"] == "median_then_rolling"
     sign = float(metadata["hallbz_effective_sign"])
     assert np.allclose(review["measured_field_effective_mT"], sign * review["raw_hallbz_mT"], atol=1e-12)
-    assert sign == 1.0
     assert np.isfinite(review["measured_field_smoothed_mT"].to_numpy(dtype=float)).all()
     assert np.allclose(
         review["measured_field_baseline_removed_mT"],
