@@ -177,9 +177,10 @@ def test_second_modeling_cycle_tail_duration_mode_is_preserved(tmp_path: Path) -
 def test_second_modeling_tail_duration_ui_markers_exist() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_second_modeling.py").read_text(encoding="utf-8")
 
-    assert "자기장 0 복귀 tail 방식" in source
-    assert "자기장 0 복귀 시간 (s)" in source
-    assert "이 시간 안에 tail 전압이 자기장을 0으로 보내도록 계산합니다." in source
+    assert "resolve_finite_tail_policy" in source
+    assert "2차 보정은 1차와 같은 흐름으로 실행합니다" in source
+    assert "자기장 0 복귀 tail 방식" not in source
+    assert "자기장 0 복귀 시간 (s)" not in source
     assert "tail 길이 (cycle)" not in source
 
 

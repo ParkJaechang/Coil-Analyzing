@@ -1,99 +1,50 @@
 # PR61 Current Status
 
-PR management status document. This document is meant for GitHub PR readers and does not change application behavior.
+This document is a status snapshot for PR61. It does not change application behavior.
 
 ## PR
 
 - Repository: `ParkJaechang/Coil-Analyzing`
 - PR: [#61 Core Quick LUT 1.0/1.5-cycle workflow stabilization](https://github.com/ParkJaechang/Coil-Analyzing/pull/61)
 - Branch: `codex/finite-feedback-cycle-policy-backend`
-- Base: `codex/finite-actual-drive-second-correction`
-- Checked head: `4e8c250d9f9dbfe4978ebb192d56c9b8ffb06bd0`
+- Checked head: `910cf096a80badc0debfaf96b3f179d8997d491d`
 - PR state: open draft
-- Merge state: `CLEAN`
-- GitHub CI at check time: pass x2
-- Changed files at check time: 107
+- Merge state at check time: `UNSTABLE`
+- GitHub CI at check time: failing before this cleanup pass
+- Source of truth for current user/modeling policy: [pr61_user_feedback_resolution_log.md](./pr61_user_feedback_resolution_log.md)
 
-## Local workspace note
+## Current Policy
 
-At this PR-manager update, the local worktree contains dirty docs/report/cleanup files unrelated to core code. No core source file is staged by this status update.
-
-## Current scope
-
-PR61 is the draft integration branch for:
-
-- Quick LUT workflow cleanup and button-gated modeling.
-- Upload memory and cache restore.
-- Target config source-of-truth for current/applied/result configs.
-- Finite startup-aware first modeling.
-- Finite 1.0 / 1.5 production cycle policy.
-- Finite actual-drive review and second correction workflow.
-- Finite tail policy and second command export.
-- Continuous steady-state 1cycle extraction.
-- Continuous first modeling.
-- Continuous second modeling / validation where implemented.
-- Continuous first/second final LUT export.
-- Final LUT CSV contract using plotted/generated voltage samples, not Fourier/harmonic resynthesis.
-- Latest UI/semantics cleanup around target wording, target normalization, first command plots, and phase-sync metadata.
-
-## Current policy
-
+- Target field shape: `fixed_rounded_triangle`.
+- Target peak field: user-configured value.
+- Field normalization follows the user target peak field, not a fixed +/-50mT production policy.
+- Measured field normalization is scale-only against the target peak; do not confuse amplitude scaling with offset shifting.
+- HallBz convention: effective field = `-HallBz raw`.
+- Command voltage limit / normalization policy: +/-10V.
 - Finite production cycles: `1.0` and `1.5`.
-- Finite `1.25`, `1.75`, `2.0`: review-only or unsupported for production correction/export.
-- Continuous production cycle: stable `1cycle` only.
-- Continuous tail / zero-return tail: off by default.
-- Target shape: fixed rounded triangle.
-- Target peak and internal normalization must be described separately.
-- Field review/modeling normalization: +/-50mT.
-- Command voltage limit/export basis: +/-5V.
-- Hall field convention for actual-drive review: effective field = `-HallBz raw`.
-- Final LUT export columns: `sample_index,time_s,voltage_v`.
-- Final LUT export must not use Fourier/harmonic resynthesis.
+- Continuous production: steady-state loop-safe `1cycle` only.
+- Final LUT export columns: `sample_index,time_s,voltage_v` only.
+- Fourier/harmonic resynthesis is not used for final export.
+- Heavy calculations remain button-triggered.
 
-## Latest acceptance summary
+## CI Failure Root Cause Before This Cleanup Pass
 
-See [pr61_acceptance_inventory.md](./pr61_acceptance_inventory.md) for itemized status.
+- `tests/test_file_size_guardrails.py`: PR61 bridge/stabilization modules exceeded the 600-line guardrail and were missing from the temporary oversized allowlist.
+- `tests/test_finite_actual_drive_response.py`: stale expectation still required HallBz sign auto-selection, while current policy fixes effective field to `-HallBz raw`.
+- `tests/test_finite_second_modeling_tail.py`: stale expectation still required default-visible second-modeling tail UI controls, while current UI policy hides those controls from the main 2nd command flow.
 
-- PASS: 6
-- PARTIAL: 4
-- FAIL: 1
-- NOT VERIFIED: 0
+## Cleanup Status
 
-## Current pass items
+- Cleanup inventory: [pr61_cleanup_inventory.md](./pr61_cleanup_inventory.md)
+- Legacy hardware calibration: keep Advanced/Legacy only; do not expose as primary modeling input.
+- Startup Compensation Review: classify as `keep_advanced_only` until it is explicitly merged into finite residual review or archived.
+- Duplicate/stale status docs: archive candidates; do not delete in this pass.
+- Source/test files: keep; do not delete production bridges during cleanup.
 
-- Prohibited target wording (`100mT pp fixed`, `100pp fixed`, `목표 bz_mT PP`) is absent from source-level UI contract.
-- Rounded triangle target template has an analytic ripple quality test.
-- Finite phase-sync residual metadata reports finite active-end support.
-- Measured field scale-to-50mT and gain/headroom/clipping metadata are present in source/UI paths.
-- GitHub CI is passing on PR head.
+## Merge Decision
 
-## Main remaining blockers
+Keep PR61 as draft until:
 
-- Current launched-runtime evidence is insufficient for the latest UI/semantics cleanup.
-- Main UI still contains default-visible hardware/legacy language around DAQ, AMP, gain, and extrapolation.
-- Support/Provenance/Consistency cleanup is partial: internal/English details still appear in debug/detail areas.
-- Startup Compensation Review still needs a final UX policy: keep as Advanced diagnostics, merge into residual review, hide, or remove.
-- User must confirm in launched runtime that the first command plot, target semantics copy, and phase-sync metadata appear as intended.
-
-## Tests checked by PR Manager for this status update
-
-```powershell
-python -m pytest -q tests/test_target_semantics_ui_contract.py tests/test_target_template_quality.py tests/test_simplified_user_workflow_ui_contract.py tests/test_finite_first_phase_sync_modeling.py tests/test_quick_lut_ui_contract.py
-```
-
-Result: `22 passed`.
-
-GitHub CI at source check time:
-
-- `test`: pass
-- `test`: pass
-
-## Merge decision
-
-PR61 should remain draft.
-
-Do not merge until:
-
-- User launched-runtime review is complete.
-- Remaining UI/semantics blockers are fixed or explicitly accepted.
-- Runtime checklist results are posted back to the PR.
+- GitHub CI is green at the latest head.
+- User runtime confirms 1st/2nd modeling UI and export behavior.
+- Stale PR body/status docs no longer conflict with `pr61_user_feedback_resolution_log.md`.
