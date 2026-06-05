@@ -6,6 +6,7 @@ from .schema import (
     SweepSegmentSpec,
     SweepTargetConfig,
 )
+from .segment_parser import SegmentMeasurement, SegmentSplitResult, split_long_measurement_by_manifest
 from .sweep_plan import SweepPlanConfig, build_sweep_plan, plan_to_dataframe
 from .sweep_lut_generator import (
     SegmentCommandInput,
@@ -15,7 +16,9 @@ from .sweep_lut_generator import (
 
 __all__ = [
     "ManifestValidationResult",
+    "SegmentMeasurement",
     "SegmentCommandInput",
+    "SegmentSplitResult",
     "SweepPlanConfig",
     "SweepLutBuildResult",
     "SweepSegmentManifestRow",
@@ -24,4 +27,5 @@ __all__ = [
     "build_sweep_lut_from_segment_commands",
     "build_sweep_plan",
     "plan_to_dataframe",
+    "split_long_measurement_by_manifest",
 ]
