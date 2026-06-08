@@ -47,7 +47,7 @@ PR61 acceptance is only for Streamlit WebApp / Quick LUT / `src.field_analysis` 
 | 9 | Startup Compensation Review policy | PASS | `ui_startup_compensation_review.py` | Not part of default flow | Decision: `keep_advanced_only`. |
 | 10 | Continuous final export finite-like contract | PASS | continuous export tests | User runtime still required | Confirm CSV download path. |
 | 11 | WinApp / AI-RL cross-repo separation | PASS | PR docs and cleanup inventory | N/A | Keep separate from PR61 acceptance. |
-| 12 | `ai_sweep` production isolation | PASS | `src/field_analysis/ai_sweep`, ai_sweep tests | N/A | Do not wire into Quick LUT production without reviewed future PR. |
+| 12 | AI/RL repository separation | PASS | `ParkJaechang/Coil-Analyzing-AI`, PR61 cleanup commit | N/A | Continue AI/RL work only in the separate AI repository. |
 | 13 | CI status | NOT VERIFIED | GitHub Actions | N/A | Re-run after latest push. |
 
 ## Merge Blockers

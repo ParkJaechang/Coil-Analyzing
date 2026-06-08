@@ -8,7 +8,7 @@ PR61 acceptance is limited to Streamlit WebApp / Quick LUT / `src.field_analysis
 
 - WinApp docs are historical cross-repo notes only. They must not be used as PR61 Streamlit acceptance evidence.
 - AI/RL modeling app notes are experimental planning notes only. They must not be used as PR61 production acceptance evidence.
-- `src/field_analysis/ai_sweep/*` is kept as experimental/offline sweep planning only and must not be wired into production Quick LUT without a reviewed future PR.
+- AI/RL modeling and AI sweep dataset tooling have moved to the separate `ParkJaechang/Coil-Analyzing-AI` repository. PR61 does not contain AI/RL implementation and must not be used as AI repo acceptance evidence.
 
 ## Summary
 
@@ -18,7 +18,6 @@ PR61 acceptance is limited to Streamlit WebApp / Quick LUT / `src.field_analysis
 | update | 4 | Stale status/policy document or PR-facing copy to refresh. |
 | archive_candidate | 9 | Duplicate/stale report or legacy review artifact; do not delete without user approval. |
 | external_reference_only | 4 | Cross-repo documentation that has no Streamlit runtime impact. |
-| keep_experimental | 3 | Offline/experimental helper path; not production Quick LUT runtime. |
 | needs_review | 4 | Keep for now, but needs UX/module ownership decision. |
 
 ## Inventory
@@ -58,9 +57,8 @@ PR61 acceptance is limited to Streamlit WebApp / Quick LUT / `src.field_analysis
 | `src/field_analysis/final_modeled_lut.py` | source | keep | Final LUT export contract. | High. | Keep. | streamlit | yes | covered |
 | `src/field_analysis/voltage_policy.py` | source | keep | +/-10V command voltage source of truth. | High. | Keep and use everywhere. | streamlit | yes | covered |
 | `src/field_analysis/target_templates.py` | source | keep | Analytic fixed rounded-triangle target source. | High. | Keep. | streamlit | yes | covered |
-| `src/field_analysis/ai_sweep/__init__.py` | source | keep_experimental | Experimental offline sweep planning package marker. | Low for Streamlit; high for future sweep planning context. | Keep offline/experimental; do not wire into production Quick LUT. | streamlit_experimental | none unless explicitly wired | ai_sweep tests |
-| `src/field_analysis/ai_sweep/sweep_lut_generator.py` | source | keep_experimental | Concatenates already-built segment commands for offline sweep planning. | Low for Streamlit; high for future sweep planning context. | Keep offline/experimental; metadata must show no hardware/modeling-core/runtime invocation. | streamlit_experimental | none unless explicitly wired | ai_sweep tests |
-| `tests/test_ai_sweep_*.py` | test | keep_experimental | Guards offline sweep schema/LUT contract and production isolation. | Low. | Keep as isolation tests; do not treat as production modeling acceptance. | streamlit_experimental | none | ai_sweep tests |
+| `src/field_analysis/ai_sweep/*` | source | moved_external | AI sweep implementation moved to `ParkJaechang/Coil-Analyzing-AI`. | Low; PR61 must not host AI/RL implementation. | Removed from WebApp PR61. Continue work in AI repo. | ai_repo | none | AI repo tests |
+| `tests/test_ai_sweep_*.py` | test | moved_external | AI sweep tests moved with implementation to `ParkJaechang/Coil-Analyzing-AI`. | Low. | Removed from WebApp PR61. Use AI repo CI as acceptance evidence for AI work. | ai_repo | none | AI repo tests |
 | WinApp `src/coil_win_app/core_adapter.py` | source | keep | WinApp guarded Streamlit core bridge. | High in WinApp. | Keep in WinApp repo; do not modify from Streamlit cleanup. | winapp | yes in WinApp | WinApp tests |
 | WinApp `src/coil_win_app/core_dependency.py` | source | keep | WinApp dependency SHA/version check. | High in WinApp. | Keep in WinApp repo; update only with WinApp PR. | winapp | yes in WinApp | WinApp tests |
 
