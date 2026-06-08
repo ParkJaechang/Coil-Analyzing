@@ -39,8 +39,10 @@ Cross-repo notes in this repository are historical/reference material only unles
 
 ## Production Import Boundary
 
-- `src/field_analysis/ai_sweep/*` is experimental/offline sweep planning only.
-- Production Streamlit / Quick LUT runtime must not import `field_analysis.ai_sweep` by default.
+- AI/RL modeling and AI sweep dataset tooling have moved to the separate
+  `ParkJaechang/Coil-Analyzing-AI` repository. PR61 does not contain AI/RL
+  production code and must not be used as AI repo acceptance evidence.
+- Production Streamlit / Quick LUT runtime must not import AI sweep tooling by default.
 - WinApp modules must not be imported by PR61 Streamlit runtime.
 - Final LUT export continues to use generated voltage samples only and keeps the three-column CSV contract.
 
