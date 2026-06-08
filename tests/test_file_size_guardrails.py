@@ -28,6 +28,7 @@ LEGACY_OVERSIZED_ALLOWLIST: dict[str, str] = {
     "src/field_analysis/finite_actual_drive.py": "Finite actual-drive review bridge expanded in PR61; split after field-sign contract stabilizes.",
     "src/field_analysis/finite_second_modeling.py": "Finite second modeling bridge expanded in PR61; split after second-command contract stabilizes.",
     "src/field_analysis/finite_second_modeling_stabilization.py": "Finite second modeling stabilization expanded in PR61; split after phase-support contract stabilizes.",
+    "src/field_analysis/finite_second_modeling_tail_controller.py": "Finite second tail controller expanded in PR61; split after zero-tail contract stabilizes.",
     "src/field_analysis/lut.py": "Legacy LUT runtime that still needs follow-up module extraction.",
     "src/field_analysis/parser.py": "Legacy parser module with multiple import flows.",
     "src/field_analysis/plotting.py": "Legacy plotting bundle awaiting feature splits.",

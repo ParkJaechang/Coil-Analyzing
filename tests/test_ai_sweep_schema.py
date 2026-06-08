@@ -72,3 +72,18 @@ def test_ai_sweep_package_does_not_import_streamlit() -> None:
         "field_analysis.ai_sweep.manifest_io",
         "field_analysis.ai_sweep.schema",
     }
+
+
+def test_streamlit_production_routes_do_not_import_ai_sweep() -> None:
+    production_paths = [
+        REPO_ROOT / "app_field_analysis_quick.py",
+        REPO_ROOT / "app_field_analysis_latest.py",
+        SRC_ROOT / "field_analysis" / "app_ui_snapshot.py",
+        SRC_ROOT / "field_analysis" / "final_modeled_lut.py",
+    ]
+    production_paths.extend((SRC_ROOT / "field_analysis").glob("ui_*.py"))
+
+    for path in production_paths:
+        source = path.read_text(encoding="utf-8")
+        assert "field_analysis.ai_sweep" not in source
+        assert "ai_sweep" not in source

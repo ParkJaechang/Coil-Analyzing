@@ -1,5 +1,7 @@
 # Windows App Runtime Checklist
 
+> Historical cross-repo note only. Do not use this document as PR61 Streamlit / Quick LUT acceptance evidence. Windows App work is tracked in a separate repository/thread.
+
 Last updated: 2026-06-01 KST
 
 Latest PR-manager recheck: 2026-06-01 KST. PR61 runtime remains blocked because the Windows App skeleton is still missing. A separate Windows App implementation PR exists at https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.

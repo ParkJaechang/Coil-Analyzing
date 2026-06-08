@@ -1,23 +1,33 @@
 # PR61 Current Status
 
-This document is a status snapshot for PR61. It does not change application behavior.
+This document is a Streamlit / Quick LUT status snapshot for PR61. It does not change application behavior.
 
 ## PR
 
 - Repository: `ParkJaechang/Coil-Analyzing`
 - PR: [#61 Core Quick LUT 1.0/1.5-cycle workflow stabilization](https://github.com/ParkJaechang/Coil-Analyzing/pull/61)
 - Branch: `codex/finite-feedback-cycle-policy-backend`
-- Checked head: `910cf096a80badc0debfaf96b3f179d8997d491d`
+- Checked head at this status pass: `70263b58d446160b46ffc9196163736be3d7e020`
 - PR state: open draft
-- Merge state at check time: `UNSTABLE`
-- GitHub CI at check time: failing before this cleanup pass
 - Source of truth for current user/modeling policy: [pr61_user_feedback_resolution_log.md](./pr61_user_feedback_resolution_log.md)
+
+## PR61 Acceptance Boundary
+
+PR61 acceptance is limited to the Streamlit WebApp / Quick LUT / `src.field_analysis` runtime behavior.
+
+The following work is tracked separately and must not be used as PR61 Streamlit acceptance evidence:
+
+- WinApp repository work.
+- AI/RL modeling app repository work.
+- Cross-repo implementation notes, report drafts, or generated deliverables.
+
+Cross-repo notes in this repository are historical/reference material only unless a later PR explicitly wires them into the Streamlit Quick LUT runtime.
 
 ## Current Policy
 
 - Target field shape: `fixed_rounded_triangle`.
 - Target peak field: user-configured value.
-- Field normalization follows the user target peak field, not a fixed +/-50mT production policy.
+- Field normalization follows the user target peak field.
 - Measured field normalization is scale-only against the target peak; do not confuse amplitude scaling with offset shifting.
 - HallBz convention: effective field = `-HallBz raw`.
 - Command voltage limit / normalization policy: +/-10V.
@@ -27,11 +37,12 @@ This document is a status snapshot for PR61. It does not change application beha
 - Fourier/harmonic resynthesis is not used for final export.
 - Heavy calculations remain button-triggered.
 
-## CI Failure Root Cause Before This Cleanup Pass
+## Production Import Boundary
 
-- `tests/test_file_size_guardrails.py`: PR61 bridge/stabilization modules exceeded the 600-line guardrail and were missing from the temporary oversized allowlist.
-- `tests/test_finite_actual_drive_response.py`: stale expectation still required HallBz sign auto-selection, while current policy fixes effective field to `-HallBz raw`.
-- `tests/test_finite_second_modeling_tail.py`: stale expectation still required default-visible second-modeling tail UI controls, while current UI policy hides those controls from the main 2nd command flow.
+- `src/field_analysis/ai_sweep/*` is experimental/offline sweep planning only.
+- Production Streamlit / Quick LUT runtime must not import `field_analysis.ai_sweep` by default.
+- WinApp modules must not be imported by PR61 Streamlit runtime.
+- Final LUT export continues to use generated voltage samples only and keeps the three-column CSV contract.
 
 ## Cleanup Status
 

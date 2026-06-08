@@ -167,7 +167,16 @@ def test_build_sweep_lut_metadata() -> None:
     assert result.metadata["modeling_core_called"] is False
     assert result.metadata["streamlit_involved"] is False
     assert result.metadata["hardware_invoked"] is False
+    assert result.metadata["production_quick_lut_route_mutated"] is False
+    assert result.metadata["production_lut_export_route"] is False
+    assert result.metadata["user_approval_required_before_runtime_or_hardware"] is True
+    assert result.metadata["ai_sweep_route_classification"] == "experimental_offline_planning_only"
     assert result.metadata["ai_sweep_lut_generation_mode"] == "concatenate_prebuilt_segment_commands"
+    assert result.metadata["final_hardware_lut_columns"] == ["sample_index", "time_s", "voltage_v"]
+    assert result.metadata["voltage_limit_v"] == float(COMMAND_VOLTAGE_LIMIT_V)
+    assert result.metadata["voltage_limit_policy_source"] == (
+        "field_analysis.voltage_policy.COMMAND_VOLTAGE_LIMIT_V"
+    )
 
 
 def test_ai_sweep_lut_generator_does_not_import_streamlit() -> None:

@@ -1,5 +1,7 @@
 # Windows App Next Agent Prompts
 
+> Historical cross-repo note only. Do not use this document as PR61 Streamlit / Quick LUT acceptance evidence. Windows App work is tracked in a separate repository/thread.
+
 Last updated: 2026-06-01 KST
 
 Latest PR-manager recheck: 2026-06-01 KST. PR61 still lacks `src/coil_win_app/`, but a separate implementation PR exists at https://github.com/ParkJaechang/Coil-Analyzing-WinApp/pull/1.

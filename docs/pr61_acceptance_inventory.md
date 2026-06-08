@@ -5,12 +5,20 @@ PR management document. This is not a generated runtime artifact and does not ch
 - Repository: `ParkJaechang/Coil-Analyzing`
 - PR: [#61 Core Quick LUT 1.0/1.5-cycle workflow stabilization](https://github.com/ParkJaechang/Coil-Analyzing/pull/61)
 - Branch: `codex/finite-feedback-cycle-policy-backend`
-- Checked head: `910cf096a80badc0debfaf96b3f179d8997d491d`
-- GitHub CI at check time: failing before cleanup fixes in this pass
-- Merge state at check time: `UNSTABLE`
+- Checked head at this inventory pass: `70263b58d446160b46ffc9196163736be3d7e020`
 - Runtime acceptance rule: source/tests are not final acceptance. User launched-runtime review is required before merge.
 - Current policy source of truth: [pr61_user_feedback_resolution_log.md](./pr61_user_feedback_resolution_log.md)
 - Cleanup inventory: [pr61_cleanup_inventory.md](./pr61_cleanup_inventory.md)
+
+## PR61 Acceptance Boundary
+
+PR61 acceptance is only for Streamlit WebApp / Quick LUT / `src.field_analysis` behavior.
+
+| external track | PR61 acceptance status |
+|---|---|
+| WinApp repository work | Separate repository/thread. Do not use as PR61 acceptance evidence. |
+| AI/RL modeling app repository work | Separate repository/thread. Do not use as PR61 production acceptance evidence. |
+| Cross-repo notes/reports | Historical/reference only unless explicitly wired in a reviewed future PR. |
 
 ## Latest Policy Snapshot
 
@@ -22,6 +30,7 @@ PR management document. This is not a generated runtime artifact and does not ch
 - Command voltage limit / normalization policy: +/-10V.
 - Final LUT export columns: `sample_index,time_s,voltage_v` only.
 - Fourier/harmonic resynthesis is not used for final export.
+- Heavy calculations remain button-triggered.
 
 ## Focused Inventory
 
@@ -37,19 +46,13 @@ PR management document. This is not a generated runtime artifact and does not ch
 | 8 | Support/Provenance/Consistency cleanup | PARTIAL | Debug expanders | User runtime still required | Keep detailed internals under Debug only. |
 | 9 | Startup Compensation Review policy | PASS | `ui_startup_compensation_review.py` | Not part of default flow | Decision: `keep_advanced_only`. |
 | 10 | Continuous final export finite-like contract | PASS | continuous export tests | User runtime still required | Confirm CSV download path. |
-| 11 | CI status | FAIL before cleanup pass | GitHub Actions | N/A | Fix stale tests/guardrail and re-run. |
-
-## CI Failure Classification For Head 910cf096
-
-| failure | classification | action |
-|---|---|---|
-| Oversized `finite_actual_drive.py`, `finite_second_modeling.py`, `finite_second_modeling_stabilization.py` | guardrail / temporary split debt | Add temporary allowlist entries; plan feature split after contract stabilizes. |
-| HallBz sign test expected auto-selection | stale test expectation | Update expectation to fixed `-HallBz raw` convention. |
-| Second tail UI marker test expected default-visible controls | stale UI contract | Update expectation: main flow hides controls, internal policy remains. |
+| 11 | WinApp / AI-RL cross-repo separation | PASS | PR docs and cleanup inventory | N/A | Keep separate from PR61 acceptance. |
+| 12 | `ai_sweep` production isolation | PASS | `src/field_analysis/ai_sweep`, ai_sweep tests | N/A | Do not wire into Quick LUT production without reviewed future PR. |
+| 13 | CI status | NOT VERIFIED | GitHub Actions | N/A | Re-run after latest push. |
 
 ## Merge Blockers
 
 - PR remains draft.
-- CI must be green after this cleanup pass.
+- CI must be green after the latest push.
 - User launched-runtime evidence is still required for final acceptance.
-- Duplicate/stale docs and generated reports are archive candidates, not deletion targets in this pass.
+- WinApp and AI/RL app work must remain separated from this Streamlit PR acceptance scope.
