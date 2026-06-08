@@ -498,12 +498,16 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
         return
 
     plot_frame = pd.DataFrame({"time_s": pd.to_numeric(frame["time_s"], errors="coerce")})
-    plot_frame[FIELD_TARGET_LABEL] = pd.to_numeric(frame["normalized_physical_target_output_mT"], errors="coerce")
-    measured_for_display, display_sign_meta = _align_measured_sign_for_review_display(
-        plot_frame[FIELD_TARGET_LABEL],
-        pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce"),
+    plot_frame[FIELD_TARGET_LABEL] = pd.to_numeric(
+        frame.get("physical_target_output_mT", frame.get("normalized_physical_target_output_mT")),
+        errors="coerce",
     )
-    plot_frame[MEASURED_FIELD_LABEL] = measured_for_display
+    # 1차 실구동 검토는 모델링 보정용 정규화 trace가 아니라, HallBz convention과
+    # baseline 제거까지만 적용된 실제 측정 자기장을 목표와 직접 비교한다.
+    plot_frame[MEASURED_FIELD_LABEL] = pd.to_numeric(
+        frame.get("measured_field_mT", frame.get("baseline_removed_effective_field_mT")),
+        errors="coerce",
+    )
     plot_frame[RESIDUAL_LABEL] = plot_frame[FIELD_TARGET_LABEL] - plot_frame[MEASURED_FIELD_LABEL]
     plot_frame[FIRST_VOLTAGE_LABEL] = _interp_command_column(command_profile, frame["time_s"], "limited_voltage_v")
     plot_frame[ACTUAL_VOLTAGE_LABEL] = pd.to_numeric(
@@ -532,7 +536,11 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     raw_frame["Raw HallBz"] = pd.to_numeric(raw_hallbz, errors="coerce")
     raw_frame[effective_label] = pd.to_numeric(frame.get("measured_field_effective_mT"), errors="coerce")
     raw_frame["기준선 제거 후 자기장"] = pd.to_numeric(frame.get("baseline_removed_effective_field_mT", frame.get("measured_field_mT")), errors="coerce")
-    raw_frame["정규화 자기장 (target peak mT)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
+    raw_frame["실측 자기장 (부호/기준선 보정)"] = pd.to_numeric(
+        frame.get("measured_field_mT", frame.get("baseline_removed_effective_field_mT")),
+        errors="coerce",
+    )
+    raw_frame["정규화 자기장 (진단)"] = pd.to_numeric(frame["normalized_measured_field_mT"], errors="coerce")
     raw_frame["Raw Voltage1_V"] = pd.to_numeric(frame["raw_first_voltage_v"], errors="coerce")
     normalized_voltage_label = f"정규화 전압 ({COMMAND_VOLTAGE_LIMIT_LABEL})"
     raw_frame[normalized_voltage_label] = pd.to_numeric(frame["normalized_first_voltage_v"], errors="coerce")
@@ -541,7 +549,16 @@ def _render_actual_drive_review_payload(command_profile: pd.DataFrame, payload: 
     with st.expander("Raw 데이터 상세 보기", expanded=False):
         _render_plot(
             raw_frame,
-            ["Raw HallBz", effective_label, "기준선 제거 후 자기장", "정규화 자기장 (target peak mT)", "Raw Voltage1_V", normalized_voltage_label, "전류"],
+            [
+                "Raw HallBz",
+                effective_label,
+                "기준선 제거 후 자기장",
+                "실측 자기장 (부호/기준선 보정)",
+                "정규화 자기장 (진단)",
+                "Raw Voltage1_V",
+                normalized_voltage_label,
+                "전류",
+            ],
             "1차 실구동 데이터 원본 확인",
             yaxis_title="측정값",
         )

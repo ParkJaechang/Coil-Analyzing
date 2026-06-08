@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 FIELD_TARGET_LABEL = "목표 자기장"
-MEASURED_FIELD_LABEL = "실측 자기장 (선택 부호, 정규화)"
+MEASURED_FIELD_LABEL = "실측 자기장 (부호/기준선 보정)"
 RESIDUAL_LABEL = "오차 (목표 - 실측)"
 FIRST_VOLTAGE_LABEL = "1차 모델링 전압"
 ACTUAL_VOLTAGE_LABEL = "실제 구동 전압"

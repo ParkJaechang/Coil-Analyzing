@@ -698,7 +698,9 @@ def _select_second_measured_polarity(
         and abs(float(measured_peak_sign)) > 0.0
         and float(target_peak_sign) * float(measured_peak_sign) < 0.0
     )
-    if peak_sign_opposite and np.isfinite(neg_corr) and (not np.isfinite(pos_corr) or neg_corr > pos_corr + 1e-6):
+    if peak_sign_opposite and np.isfinite(neg_corr) and (
+        not np.isfinite(pos_corr) or neg_corr >= pos_corr - 2e-2
+    ):
         sign = -1.0
         selection_status = "flipped_to_match_target_before_smoothing"
     return np.asarray(native_measured, dtype=float) * sign, {
@@ -759,9 +761,22 @@ def _select_phase_aligned_measured_polarity(
     valid = active & np.isfinite(target_values) & np.isfinite(measured_values)
     positive_corr = _corr(target_values[valid], measured_values[valid])
     negative_corr = _corr(target_values[valid], -measured_values[valid])
+    target_peak_sign = _dominant_sign(target_values, valid)
+    measured_peak_sign = _dominant_sign(measured_values, valid)
+    peak_sign_opposite = (
+        np.isfinite(target_peak_sign)
+        and np.isfinite(measured_peak_sign)
+        and abs(float(target_peak_sign)) > 0.0
+        and abs(float(measured_peak_sign)) > 0.0
+        and float(target_peak_sign) * float(measured_peak_sign) < 0.0
+    )
     sign = 1.0
     status = "kept_after_phase_alignment"
-    if np.isfinite(negative_corr) and (not np.isfinite(positive_corr) or negative_corr > positive_corr + 1e-6):
+    if np.isfinite(negative_corr) and (
+        not np.isfinite(positive_corr)
+        or negative_corr > positive_corr + 1e-6
+        or (peak_sign_opposite and negative_corr >= positive_corr - 2e-2)
+    ):
         sign = -1.0
         status = "flipped_after_phase_alignment_to_match_target"
     return sign, {
@@ -769,6 +784,9 @@ def _select_phase_aligned_measured_polarity(
         "second_phase_aligned_polarity_sign": sign,
         "second_phase_aligned_positive_corr": positive_corr,
         "second_phase_aligned_negative_corr": negative_corr,
+        "second_phase_aligned_target_dominant_sign": target_peak_sign,
+        "second_phase_aligned_measured_dominant_sign": measured_peak_sign,
+        "second_phase_aligned_peak_sign_opposite": bool(peak_sign_opposite),
         "second_phase_aligned_polarity_valid_count": int(valid.sum()),
     }
 

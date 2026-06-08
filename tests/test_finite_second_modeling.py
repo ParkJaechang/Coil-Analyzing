@@ -805,6 +805,20 @@ def test_second_modeling_plot_can_highlight_max_error_point() -> None:
     assert np.isclose(float(marker_trace.y[0]), 18.0)
 
 
+def test_second_phase_aligned_polarity_flips_when_dominant_peak_sign_is_opposite() -> None:
+    from field_analysis.finite_second_modeling import _select_phase_aligned_measured_polarity
+
+    target = np.array([0.0, 40.0, 0.0, -50.0, 0.0, 40.0, 0.0], dtype=float)
+    measured = -target + np.array([0.0, 0.5, 0.0, -0.5, 0.0, 0.5, 0.0], dtype=float)
+    active = np.ones_like(target, dtype=bool)
+
+    sign, metadata = _select_phase_aligned_measured_polarity(target, measured, active)
+
+    assert sign == -1.0
+    assert metadata["second_phase_aligned_peak_sign_opposite"] is True
+    assert metadata["second_phase_aligned_polarity_check_status"] == "flipped_after_phase_alignment_to_match_target"
+
+
 def test_second_modeling_ui_does_not_auto_switch_final_export_source() -> None:
     source = (SRC_ROOT / "field_analysis" / "ui_second_modeling.py").read_text(encoding="utf-8")
     export_source = (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8")
