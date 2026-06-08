@@ -13,6 +13,7 @@ from .ui_raw_waveforms_labels import (
     FIXED_GAIN_LABEL,
     infer_new_dataset_filename_metadata,
 )
+from .ui_raw_waveforms_actual_drive import render_raw_waveforms_actual_drive_upload_section
 from .ui_raw_waveforms_plot import render_raw_waveform_plot
 from .ui_raw_waveforms_plot import render_finite_symmetric_peak_review
 from .ui_raw_waveforms_plot import render_waveform_normalization_summary
@@ -131,6 +132,8 @@ def render_raw_waveforms_tab(
     transient_measurements: list | None = None,
     transient_preprocess_results: list | None = None,
 ) -> None:
+    render_raw_waveforms_actual_drive_upload_section()
+
     data_items = _build_raw_waveform_data_items(
         test_ids=test_ids,
         analysis_lookup=analysis_lookup,
@@ -149,7 +152,7 @@ def render_raw_waveforms_tab(
     )
     st.info(
         "데이터 정책: 파일명 규칙은 `continuous_{waveform}_{freq}Hz.csv` 또는 "
-        "`finite_{waveform}_{freq}Hz_{cycle}cycle.csv`입니다. DAQ output은 ±5V, "
+        f"`finite_{{waveform}}_{{freq}}Hz_{{cycle}}cycle.csv`입니다. DAQ output은 {FIXED_DAQ_OUTPUT_LABEL}, "
         "DCAMP Gain은 100% 고정 조건으로 표시합니다. Raw Waveforms 검수 화면에서는 0.75 cycle "
         "기존 데이터도 확인할 수 있지만, Quick LUT primary finite cycle은 1.0 / 1.25 / 1.5 / 1.75이며 "
         "1.75는 exact finite-cycle support가 있을 때만 사용 가능합니다."
@@ -170,6 +173,11 @@ def render_raw_waveforms_tab(
     selected_test_id = id_by_label[selected_label]
     selected_record = next(record for record in filtered_records if record.test_id == selected_test_id)
     selected_item = next(item for item in data_items if item.record.test_id == selected_test_id)
+    if st.button("Apply Raw Waveform Selection", key="apply_raw_waveform_selection"):
+        st.session_state["raw_waveform_applied_test_id"] = selected_test_id
+    if st.session_state.get("raw_waveform_applied_test_id") != selected_test_id:
+        st.warning("Selection changed. Press Render Raw Waveform Plot.")
+        return
 
     dataset_mode = st.radio(
         "Waveform data view",
@@ -178,6 +186,12 @@ def render_raw_waveforms_tab(
         horizontal=True,
         key="raw_dataset_audit",
     )
+    render_key = f"{selected_test_id}:{dataset_mode}"
+    if st.button("Render Raw Waveform Plot", key="render_raw_waveform_plot_button"):
+        st.session_state["raw_waveform_render_key"] = render_key
+    if st.session_state.get("raw_waveform_render_key") != render_key:
+        st.warning("Selection changed. Press Render Raw Waveform Plot.")
+        return
     display_frame = selected_item.corrected_frame if dataset_mode == "corrected" else selected_item.raw_frame
     display_frame, normalization_metadata = normalize_raw_waveform_frame(
         display_frame,

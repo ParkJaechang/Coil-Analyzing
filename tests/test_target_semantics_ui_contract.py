@@ -14,25 +14,32 @@ def _source() -> str:
 def test_target_support_predicted_semantics_markers_exist() -> None:
     source = _source()
 
-    assert "Physical Target" in source
-    assert "Predicted Output" in source
-    assert "Support Reference" in source
-    assert "Support-Blended Preview" in source
-    assert "Command Waveform" in source
+    assert "목표 자기장 개형 / fixed rounded triangle" in source
+    assert "목표 피크 자기장 (mT)" in source
+    assert "내부 정규화 기준" in source
+    assert "데이터/예측 의미 상세" in source
+    assert "1차 모델링 command" in source
     assert "Internal Reference (debug, hidden by default)" in source
 
 
 def test_plot_semantics_explanation_separates_target_from_support() -> None:
     source = _source()
 
-    assert "Finite target semantics: Physical Target = fixed rounded triangle at 100pp." in source
-    assert "Support Reference is a support-conditioned preview, not the physical target." in source
-    assert "Plot semantics: `Physical Target` is the requested field waveform;" in source
-    assert "`Support Reference` is not " in source
-    assert "the target;" in source
-    assert "`Predicted Output` is the model response;" in source
+    assert "목표 자기장 개형은 canonical fixed rounded triangle입니다." in source
+    assert "목표 자기장, support preview, forward prediction은 서로 다른 진단 정보입니다." in source
+    assert "fixed rounded triangle at 100pp" not in source
+    assert "100mT pp fixed" not in source
+    assert "100pp fixed" not in source
+    assert "목표 bz_mT PP" not in source
+    assert "Target metric fixed" not in source
+    assert "DAQ 최대 Voltage PP" not in source
+    assert "DC AMP gain" not in source
+    assert "AMP output" not in source
+    assert "필요 AMP Gain" not in source
+    assert "target extrapolation" not in source
+    assert "실험 범위 밖 target extrapolation" not in source
     assert "Advanced / Debug plot references" in source
-    assert "It is not the physical target." in source
+    assert "이것은 physical target이 아닙니다." in source
 
 
 def test_plot_profile_uses_physical_target_backend_column() -> None:

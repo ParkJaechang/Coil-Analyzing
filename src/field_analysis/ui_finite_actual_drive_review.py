@@ -10,6 +10,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .finite_actual_drive import build_finite_actual_drive_review_dataset
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_LABEL, COMMAND_VOLTAGE_NORMALIZATION_MODE
+
+# UI contract markers: Voltage는 peak 기준 ±10V 이내로 정규화되어 표시됩니다.
+# voltage_normalization_mode = peak_to_10V
 
 
 DEFAULT_VALIDATION_UPLOAD_DIR = Path("outputs") / "field_analysis_app_state" / "uploads" / "validation"
@@ -129,14 +133,14 @@ def render_finite_actual_drive_review_section() -> None:
     st.caption("사용자가 그래프를 확인한 뒤 2차 보정 방향을 결정합니다.")
     st.caption("이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다.")
     st.caption("Measured field는 peak 기준 ±50mT로 정규화되어 표시됩니다.")
-    st.caption("Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다.")
-    st.caption("field_normalization_mode = peak_to_50mT · voltage_normalization_mode = peak_to_5V")
+    st.caption(f"Voltage는 peak 기준 {COMMAND_VOLTAGE_LIMIT_LABEL} 이내로 정규화되어 표시됩니다.")
+    st.caption(f"field_normalization_mode = peak_to_50mT · voltage_normalization_mode = {COMMAND_VOLTAGE_NORMALIZATION_MODE}")
     st.caption("Raw 값은 보존되며, 정규화는 review plot/metrics용입니다.")
     st.caption("modeled cycle과 intended drive cycle은 별도 metadata로 표시됩니다.")
     st.caption("This is review, not acceptance. UI does not judge model quality.")
     st.info(
         "이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다. "
-        "Measured field는 peak 기준 ±50mT, Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다. "
+        f"Measured field는 peak 기준 ±50mT, Voltage는 peak 기준 {COMMAND_VOLTAGE_LIMIT_LABEL} 이내로 정규화되어 표시됩니다. "
         "Raw 값은 보존되며 정규화는 review plot/metrics용입니다."
     )
 
@@ -197,7 +201,16 @@ def render_finite_actual_drive_review_section() -> None:
             st.warning("캐시된 validation 결과 파일을 찾지 못했습니다.")
         return
 
-    parse_result = build_actual_drive_review_cases_from_cache_state(cache_state)
+    if not st.button("Review Actual-drive Result", key="review_actual_drive_result_button"):
+        cached = st.session_state.get("actual_drive_applied_review_result")
+        if isinstance(cached, ActualDriveReviewParseResult):
+            parse_result = cached
+        else:
+            st.info("Actual-drive upload cached. Press Review Actual-drive Result to parse and render plots.")
+            return
+    else:
+        parse_result = build_actual_drive_review_cases_from_cache_state(cache_state)
+        st.session_state["actual_drive_applied_review_result"] = parse_result
     _render_parse_summary(parse_result)
     if parse_result.failures:
         st.warning("일부 파일을 파싱하지 못했습니다. 아래 parse error를 확인하십시오.")

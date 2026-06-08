@@ -153,7 +153,7 @@ def test_review_ui_contract_labels_and_no_overclaim() -> None:
     expected = [
         "이 화면은 절대 gain 평가가 아니라 파형 개형/타이밍 검토용입니다.",
         "Measured field는 peak 기준 ±50mT로 정규화되어 표시됩니다.",
-        "Voltage는 peak 기준 ±5V 이내로 정규화되어 표시됩니다.",
+        "Voltage는 peak 기준 ±10V 이내로 정규화되어 표시됩니다.",
         "Raw 값은 보존되며, 정규화는 review plot/metrics용입니다.",
         "modeled cycle과 intended drive cycle은 별도 metadata로 표시됩니다.",
         "Normalization status",
@@ -164,7 +164,7 @@ def test_review_ui_contract_labels_and_no_overclaim() -> None:
         "field_normalization_scale_factor",
         "voltage_normalization_enabled",
         "voltage_normalization_mode",
-        "peak_to_5V",
+        "peak_to_10V",
         "voltage_normalization_source_peak_v",
         "voltage_normalization_scale_factor",
         "shape_review_only",

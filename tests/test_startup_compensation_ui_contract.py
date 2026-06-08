@@ -15,11 +15,11 @@ def _source() -> str:
 def test_startup_compensation_review_section_markers_exist() -> None:
     source = _source()
 
-    assert "Startup Compensation Review" in source
+    assert "startup 과도응답 진단 / Advanced Legacy" in source
     assert "startup-aware compensation의 실사용자 검토용" in source
     assert "모델링 품질은 사용자 그래프 검수로 판단합니다" in source
     assert "Physical Target은 변경되지 않습니다" in source
-    assert "Startup compensation data unavailable for this route." in source
+    assert "startup 과도응답 진단 데이터가 이 경로에서는 제공되지 않습니다." in source
     assert "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다" in source
     assert "finite-cycle field compensation에서 사용할 수 있습니다" in source
     assert "Missing backend fields:" in source
@@ -28,12 +28,19 @@ def test_startup_compensation_review_section_markers_exist() -> None:
 def test_startup_side_by_side_plot_labels_exist() -> None:
     source = _source()
 
+    assert "이 그래프는 1차 모델링 전압 command입니다." in source
+    assert "2차 보정 command는 아래 2차 보정 command 섹션에서 별도로 표시됩니다." in source
+    assert "1차 추천 전압 command" in source
+    assert "전압 제한 적용 후 diagnostic" in source
+    assert "second_limited_voltage_v" not in source
+    assert "second_modeled_voltage_v" not in source
+    assert "final_voltage_v" not in source
     assert "Physical Target" in source
     assert "Open-loop Predicted Field" in source
     assert "Startup Transient Component" in source
     assert "Compensated Predicted Field" in source
-    assert "Baseline Recommended Voltage" in source
-    assert "Compensated Recommended Voltage" in source
+    assert "baseline_recommended_voltage_v" in source
+    assert "compensated_recommended_voltage_v" in source
     assert "Startup Compensation Command Delta" in source
     assert "Startup Field Comparison" in source
     assert "Startup Command Comparison" in source

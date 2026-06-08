@@ -35,7 +35,8 @@ def test_end_marker_backend_sources_are_used() -> None:
 def test_fractional_cycle_policy_wording_exists() -> None:
     source = _source()
 
-    assert "Supported finite cycles:" in source
-    assert "1.75 cycle is supported when exact finite-cycle support data exists." in source
+    assert "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다." in source
+    assert "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다." in source
+    assert "2-cycle production 정책은 폐기되었습니다." in source
     assert "Previous finite cycle value `0.75` is not supported by the primary finite-cycle selector" in source
     assert "0.75 is not treated as 1.75" in source

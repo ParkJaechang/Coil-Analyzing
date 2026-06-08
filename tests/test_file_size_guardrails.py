@@ -24,13 +24,25 @@ LEGACY_OVERSIZED_ALLOWLIST: dict[str, str] = {
         "extract new UI logic into ui_*.py modules."
     ),
     "src/field_analysis/compensation.py": "Legacy compensation runtime with multiple code paths.",
+    "src/field_analysis/finite_first_phase_sync.py": "Finite first modeling bridge expanded in PR61; split after core contract stabilizes.",
+    "src/field_analysis/finite_actual_drive.py": "Finite actual-drive review bridge expanded in PR61; split after field-sign contract stabilizes.",
+    "src/field_analysis/finite_second_modeling.py": "Finite second modeling bridge expanded in PR61; split after second-command contract stabilizes.",
+    "src/field_analysis/finite_second_modeling_stabilization.py": "Finite second modeling stabilization expanded in PR61; split after phase-support contract stabilizes.",
+    "src/field_analysis/finite_second_modeling_tail_controller.py": "Finite second tail controller expanded in PR61; split after zero-tail contract stabilizes.",
     "src/field_analysis/lut.py": "Legacy LUT runtime that still needs follow-up module extraction.",
     "src/field_analysis/parser.py": "Legacy parser module with multiple import flows.",
     "src/field_analysis/plotting.py": "Legacy plotting bundle awaiting feature splits.",
     "src/field_analysis/recommendation_surface_runtime.py": "Legacy recommendation surface runtime bundle.",
+    "src/field_analysis/ui_continuous_steady_state.py": "Legacy continuous steady-state UI bundle awaiting feature splits.",
+    "src/field_analysis/ui_quick_lut_feedback.py": "Legacy Quick LUT feedback UI bundle awaiting feature splits.",
+    "src/field_analysis/ui_second_modeling.py": "Legacy second-modeling UI bundle awaiting feature splits.",
     "src/field_analysis/validation_retune.py": "Legacy retune runtime bundle.",
     "src/field_analysis/validation_retune_catalog.py": "Legacy catalog helper bundle.",
     "src/field_analysis/plant_model/harmonic_surface.py": "Legacy harmonic surface model bundle.",
+    "tests/test_continuous_steady_state_quick_lut.py": "Legacy broad continuous Quick LUT regression suite.",
+    "tests/test_finite_first_phase_sync_modeling.py": "Expanded PR61 finite first modeling contract suite.",
+    "tests/test_finite_second_modeling.py": "Legacy broad finite second modeling regression suite.",
+    "tests/test_finite_second_modeling_tail.py": "Legacy broad finite second modeling tail regression suite.",
 }
 
 

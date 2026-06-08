@@ -48,23 +48,23 @@ def _label_for(file_name: str) -> str:
 
 def test_new_continuous_filename_labels_do_not_require_current() -> None:
     assert _label_for("continuous_sine_1Hz.csv") == (
-        "continuous | Sine | 1 Hz | ±5V | Gain 100% | continuous_sine_1Hz.csv"
+        "continuous | Sine | 1 Hz | ±10V | Gain 100% | continuous_sine_1Hz.csv"
     )
     assert _label_for("continuous_triangle_0.25Hz.csv") == (
-        "continuous | Triangle | 0.25 Hz | ±5V | Gain 100% | continuous_triangle_0.25Hz.csv"
+        "continuous | Triangle | 0.25 Hz | ±10V | Gain 100% | continuous_triangle_0.25Hz.csv"
     )
 
 
 def test_new_finite_filename_labels_include_cycle_and_fixed_conditions() -> None:
     assert _label_for("finite_sine_1Hz_1.25cycle.csv") == (
-        "finite-cycle | Sine | 1 Hz | 1.25 cycle | ±5V | Gain 100% | finite_sine_1Hz_1.25cycle.csv"
+        "finite-cycle | Sine | 1 Hz | 1.25 cycle | ±10V | Gain 100% | finite_sine_1Hz_1.25cycle.csv"
     )
     assert _label_for("finite_triangle_2Hz_1.75cycle.csv") == (
-        "finite-cycle | Triangle | 2 Hz | 1.75 cycle | ±5V | Gain 100% | finite_triangle_2Hz_1.75cycle.csv"
+        "finite-cycle | Triangle | 2 Hz | 1.75 cycle | ±10V | Gain 100% | finite_triangle_2Hz_1.75cycle.csv"
     )
 
 
 def test_raw_audit_can_label_legacy_0p75_finite_data() -> None:
     assert _label_for("finite_triangle_2Hz_0.75cycle.csv") == (
-        "finite-cycle | Triangle | 2 Hz | 0.75 cycle | ±5V | Gain 100% | finite_triangle_2Hz_0.75cycle.csv"
+        "finite-cycle | Triangle | 2 Hz | 0.75 cycle | ±10V | Gain 100% | finite_triangle_2Hz_0.75cycle.csv"
     )

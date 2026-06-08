@@ -49,7 +49,7 @@ def test_actual_drive_review_normalizes_large_field_and_voltage_for_shape_review
     assert np.nanmax(np.abs(review["raw_measured_field_mT"])) > 100.0
     assert np.nanmax(np.abs(review["normalized_measured_field_mT"])) == pytest.approx(50.0, abs=1e-6)
     assert np.nanmax(np.abs(review["raw_first_voltage_v"])) > 5.0
-    assert np.nanmax(np.abs(review["normalized_first_voltage_v"])) <= 5.0 + 1e-9
+    assert np.nanmax(np.abs(review["normalized_first_voltage_v"])) <= 10.0 + 1e-9
     assert np.nanmax(np.abs(review["normalized_physical_target_output_mT"])) <= 50.0 + 1e-9
     assert np.allclose(
         review["measured_residual_normalized_mT"],
@@ -59,7 +59,7 @@ def test_actual_drive_review_normalizes_large_field_and_voltage_for_shape_review
     assert metadata["field_normalization_enabled"] is True
     assert metadata["field_normalization_mode"] == "peak_to_50mT"
     assert metadata["voltage_normalization_enabled"] is True
-    assert metadata["voltage_normalization_mode"] == "peak_to_5V"
+    assert metadata["voltage_normalization_mode"] == "peak_to_10V"
     assert metadata["absolute_gain_evaluation_disabled"] is True
     assert metadata["shape_review_only"] is True
     assert metadata["modeled_cycle_count"] == 1.5

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import sys
 
@@ -17,7 +18,11 @@ from field_analysis.ui_upload_state import build_upload_memory_items
 from field_analysis.ui_upload_state import delete_upload_memory_group
 from field_analysis.ui_upload_state import delete_upload_memory_item
 from field_analysis.ui_upload_state import delete_upload_memory_items
+from field_analysis.ui_upload_state import category_payloads
 from field_analysis.ui_upload_state import persist_uploaded_files
+from field_analysis.ui_upload_state import load_upload_manifest
+from field_analysis.ui_upload_memory_status import upload_memory_status
+from field_analysis.ui_upload_memory_status import activate_cached_uploads
 
 
 @dataclass
@@ -125,24 +130,309 @@ def test_delete_missing_and_outside_path_are_safe(tmp_path: Path) -> None:
     assert delete_upload_memory_item("missing", paths=paths)["deleted_count"] == 0
 
 
-def test_duplicate_upload_does_not_overwrite_and_uses_scalar_widget_state(tmp_path: Path) -> None:
+def test_repeated_same_upload_is_idempotent_and_uses_scalar_widget_state(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
-    persist_uploaded_files(
-        "validation",
-        [
-            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
-            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
-        ],
-        paths=paths,
-    )
+    uploads = [
+        _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+        _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+    ]
+    persist_uploaded_files("validation", uploads, paths=paths)
+    persist_uploaded_files("validation", uploads, paths=paths)
 
     items = build_upload_memory_items(paths=paths)
     validation_items = [item for item in items if item["label"] == "actual_drive_validation_run"]
     selected_ids = [item["upload_item_id"] for item in validation_items]
     session_state = {"selected_upload_item_ids": selected_ids}
 
-    assert len(validation_items) == 2
-    assert validation_items[1]["duplicate_of"] == validation_items[0]["upload_item_id"]
-    assert len({item["stored_filename"] for item in validation_items}) == 2
+    assert len(validation_items) == 1
+    assert validation_items[0]["duplicate_of"] is None
     assert all(isinstance(item_id, str) for item_id in session_state["selected_upload_item_ids"])
     assert not any(isinstance(value, pd.DataFrame) for value in session_state.values())
+
+
+def test_same_filename_different_content_keeps_separate_items(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    persist_uploaded_files(
+        "validation",
+        [
+            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"same"),
+            _Upload("finite_recommended_voltage_lut_sine_1Hz_1cycle_result.csv", b"different"),
+        ],
+        paths=paths,
+    )
+
+    items = build_upload_memory_items(paths=paths)
+    validation_items = [item for item in items if item["label"] == "actual_drive_validation_run"]
+
+    assert len(validation_items) == 2
+    assert len({item["stored_filename"] for item in validation_items}) == 2
+
+
+def test_category_payloads_does_not_duplicate_persisted_files_on_rerun(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+
+    first_payloads = category_payloads("continuous", [upload], paths=paths)
+    second_payloads = category_payloads("continuous", [upload], paths=paths)
+    summary = build_upload_memory_group_summary(build_upload_memory_items(paths=paths))
+
+    assert len(first_payloads) == 1
+    assert len(second_payloads) == 1
+    assert summary["continuous_cycle"]["count"] == 1
+
+
+def test_category_payloads_without_current_upload_does_not_auto_load_cached_files(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    persist_uploaded_files("continuous", [_Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")], paths=paths)
+    manifest = json.loads(paths.upload_manifest_path.read_text(encoding="utf-8"))
+    manifest["active_uploads"]["continuous"] = []
+    paths.upload_manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    payloads = category_payloads("continuous", None, paths=paths)
+    cached_payloads = category_payloads("continuous", None, paths=paths, include_cached_uploads=True)
+
+    assert payloads == []
+    assert len(cached_payloads) == 1
+
+
+def test_category_payloads_loads_active_remembered_set_without_current_upload(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_sine_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+    category_payloads("continuous", [upload], paths=paths)
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(remembered_payloads) == 1
+
+
+def test_legacy_manifest_without_active_uploads_migrates_cached_files_to_active(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    cache_name = "continuous_sine_2Hz.csv"
+    (category_dir / cache_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [{"cache_name": cache_name, "file_name": cache_name, "size_bytes": 16}],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(remembered_payloads) == 1
+
+
+def test_activate_cached_uploads_marks_cached_files_as_active(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_triangle_1Hz.csv", b"time_s,bz_mT\n0,0\n")
+    persist_uploaded_files("continuous", [upload], paths=paths)
+    manifest = json.loads(paths.upload_manifest_path.read_text(encoding="utf-8"))
+    manifest["active_uploads"]["continuous"] = []
+    paths.upload_manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = activate_cached_uploads("continuous", paths=paths)
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+
+    assert result["activated_count"] == 1
+    assert len(remembered_payloads) == 1
+
+
+def test_first_result_folders_are_restored_as_continuous_and_transient_uploads(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    continuous_dir = paths.uploads_dir / "Continuous_1st_Result"
+    transient_dir = paths.uploads_dir / "Transient_1st_Result"
+    continuous_dir.mkdir(parents=True)
+    transient_dir.mkdir(parents=True)
+    (continuous_dir / "continuous_0.25hz.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+    (transient_dir / "0.25hz_1.5cycle.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+
+    items = build_upload_memory_items(paths=paths)
+    by_name = {str(item["original_filename"]): item for item in items}
+    summary = build_upload_memory_group_summary(items)
+
+    assert summary["continuous_cycle"]["count"] == 1
+    assert summary["finite_cycle"]["count"] == 1
+    assert by_name["continuous_0.25hz.csv"]["category"] == "continuous"
+    assert by_name["continuous_0.25hz.csv"]["waveform_family"] == "triangle"
+    assert by_name["continuous_0.25hz.csv"]["freq_hz"] == 0.25
+    assert by_name["0.25hz_1.5cycle.csv"]["category"] == "transient"
+    assert by_name["0.25hz_1.5cycle.csv"]["waveform_family"] == "triangle"
+    assert by_name["0.25hz_1.5cycle.csv"]["freq_hz"] == 0.25
+    assert by_name["0.25hz_1.5cycle.csv"]["cycle_count"] == 1.5
+
+
+def test_activate_cached_uploads_includes_first_result_folders(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    transient_dir = paths.uploads_dir / "Transient_1st_Result"
+    transient_dir.mkdir(parents=True)
+    (transient_dir / "2hz_1cycle.csv").write_bytes(b"time_s,Voltage1_V,HallBz\n0,0,0\n")
+
+    result = activate_cached_uploads("transient", paths=paths)
+    payloads = category_payloads("finite-cycle", None, paths=paths)
+
+    assert result["activated_count"] == 1
+    assert len(payloads) == 1
+    assert payloads[0][0] == "2hz_1cycle.csv"
+
+
+def test_continuous_category_aliases_restore_as_canonical_continuous(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    upload = _Upload("continuous_tri_2Hz.csv", b"time_s,bz_mT\n0,0\n")
+
+    category_payloads("continuous-cycle", [upload], paths=paths)
+    remembered_payloads = category_payloads("연속 cycle", None, paths=paths)
+    manifest = load_upload_manifest(paths=paths)
+
+    assert len(remembered_payloads) == 1
+    assert "continuous" in manifest["files"]
+    assert len(manifest["files"]["continuous"]) == 1
+    assert manifest["files"]["continuous"][0]["category"] == "continuous"
+    assert manifest["files"]["continuous"][0]["upload_category_alias_applied"] is True
+
+
+def test_legacy_alias_manifest_active_uploads_merge_into_continuous(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    cache_name = "abc12345_continuous_tri_3Hz.csv"
+    (category_dir / cache_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous-cycle": [
+                        {"cache_name": cache_name, "file_name": "continuous_tri_3Hz.csv", "size_bytes": 16}
+                    ],
+                },
+                "active_uploads": {"continuous-cycle": [cache_name]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    remembered_payloads = category_payloads("continuous", None, paths=paths)
+    manifest = load_upload_manifest(paths=paths)
+
+    assert len(remembered_payloads) == 1
+    assert manifest["active_uploads"]["continuous"] == [cache_name]
+    assert manifest["files"]["continuous"][0]["upload_category_original"] == "continuous-cycle"
+
+
+def test_upload_memory_status_reports_remembered_but_missing_files(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [
+                        {
+                            "cache_name": "missing_continuous_tri_1Hz.csv",
+                            "file_name": "continuous_tri_1Hz.csv",
+                            "size_bytes": 16,
+                        }
+                    ],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+                "active_uploads": {
+                    "continuous": ["missing_continuous_tri_1Hz.csv"],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = upload_memory_status(paths=paths)
+    payloads = category_payloads("continuous", None, paths=paths)
+
+    assert payloads == []
+    assert status["remembered_continuous_count"] == 1
+    assert status["cached_continuous_count"] == 0
+    assert status["missing_remembered_continuous_count"] == 1
+    assert status["upload_memory_restore_status"] == "no_cached_files"
+    assert status["continuous_upload_restore_status"] == "remembered_but_missing_files"
+
+
+def test_active_uploads_fall_back_to_canonical_file_when_old_hash_name_is_missing(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    canonical_name = "continuous_tri_2Hz.csv"
+    stale_cache_name = "166756f8b28c75c9_continuous_tri_2Hz.csv"
+    (category_dir / canonical_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "continuous": [
+                        {
+                            "cache_name": stale_cache_name,
+                            "file_name": canonical_name,
+                            "original_filename": canonical_name,
+                            "size_bytes": 16,
+                        }
+                    ],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+                "active_uploads": {
+                    "continuous": [stale_cache_name],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(payloads) == 1
+    assert payloads[0][0] == canonical_name
+
+
+def test_active_uploads_fall_back_to_canonical_file_with_active_only_legacy_manifest(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    category_dir = paths.category_dir("continuous")
+    category_dir.mkdir(parents=True, exist_ok=True)
+    canonical_name = "continuous_tri_2Hz.csv"
+    stale_cache_name = "166756f8b28c75c9_continuous_tri_2Hz.csv"
+    (category_dir / canonical_name).write_bytes(b"time_s,bz_mT\n0,0\n")
+    paths.upload_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.upload_manifest_path.write_text(
+        json.dumps(
+            {
+                "files": {"continuous": [], "transient": [], "validation": [], "lcr": []},
+                "active_uploads": {
+                    "continuous": [stale_cache_name],
+                    "transient": [],
+                    "validation": [],
+                    "lcr": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payloads = category_payloads("continuous", None, paths=paths)
+
+    assert len(payloads) == 1
+    assert payloads[0][0] == canonical_name

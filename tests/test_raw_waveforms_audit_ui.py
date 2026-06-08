@@ -59,7 +59,7 @@ def test_raw_waveform_selector_label_uses_metadata_not_opaque_prefix() -> None:
 
     assert len(records) == 1
     assert records[0].label == (
-        "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±5V | Gain 100% | "
+        "finite-cycle | Triangle | 1 Hz | 1.25 cycle | 10 App | ±10V | Gain 100% | "
         "continuous/tri_1hz_1.25cycle_10pp.csv"
     )
     assert "0123456789abcdef" not in records[0].label

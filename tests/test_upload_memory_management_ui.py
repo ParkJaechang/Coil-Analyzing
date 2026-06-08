@@ -67,6 +67,7 @@ def test_upload_memory_group_records_include_item_level_metadata(tmp_path: Path)
     assert len(records) == 1
     record = records[0]
     assert record["original filename"] == "finite_sine_1Hz_1.5cycle.csv"
+    assert record["canonical filename"] == "finite_sine_1Hz_1.5cycle.csv"
     assert record["parsed waveform"] == "sine"
     assert record["parsed freq_hz"] == 1.0
     assert record["parsed cycle_count"] == 1.5
@@ -76,7 +77,26 @@ def test_upload_memory_group_records_include_item_level_metadata(tmp_path: Path)
     assert record["internal id"] == record["upload_item_id"]
 
 
-def test_upload_memory_duplicate_detection_uses_filename_without_overwriting(tmp_path: Path) -> None:
+def test_upload_memory_group_records_accept_continuous_category_alias(tmp_path: Path) -> None:
+    from field_analysis.ui_upload_memory_management import build_upload_memory_group_records
+    from field_analysis.ui_upload_state import build_upload_state_paths
+    from field_analysis.ui_upload_state import persist_uploaded_files
+
+    paths = build_upload_state_paths(tmp_path)
+    persist_uploaded_files(
+        "continuous-cycle",
+        [_UploadedFile("continuous_tri_1Hz.csv", b"time_s,bz_mT\n0,0\n")],
+        paths=paths,
+    )
+
+    records = build_upload_memory_group_records("연속 cycle", paths=paths)
+
+    assert len(records) == 1
+    assert records[0]["category"] == "continuous"
+    assert records[0]["canonical filename"] == "continuous_tri_1Hz.csv"
+
+
+def test_upload_memory_duplicate_detection_warns_but_same_content_is_idempotent(tmp_path: Path) -> None:
     from field_analysis.ui_upload_memory_management import find_duplicate_upload_names
     from field_analysis.ui_upload_state import build_upload_memory_items
     from field_analysis.ui_upload_state import build_upload_state_paths
@@ -90,8 +110,8 @@ def test_upload_memory_duplicate_detection_uses_filename_without_overwriting(tmp
     validation_items = [item for item in build_upload_memory_items(paths=paths) if item["category"] == "validation"]
 
     assert duplicates == ["result.csv"]
-    assert len(validation_items) == 2
-    assert any(item.get("duplicate_of") for item in validation_items)
+    assert len(validation_items) == 1
+    assert not any(item.get("duplicate_of") for item in validation_items)
 
 
 def test_upload_memory_management_source_uses_scalar_item_ids_not_dataframes() -> None:
@@ -101,4 +121,5 @@ def test_upload_memory_management_source_uses_scalar_item_ids_not_dataframes() -
     assert "upload_item_id" in source
     assert "selected_ids: list[str]" in source
     assert "render_upload_memory_management" in upload_state
+    assert "Upload manifest remembers files, but the physical cached files are missing" in source
     assert "DataFrame" not in source.split("selected_ids: list[str]", 1)[1].split("confirm_selected", 1)[0]

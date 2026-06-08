@@ -8,6 +8,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from .ui_final_voltage_lut_export import build_final_voltage_lut_csv_bytes
+from .ui_final_voltage_lut_export import build_final_voltage_lut_filename
+from .ui_final_voltage_lut_export import build_final_voltage_lut_frame
+from .ui_final_voltage_lut_export import render_final_voltage_lut_export_panel
+from .ui_continuous_final_lut_export import (
+    build_continuous_final_lut_filename,
+    build_continuous_final_lut_frame,
+    continuous_result_export_record,
+)
+from .voltage_policy import COMMAND_VOLTAGE_LIMIT_V, COMMAND_VOLTAGE_NORMALIZATION_MODE
 
 REQUIRED_LUT_COLUMNS = ("sample_index", "time_s", "voltage_v")
 DEBUG_VOLTAGE_COLUMNS = (
@@ -24,55 +34,6 @@ class ParsedVoltageLut:
     frame: pd.DataFrame
     ok: bool
     error: str | None = None
-
-def build_final_voltage_lut_frame(command_profile: pd.DataFrame) -> pd.DataFrame:
-    voltage_source_column = _export_voltage_source_column(command_profile)
-    missing = [column for column in ("time_s", voltage_source_column) if column not in command_profile.columns]
-    if missing:
-        raise ValueError(f"Missing final voltage LUT source columns: {missing}")
-
-    lut_frame = pd.DataFrame(
-        {
-            "sample_index": np.arange(len(command_profile), dtype=int),
-            "time_s": pd.to_numeric(command_profile["time_s"], errors="coerce"),
-            "voltage_v": pd.to_numeric(command_profile[voltage_source_column], errors="coerce"),
-        }
-    )
-    for column in DEBUG_VOLTAGE_COLUMNS:
-        if column in command_profile.columns:
-            lut_frame[column] = pd.to_numeric(command_profile[column], errors="coerce")
-    return lut_frame
-
-
-def build_final_voltage_lut_filename(
-    *,
-    waveform_type: object | None,
-    freq_hz: object | None,
-    cycle_count: object | None,
-) -> str:
-    waveform = _safe_name_part(waveform_type)
-    freq = _format_number_for_filename(freq_hz)
-    cycle = _format_number_for_filename(cycle_count)
-    if waveform and freq and cycle:
-        return f"finite_recommended_voltage_lut_{waveform}_{freq}Hz_{cycle}cycle.csv"
-    return "finite_recommended_voltage_lut.csv"
-
-
-def build_final_voltage_lut_csv_bytes(command_profile: pd.DataFrame) -> bytes:
-    return build_final_voltage_lut_frame(command_profile).to_csv(index=False).encode("utf-8-sig")
-
-
-def _export_voltage_source_column(command_profile: pd.DataFrame) -> str:
-    if "feedback_corrected_limited_voltage_v" not in command_profile.columns:
-        return "limited_voltage_v"
-    if "feedback_correction_status" in command_profile.columns and len(command_profile):
-        if str(command_profile["feedback_correction_status"].iloc[0]) != "ok":
-            return "limited_voltage_v"
-    if "feedback_correction_available" in command_profile.columns and len(command_profile):
-        if not bool(command_profile["feedback_correction_available"].iloc[0]):
-            return "limited_voltage_v"
-    return "feedback_corrected_limited_voltage_v"
-
 
 def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     try:
@@ -91,7 +52,6 @@ def parse_voltage_lut_upload(source_name: str, data: bytes) -> ParsedVoltageLut:
     normalized = _normalize_lut_frame(frame)
     return ParsedVoltageLut(source_name=source_name, frame=normalized, ok=True)
 
-
 def build_lut_review_options(
     records: list[ParsedVoltageLut],
 ) -> tuple[list[str], dict[str, ParsedVoltageLut], dict[str, str]]:
@@ -106,36 +66,30 @@ def build_lut_review_options(
         labels_by_id[option_id] = record.source_name
     return options, records_by_id, labels_by_id
 
-
 def add_lut_cache_bytes(*args: object, **kwargs: object) -> str:
     from .ui_voltage_lut_cache import add_lut_cache_bytes as _impl
 
     return _impl(*args, **kwargs)
-
 
 def build_lut_cache_records(*args: object, **kwargs: object) -> list[object]:
     from .ui_voltage_lut_cache import build_lut_cache_records as _impl
 
     return _impl(*args, **kwargs)
 
-
 def build_lut_cache_selection_options(*args: object, **kwargs: object) -> tuple[list[str], dict[str, object], dict[str, str]]:
     from .ui_voltage_lut_cache import build_lut_cache_selection_options as _impl
 
     return _impl(*args, **kwargs)
-
 
 def edit_lut_cache_metadata(*args: object, **kwargs: object) -> bool:
     from .ui_voltage_lut_cache import edit_lut_cache_metadata as _impl
 
     return _impl(*args, **kwargs)
 
-
 def delete_lut_cache_item(*args: object, **kwargs: object) -> bool:
     from .ui_voltage_lut_cache import delete_lut_cache_item as _impl
 
     return _impl(*args, **kwargs)
-
 
 def fallback_lut_cache_selection(*args: object, **kwargs: object) -> str | None:
     from .ui_voltage_lut_cache import fallback_lut_cache_selection as _impl
@@ -199,50 +153,6 @@ def build_diagnostics_csv_bytes(source_name: str, diagnostics: dict[str, object]
     return pd.DataFrame([row]).to_csv(index=False).encode("utf-8-sig")
 
 
-def render_final_voltage_lut_export_panel(
-    *,
-    command_profile: pd.DataFrame | None,
-    finite_cycle_mode: bool,
-    waveform_type: object | None,
-    freq_hz: object | None,
-    cycle_count: object | None,
-) -> None:
-    st.markdown("#### 최종 모델링 전압 LUT CSV 다운로드")
-    st.caption(
-        "화면 Command Waveform에 표시되는 최종 전압 배열을 Fourier 재합성 없이 그대로 저장합니다. "
-        "feedback correction이 유효하면 feedback_corrected_limited_voltage_v를 사용하고, "
-        "그 외에는 baseline limited_voltage_v를 사용합니다."
-    )
-    st.caption("화면 Command Waveform과 동일한 column을 저장합니다.")
-    st.caption("Fourier formula / harmonic coefficient export와 다른 time-voltage LUT입니다. no Fourier/resynthesis.")
-    st.caption("baseline export path에서는 voltage_v는 limited_voltage_v와 sample-by-sample 동일합니다.")
-    if not finite_cycle_mode:
-        st.info("finite compensation LUT unavailable: finite compensation 결과에서만 다운로드할 수 있습니다.")
-        return
-    if command_profile is None or command_profile.empty:
-        st.info("finite compensation LUT unavailable: command_profile이 없습니다.")
-        return
-    missing = [column for column in ("time_s", "limited_voltage_v") if column not in command_profile.columns]
-    if missing:
-        st.warning(f"finite compensation LUT unavailable: missing columns {missing}")
-        return
-
-    file_name = build_final_voltage_lut_filename(
-        waveform_type=waveform_type,
-        freq_hz=freq_hz,
-        cycle_count=cycle_count,
-    )
-    st.caption(f"exported_voltage_source_column: `{_export_voltage_source_column(command_profile)}`")
-    st.download_button(
-        label="최종 모델링 전압 LUT CSV 다운로드",
-        data=build_final_voltage_lut_csv_bytes(command_profile),
-        file_name=file_name,
-        mime="text/csv",
-        key="download_final_modeled_voltage_lut_csv",
-        help="Fourier 재합성 파형이 아닙니다. exported_voltage_source_column 기반 최종 time-voltage LUT입니다.",
-    )
-
-
 def render_voltage_lut_review_section(default_cache_root: Path | None = None) -> None:
     from .ui_voltage_lut_cache import LUT_CACHE_STATE_KEY
     from .ui_voltage_lut_cache import add_lut_cache_bytes
@@ -258,6 +168,7 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
     if not isinstance(cache_state, dict):
         cache_state = {}
         st.session_state[LUT_CACHE_STATE_KEY] = cache_state
+    _sync_session_result_lut_sources_to_cache(cache_state)
 
     uploaded_files = st.file_uploader(
         "Exported voltage LUT CSV 업로드",
@@ -282,6 +193,13 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
             if st.button("선택한 cached LUT 불러오기", key="load_cached_voltage_lut"):
                 selected_cache = cached_by_id[selected_cache_id]
                 add_lut_cache_bytes(cache_state, selected_cache.name, selected_cache.read_bytes())
+
+    if not st.button("Load LUT CSV", key="load_lut_csv_for_review"):
+        if not st.session_state.get("voltage_lut_review_loaded"):
+            st.info("LUT upload/cache selection changed. Press Load LUT CSV to parse diagnostics.")
+            return
+    else:
+        st.session_state["voltage_lut_review_loaded"] = True
 
     records = build_lut_cache_records(cache_state)
     st.markdown("#### 업로드된 LUT 캐시")
@@ -320,7 +238,12 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
 
     selected = selected_record.parsed
     diagnostics = build_lut_diagnostics(selected.frame)
-    _render_lut_plots(selected.frame)
+    if st.button("Render LUT Plot", key="render_lut_plot_button"):
+        st.session_state["voltage_lut_render_plot_id"] = selected_record.id
+    if st.session_state.get("voltage_lut_render_plot_id") == selected_record.id:
+        _render_lut_plots(selected.frame)
+    else:
+        st.info("Press Render LUT Plot to draw voltage plots.")
     _render_lut_diagnostics(diagnostics)
     _render_lut_warnings(diagnostics)
     st.download_button(
@@ -339,6 +262,99 @@ def render_voltage_lut_review_section(default_cache_root: Path | None = None) ->
     )
 
 
+def _sync_session_result_lut_sources_to_cache(cache_state: dict[str, dict[str, object]]) -> None:
+    # Final Voltage LUT Export tab session sources:
+    # finite_first_voltage_lut / finite_second_voltage_lut
+    # continuous_first_voltage_lut / continuous_second_voltage_lut
+    finite_sources = [
+        ("Finite 1차", "first", "quick_lut_first_model_result"),
+        ("Finite 2차", "second", "quick_lut_second_model_result"),
+    ]
+    for display_prefix, stage, state_key in finite_sources:
+        result = st.session_state.get(state_key)
+        if not isinstance(result, dict):
+            continue
+        metadata = dict(result.get("metadata") or {})
+        if metadata.get("modeling_input_mode") == "continuous_steady_state":
+            continue
+        command = result.get("command_profile")
+        if not isinstance(command, pd.DataFrame) or command.empty:
+            continue
+        try:
+            source_column = "second_limited_voltage_v" if stage == "second" and "second_limited_voltage_v" in command.columns else None
+            frame = build_final_voltage_lut_frame(command, voltage_source_column=source_column)
+        except Exception:  # noqa: BLE001 - invalid session result should not break LUT review.
+            continue
+        filename = build_final_voltage_lut_filename(
+            waveform_type=metadata.get("waveform_type") or metadata.get("modeled_target_waveform_family") or "finite",
+            freq_hz=metadata.get("freq_hz") or metadata.get("modeled_target_freq_hz"),
+            cycle_count=metadata.get("cycle_count") or metadata.get("modeled_target_cycle_count"),
+        )
+        if stage == "second":
+            filename = filename.replace("finite_recommended_voltage_lut", "finite_second_voltage_lut")
+        else:
+            filename = filename.replace("finite_recommended_voltage_lut", "finite_first_voltage_lut")
+        add_lut_cache_bytes(
+            cache_state,
+            filename,
+            frame.to_csv(index=False).encode("utf-8-sig"),
+            display_name=f"{display_prefix} - {filename}",
+        )
+    session_sources = [
+        ("Continuous 1차", "first", "quick_lut_first_model_result_continuous"),
+        ("Continuous 2차", "second", "quick_lut_second_model_result_continuous"),
+    ]
+    for display_prefix, stage, state_key in session_sources:
+        result = st.session_state.get(state_key)
+        record = continuous_result_export_record(stage, result if isinstance(result, dict) else None)
+        if not record["available"]:
+            continue
+        metadata = dict(record.get("metadata") or {})
+        command = record["command_profile"]
+        try:
+            freq_hz = _first_result_freq_hz(metadata, command)
+            frame, _export_meta = build_continuous_final_lut_frame(
+                command,
+                voltage_source_column=str(record["voltage_source_column"]),
+                freq_hz=freq_hz,
+                stage=stage,
+            )
+        except Exception:  # noqa: BLE001 - invalid session result should not break LUT review.
+            continue
+        filename = build_continuous_final_lut_filename(
+            stage=stage,
+            waveform_type=metadata.get("waveform_type") or metadata.get("target_waveform_family") or "continuous",
+            freq_hz=freq_hz,
+        )
+        add_lut_cache_bytes(
+            cache_state,
+            filename,
+            frame.to_csv(index=False).encode("utf-8-sig"),
+            display_name=f"{display_prefix} - {filename}",
+        )
+
+
+def _first_result_freq_hz(metadata: dict[str, object], command: pd.DataFrame) -> float | None:
+    for value in (
+        metadata.get("freq_hz"),
+        metadata.get("modeled_target_freq_hz"),
+        metadata.get("target_freq_hz"),
+    ):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(number) and number > 0.0:
+            return number
+    if "freq_hz" in command.columns and not command.empty:
+        try:
+            number = float(command["freq_hz"].iloc[0])
+        except (TypeError, ValueError):
+            return None
+        return number if np.isfinite(number) and number > 0.0 else None
+    return None
+
+
 def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:
     raw_voltage = pd.to_numeric(frame["voltage_v"], errors="coerce")
     normalized_voltage, voltage_peak, voltage_scale, voltage_status = _review_normalize_voltage(raw_voltage)
@@ -353,7 +369,7 @@ def _normalize_lut_frame(frame: pd.DataFrame) -> pd.DataFrame:
         }
     )
     normalized.attrs["voltage_normalization_enabled"] = True
-    normalized.attrs["voltage_normalization_mode"] = "peak_to_5V"
+    normalized.attrs["voltage_normalization_mode"] = COMMAND_VOLTAGE_NORMALIZATION_MODE
     normalized.attrs["voltage_normalization_status"] = voltage_status
     normalized.attrs["voltage_normalization_source_peak_v"] = voltage_peak
     normalized.attrs["voltage_normalization_scale_factor"] = voltage_scale
@@ -538,7 +554,7 @@ def _review_normalize_voltage(values: pd.Series) -> tuple[pd.Series, float, floa
     peak = float(np.nanmax(np.abs(finite))) if finite.size else float("nan")
     if not np.isfinite(peak) or peak <= 1e-12:
         return pd.Series(np.zeros(len(numeric), dtype=float), index=numeric.index), peak, float("nan"), "unavailable_zero_peak"
-    scale = 5.0 / peak
+    scale = float(COMMAND_VOLTAGE_LIMIT_V) / peak
     return numeric * scale, peak, scale, "ok"
 
 
@@ -546,23 +562,6 @@ def _bytes_to_buffer(data: bytes) -> object:
     from io import BytesIO
 
     return BytesIO(data)
-
-
-def _safe_name_part(value: object | None) -> str:
-    text = "" if value is None else str(value).strip().lower()
-    return "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in text).strip("_")
-
-
-def _format_number_for_filename(value: object | None) -> str:
-    if value is None:
-        return ""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return ""
-    if not np.isfinite(number):
-        return ""
-    return f"{number:g}"
 
 
 def _float_or_nan(value: object) -> float:

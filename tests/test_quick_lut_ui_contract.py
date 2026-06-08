@@ -39,6 +39,11 @@ def _number_input_labels(app: AppTest) -> list[str]:
     return [str(item.label) for item in app.number_input]
 
 
+def _click_load_analyze(app: AppTest) -> None:
+    button_by_key = {getattr(item, "key", None): item for item in app.button}
+    button_by_key["load_analyze_lut_data"].click().run()
+
+
 def _clear_field_analysis_modules() -> None:
     for module_name in list(sys.modules):
         if module_name == "field_analysis" or module_name.startswith("field_analysis."):
@@ -121,7 +126,13 @@ def _write_upload_manifest(state_dir: Path, continuous_records: list[dict[str, o
             "transient": [],
             "validation": [],
             "lcr": [],
-        }
+        },
+        "active_uploads": {
+            "continuous": [str(record["cache_name"]) for record in continuous_records],
+            "transient": [],
+            "validation": [],
+            "lcr": [],
+        },
     }
     (state_dir / "upload_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -156,15 +167,57 @@ def test_quick_lut_initial_screen_shows_field_only_banner_without_legacy_targets
     selectbox_labels = _selectbox_labels(app)
     number_input_labels = _number_input_labels(app)
 
-    assert any("FIELD-ONLY Quick LUT" in value for value in text_values)
+    assert any("Quick LUT" in value for value in text_values)
     assert any("rounded triangle" in value for value in text_values)
-    assert any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
-    assert any("current / gain / hardware / LCR" in value for value in text_values)
-    assert any("Runtime: Quick LUT field-only renderer v2" in value for value in text_values)
+    assert any("목표 피크 자기장" in value for value in text_values)
+    assert any("사용자 목표 피크" in value or "user_target_peak_mT" in value for value in text_values)
+    assert not any("100 mT pp fixed" in value or "100pp fixed" in value for value in text_values)
+    assert not any("FIELD-ONLY" in value for value in text_values)
+    assert any("Runtime: Quick LUT renderer" in value for value in text_values)
     assert any("source=repo-local src" in value for value in text_values)
     assert "크기 LUT 목표값" not in number_input_labels
     assert "파형 보정 목표 항목" not in selectbox_labels
     assert not any(label.startswith("파형 보정 목표") for label in number_input_labels)
+
+def test_quick_lut_source_contains_cache_status_and_one_cycle_policy_copy() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+
+    expected = [
+        "Quick LUT cache / payload status",
+        "remembered continuous count",
+        "active continuous payload count",
+        "dataset library root path",
+        "dataset manifest exists",
+        "Load remembered LUT files",
+        "Cached files exist but are not active",
+        "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다.",
+        "2-cycle production 정책은 폐기되었습니다.",
+    ]
+    missing = [item for item in expected if item not in source]
+    assert not missing
+
+
+def test_quick_lut_finite_defaults_are_production_focused() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+
+    assert "UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5" in source
+    assert 'st.checkbox(\n            "구동 cycle 수 제한 사용",\n            value=True,' in source
+    assert "index=cycle_options.index(UI_DEFAULT_FINITE_CYCLE_COUNT)" in source
+
+
+def test_quick_lut_target_config_source_of_truth_markers_exist() -> None:
+    source = (SRC_ROOT / "field_analysis" / "app_ui_snapshot.py").read_text(encoding="utf-8")
+    target_module = (SRC_ROOT / "field_analysis" / "quick_lut_target_config.py").read_text(encoding="utf-8")
+    debug_module = (SRC_ROOT / "field_analysis" / "ui_quick_lut_target_debug.py").read_text(encoding="utf-8")
+
+    assert "quick_lut_target_config" in source
+    assert "quick_lut_applied_target_config" in source
+    assert "quick_lut_target_config_dirty" in source
+    assert "Quick LUT target/debug" in debug_module
+    assert "target_freq_hz_source" in target_module
+    assert "target_cycle_count_source" in target_module
+    assert "target_config_auto_overwrite_blocked" in target_module
+    assert "Quick LUT target config가 적용되지 않았습니다" in source
 
 
 def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits_finite_cycles() -> None:
@@ -178,17 +231,19 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         _clear_field_analysis_modules()
         app = AppTest.from_file(str(APP_PATH), default_timeout=180)
         app.run()
+        _click_load_analyze(app)
 
         text_values = _collect_text_values(app)
         selectbox_labels = _selectbox_labels(app)
         number_input_labels = _number_input_labels(app)
 
-        assert any("FIELD-ONLY 운용 모드입니다." in value for value in text_values)
+        assert any("Quick LUT 운용 모드입니다." in value for value in text_values)
         assert any("rounded triangle" in value for value in text_values)
-        assert any("100pp fixed" in value or "100 mT pp fixed" in value for value in text_values)
+        assert any("목표 피크 자기장" in value for value in text_values)
+        assert not any("100pp fixed" in value or "100 mT pp fixed" in value for value in text_values)
         assert any("support/input waveform family" in value for value in text_values)
-        assert any("current / gain / hardware / LCR" in value for value in text_values)
-        assert any("Runtime: Quick LUT field-only renderer v2" in value for value in text_values)
+        assert not any("FIELD-ONLY" in value for value in text_values)
+        assert any("Runtime: Quick LUT renderer" in value for value in text_values)
         assert any("source=repo-local src" in value for value in text_values)
         assert "지원 입력 파형 family" in selectbox_labels
         assert "파형" not in selectbox_labels
@@ -197,11 +252,12 @@ def test_quick_lut_data_present_runtime_contract_hides_legacy_targets_and_limits
         assert not any(label.startswith("파형 보정 목표") for label in number_input_labels)
 
         finite_toggle = next(item for item in app.checkbox if getattr(item, "key", None) == "finite_cycle_mode_v2")
-        finite_toggle.check().run()
+        assert finite_toggle.value is True
 
         selectbox_by_key = {getattr(item, "key", None): item for item in app.selectbox}
         number_input_keys = {getattr(item, "key", None) for item in app.number_input}
         finite_cycle_select = selectbox_by_key["target_cycle_count_v2"]
 
         assert [str(option) for option in finite_cycle_select.options] == ["1.0", "1.25", "1.5", "1.75"]
+        assert str(finite_cycle_select.value) == "1.5"
         assert "target_cycle_count_v2" not in number_input_keys

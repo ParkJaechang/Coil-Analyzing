@@ -8,10 +8,14 @@ touching the main app shell.
 """
 
 import json
+import hashlib
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from .analysis import analyze_measurements, build_shape_phase_comparison, build_warning_table, combine_analysis_frames
@@ -35,7 +39,7 @@ from .lut import (
 from .metrics import build_calculation_details, estimate_drive_for_target_field
 from .models import CycleDetectionConfig, PreprocessConfig
 from .parser import build_mapping_table, parse_measurement_file, preview_measurement_file
-from .ui_dataset_library import render_dataset_library_file_selector, render_dataset_library_panel
+from .ui_dataset_library import dataset_library_status, render_dataset_library_file_selector, render_dataset_library_panel
 from .plotting import (
     plot_command_waveform,
     plot_current_compensation_waveforms,
@@ -60,13 +64,35 @@ from .preprocessing import apply_preprocessing
 from .schema_config import dump_schema_yaml, load_schema_config
 from .ui_field_waveform_diagnostics import render_field_waveform_diagnostics_section
 from .ui_finite_actual_drive_review import render_finite_actual_drive_review_section
+from .ui_finite_first_phase_sync import render_finite_first_phase_sync_review
+from .continuous_steady_state_extraction import build_continuous_steady_state_modeling_case
+from .continuous_steady_state_extraction import build_continuous_phase_aligned_command_profile
+from .finite_first_phase_sync import apply_finite_first_phase_sync_modeling
+from .ui_continuous_steady_state import (
+    render_continuous_actual_drive_runtime_panel,
+    render_continuous_steady_state_runtime_panel,
+    run_continuous_first_modeling,
+    run_continuous_steady_state_extraction,
+)
+from .ui_continuous_final_lut_export import (
+    normalize_continuous_result_contract,
+    render_continuous_final_voltage_lut_export_section,
+)
 from .ui_raw_waveforms import build_raw_waveform_label_lookup, render_raw_waveforms_tab
 from .ui_recommendation_exports import render_recommendation_export_panel
+from .ui_second_modeling import render_second_modeling_controls
+from .quick_lut_target_config import (
+    build_quick_lut_target_config,
+    legacy_quick_lut_config,
+    modeling_metadata_from_target_config,
+    target_config_snapshot,
+    target_configs_equal,
+)
+from .ui_quick_lut_target_debug import render_quick_lut_target_debug, render_quick_lut_target_summary
 from .ui_run_readiness import render_run_readiness_section
 from .ui_startup_compensation_review import render_startup_compensation_review
-from .ui_quick_lut_feedback import apply_feedback_correction_from_selection
-from .ui_quick_lut_feedback import render_feedback_correction_review
-from .ui_quick_lut_feedback import render_quick_lut_feedback_input_section
+from .ui_quick_lut_feedback import select_actual_drive_feedback_candidate_for_target
+from .ui_upload_memory_status import activate_cached_uploads, upload_memory_status
 from .ui_upload_state import category_payloads, list_persisted_uploads, render_sidebar_memory_panel, render_workspace_panel
 from .ui_validation_retune import render_catalogs_and_diagnostics_section, render_validation_retune_section
 from .ui_voltage_lut_review import render_final_voltage_lut_export_panel, render_voltage_lut_review_section
@@ -79,7 +105,47 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_export"
 DEFAULT_QUICK_OUTPUT_DIR = REPO_ROOT / "outputs" / "field_analysis_quick_export"
 UI_SUPPORTED_FINITE_CYCLE_COUNTS = (1.0, 1.25, 1.5, 1.75)
 UI_UNAVAILABLE_FINITE_CYCLE_COUNTS = (0.75,)
-UI_DEFAULT_FINITE_CYCLE_COUNT = 1.0
+UI_DEFAULT_FINITE_CYCLE_COUNT = 1.5
+
+
+def _build_continuous_steady_state_modeling_case_for_quick_lut(*args, **kwargs):
+    return build_continuous_steady_state_modeling_case(*args, **kwargs)
+
+
+def _ordered_source_waveform_options(waveform_options: list[str] | tuple[str, ...] | None) -> list[str]:
+    available = [str(option) for option in (waveform_options or []) if str(option).strip()]
+    if not available:
+        available = ["triangle", "sine", "rounded_triangle"]
+    extras = [option for option in ("triangle", "sine", "rounded_triangle", "auto", "all") if option not in available]
+    ordered = list(dict.fromkeys([*available, *extras]))
+    return sorted(ordered, key=lambda value: (0 if value == "triangle" else 1, value))
+
+
+def _runtime_git_value(*args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return "unknown"
+    value = (completed.stdout or "").strip()
+    return value or "unknown"
+
+
+def _render_runtime_identity_panel() -> None:
+    if "runtime_started_at" not in st.session_state:
+        st.session_state["runtime_started_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+    with st.expander("Runtime build 확인", expanded=False):
+        st.caption(f"runtime branch: `{_runtime_git_value('branch', '--show-current')}`")
+        st.caption(f"runtime HEAD SHA: `{_runtime_git_value('rev-parse', 'HEAD')}`")
+        st.caption(f"app script: `{Path(sys.argv[0]).resolve() if sys.argv else 'unknown'}`")
+        st.caption(f"app_ui_snapshot.py path: `{Path(__file__).resolve()}`")
+        st.caption(f"started_at: `{st.session_state['runtime_started_at']}`")
 
 
 @st.cache_data(show_spinner=False)
@@ -155,6 +221,7 @@ def _run_app_shell(
     )
     st.title(title)
     st.caption(caption)
+    _render_runtime_identity_panel()
     render_workspace_panel()
 
     config_path = str(DEFAULT_CONFIG_PATH) if DEFAULT_CONFIG_PATH.exists() else None
@@ -164,34 +231,40 @@ def _run_app_shell(
         st.header("입력")
         render_sidebar_memory_panel()
         render_dataset_library_panel()
-        continuous_files = st.file_uploader(
-            "연속 cycle 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="continuous_uploads",
-            help="현재 분석과 LUT의 기본 입력입니다.",
-        )
-        transient_files = st.file_uploader(
-            "finite-cycle 전용 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="transient_uploads",
-            help="1.0 / 1.25 / 1.5 / 1.75 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
-        )
-        validation_files = st.file_uploader(
-            "2차 보정 검증 run 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="validation_uploads",
-            help="추천 LUT/보정 결과를 실제 측정과 다시 비교하는 validation run 데이터를 적재합니다.",
-        )
-        lcr_files = st.file_uploader(
-            "LCR 데이터 업로드",
-            type=["csv", "txt", "xlsx", "xlsm", "xls"],
-            accept_multiple_files=True,
-            key="lcr_uploads",
-            help="LCR 파일은 자동 기억 목록과 업로드 폴더 요약에 함께 남깁니다.",
-        )
+        continuous_files = []
+        transient_files = []
+        validation_files = []
+        lcr_files = []
+        with st.expander("Legacy / 고급 파일 업로드", expanded=False):
+            st.warning("현재 기본 workflow는 Global upload memory와 Dataset Library를 사용합니다. 직접 업로드는 호환성 검토용입니다.")
+            continuous_files = st.file_uploader(
+                "연속 cycle 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="continuous_uploads",
+                help="현재 분석과 LUT의 기본 입력입니다.",
+            )
+            transient_files = st.file_uploader(
+                "finite-cycle 전용 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="transient_uploads",
+                help="1.0 / 1.25 / 1.5 / 1.75 cycle 같은 짧은 구동 데이터를 분리 보관합니다.",
+            )
+            validation_files = st.file_uploader(
+                "2차 보정 검증 run 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="validation_uploads",
+                help="추천 LUT/보정 결과를 실제 측정과 다시 비교하는 validation run 데이터를 적재합니다.",
+            )
+            lcr_files = st.file_uploader(
+                "LCR 데이터 업로드",
+                type=["csv", "txt", "xlsx", "xlsm", "xls"],
+                accept_multiple_files=True,
+                key="lcr_uploads",
+                help="LCR 파일은 자동 기억 목록과 업로드 폴더 요약에 함께 남깁니다.",
+            )
         continuous_library_payloads = render_dataset_library_file_selector(
             dataset_mode="continuous",
             key_prefix="continuous",
@@ -250,55 +323,62 @@ def _run_app_shell(
             options=["bz_mT", "bmag_mT", "bx_mT", "by_mT", "bproj_mT"],
             index=0,
         )
-        st.subheader("구동 하드웨어")
-        max_daq_voltage_pp = float(
-            st.number_input(
-                "DAQ 최대 Voltage PP (V)",
-                min_value=0.1,
-                value=20.0,
-                step=1.0,
+        max_daq_voltage_pp = 20.0
+        amp_gain_at_100_pct = 20.0
+        amp_max_output_pk_v = 180.0
+        amp_gain_limit_pct = 100.0
+        default_support_amp_gain_pct = 100.0
+        allow_target_extrapolation = True
+        with st.expander("Advanced / Legacy hardware calibration", expanded=False):
+            st.caption("현재 Quick LUT 기본 workflow는 정규화 기반 command를 사용합니다. 이 영역은 현재 모델링 의미와 무관한 legacy calibration diagnostic입니다.")
+            max_daq_voltage_pp = float(
+                st.number_input(
+                    "Legacy voltage limit PP (V)",
+                    min_value=0.1,
+                    value=20.0,
+                    step=1.0,
+                )
             )
-        )
-        amp_gain_at_100_pct = float(
-            st.number_input(
-                "DC AMP gain @100% (x)",
-                min_value=0.1,
-                value=20.0,
-                step=0.5,
+            amp_gain_at_100_pct = float(
+                st.number_input(
+                    "Legacy amplifier gain @100% (x)",
+                    min_value=0.1,
+                    value=20.0,
+                    step=0.5,
+                )
             )
-        )
-        amp_max_output_pk_v = float(
-            st.number_input(
-                "DC AMP 최대 출력 (±V)",
-                min_value=1.0,
-                value=180.0,
-                step=10.0,
+            amp_max_output_pk_v = float(
+                st.number_input(
+                    "Legacy amplifier max output (±V)",
+                    min_value=1.0,
+                    value=180.0,
+                    step=10.0,
+                )
             )
-        )
-        amp_gain_limit_pct = float(
-            st.number_input(
-                "사용 가능 AMP gain 상한 (%)",
-                min_value=1.0,
-                max_value=100.0,
-                value=100.0,
-                step=5.0,
+            amp_gain_limit_pct = float(
+                st.number_input(
+                    "Legacy gain upper bound (%)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=100.0,
+                    step=5.0,
+                )
             )
-        )
-        default_support_amp_gain_pct = float(
-            st.number_input(
-                "데이터 기준 AMP gain (%)",
-                min_value=1.0,
-                max_value=100.0,
-                value=100.0,
-                step=5.0,
-                help="파일에 amp_gain_setting이 없을 때 기준값으로 사용합니다.",
+            default_support_amp_gain_pct = float(
+                st.number_input(
+                    "Legacy data gain reference (%)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=100.0,
+                    step=5.0,
+                    help="legacy calibration metadata가 없을 때만 쓰는 진단 기준값입니다.",
+                )
             )
-        )
-        allow_target_extrapolation = st.checkbox(
-            "실험 범위 밖 target extrapolation 허용",
-            value=True,
-            help="실험 support 범위를 넘어도 하드웨어 headroom을 고려해 전압을 외삽합니다.",
-        )
+            allow_target_extrapolation = st.checkbox(
+                "Legacy support-range outside calculation 허용",
+                value=True,
+                help="legacy scalar LUT 진단에서만 지원 범위 밖 계산을 허용합니다.",
+            )
 
         with st.expander("고급 설정", expanded=usage_mode == "전체 분석"):
             baseline_seconds = float(st.number_input("Baseline 구간 (초)", min_value=0.0, value=0.0, step=0.1))
@@ -383,12 +463,28 @@ def _run_app_shell(
             manual_period_s = ""
 
     if usage_mode == "간단 LUT":
+        advanced_sections = [
+            "Run Readiness",
+            "Field Model Diagnostics",
+            "Validation / Retune",
+            "Catalogs / Diagnostics",
+            "Finite Runs",
+            "Data Import",
+            "Export",
+        ]
         active_section = st.radio(
             "화면",
-            options=["Quick LUT", "Run Readiness", "Field Model Diagnostics", "Validation / Retune", "Catalogs / Diagnostics", "Finite Runs", "Raw Waveforms", "LUT Review", "Data Import", "Export"],
+            options=["Quick LUT", "Raw Waveforms", "LUT Review", "Data / Cache Status"],
             horizontal=True,
             key="quick_section_nav",
         )
+        with st.expander("Advanced / Debug", expanded=False):
+            if st.checkbox("Show Advanced / Debug tabs", value=False, key="show_advanced_debug_tabs"):
+                active_section = st.selectbox(
+                    "Advanced / Debug tab",
+                    options=advanced_sections,
+                    key="advanced_debug_section_nav",
+                )
     else:
         active_section = st.radio(
             "분석 화면",
@@ -412,20 +508,49 @@ def _run_app_shell(
             key="full_section_nav",
         )
 
-    uploaded_payloads = category_payloads("continuous", continuous_files) + continuous_library_payloads
-    transient_payloads = category_payloads("transient", transient_files) + transient_library_payloads
-    validation_payloads = category_payloads("validation", validation_files)
-    lcr_payloads = category_payloads("lcr", lcr_files)
+    uploaded_payloads = _dedupe_payloads(
+        category_payloads("continuous", continuous_files, include_cached_uploads=True) + continuous_library_payloads
+    )
+    transient_payloads = _dedupe_payloads(
+        category_payloads("transient", transient_files, include_cached_uploads=True) + transient_library_payloads
+    )
+    validation_payloads = category_payloads("validation", validation_files, include_cached_uploads=True)
+    lcr_payloads = category_payloads("lcr", lcr_files, include_cached_uploads=True)
     lcr_records = list_persisted_uploads("lcr")
-
-    if active_section == "Run Readiness":
-        render_run_readiness_section()
+    _render_quick_lut_cache_status(
+        continuous_payloads=uploaded_payloads,
+        finite_payloads=transient_payloads,
+        validation_payloads=validation_payloads,
+        lcr_payloads=lcr_payloads,
+        continuous_library_payloads=continuous_library_payloads,
+        finite_library_payloads=transient_library_payloads,
+    )
+    if active_section == "Data / Cache Status":
+        render_workspace_panel()
+        render_dataset_library_panel(key_prefix="data_cache_dataset_library")
+        render_sidebar_memory_panel()
         return
-
     if active_section == "LUT Review":
         render_voltage_lut_review_section()
         return
 
+    active_payload_hash = _payload_snapshot_hash(uploaded_payloads + transient_payloads + validation_payloads + lcr_payloads)
+    loaded_hash = st.session_state.get("active_payload_snapshot_hash")
+    if active_payload_hash and active_payload_hash != loaded_hash:
+        if loaded_hash is not None:
+            st.warning("설정이 변경되었습니다. 계산을 갱신하려면 실행 버튼을 누르십시오.")
+        if not st.button("LUT 데이터 불러오기 / 분석 시작", key="load_analyze_lut_data"):
+            st.info(
+                "업로드 메모리 또는 Dataset Library에서 감지된 LUT 데이터를 구조 인식하려면 "
+                "`LUT 데이터 불러오기 / 분석 시작` 버튼을 누르십시오."
+            )
+            return
+        st.session_state["active_payload_snapshot_hash"] = active_payload_hash
+        st.session_state["quick_lut_dirty"] = False
+
+    if active_section == "Run Readiness":
+        render_run_readiness_section()
+        return
     if not uploaded_payloads and not transient_payloads and not validation_payloads and not lcr_payloads:
         if usage_mode == "간단 LUT" and active_section == "Quick LUT":
             _render_field_only_quick_lut_banner()
@@ -433,6 +558,80 @@ def _run_app_shell(
         sample_doc = REPO_ROOT / "docs" / "sample_data_structure.md"
         if sample_doc.exists():
             st.markdown(sample_doc.read_text(encoding="utf-8"))
+        return
+
+    def _render_loaded_analysis_result(result: dict[str, object]) -> bool:
+        analysis_lookup = result.get("analysis_lookup") or {}
+        per_test_summary = result.get("per_test_summary")
+        transient_measurements = result.get("transient_measurements") or []
+        transient_preprocess_results = result.get("transient_preprocess_results") or []
+        test_ids = result.get("test_ids") or sorted(analysis_lookup.keys())
+        st.caption(
+            "분석 결과 로드됨 "
+            f"run_id={result.get('run_id', 'unknown')} "
+            f"timestamp={result.get('run_timestamp', 'unknown')}"
+        )
+        if st.session_state.get("quick_lut_dirty"):
+            st.warning("설정이 변경되었습니다. 결과를 갱신하려면 실행 / 렌더 버튼을 누르십시오.")
+        if usage_mode == "간단 LUT":
+            if active_section == "Quick LUT" and isinstance(per_test_summary, pd.DataFrame):
+                _render_quick_lut_tab_v2(
+                    per_test_summary=per_test_summary,
+                    analysis_lookup=analysis_lookup,
+                    main_field_axis=main_field_axis,
+                    current_channel=current_channel,
+                    max_daq_voltage_pp=max_daq_voltage_pp,
+                    amp_gain_at_100_pct=amp_gain_at_100_pct,
+                    amp_gain_limit_pct=amp_gain_limit_pct,
+                    amp_max_output_pk_v=amp_max_output_pk_v,
+                    default_support_amp_gain_pct=default_support_amp_gain_pct,
+                    allow_target_extrapolation=allow_target_extrapolation,
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                )
+                return True
+            if active_section == "Raw Waveforms":
+                reference_label_by_id, reference_id_by_label = build_raw_waveform_label_lookup(
+                    sorted(analysis_lookup.keys()),
+                    analysis_lookup,
+                )
+                reference_none_label = "없음"
+                reference_options = [reference_none_label] + [
+                    reference_label_by_id[test_id]
+                    for test_id in sorted(reference_label_by_id, key=lambda value: reference_label_by_id[value])
+                ]
+                reference_label = st.selectbox(
+                    "비교 기준 테스트 (선택)",
+                    options=reference_options,
+                    index=0,
+                )
+                st.caption(
+                    "선택한 파형과 겹쳐 비교할 기준 테스트입니다. 단일 데이터 검수 시에는 없음으로 두면 됩니다."
+                )
+                _ = None if reference_label == reference_none_label else reference_id_by_label.get(reference_label)
+                _render_raw_waveforms_tab(
+                    test_ids=list(test_ids),
+                    analysis_lookup=analysis_lookup,
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                )
+                return True
+            if active_section == "Finite Runs":
+                _render_finite_run_section(
+                    transient_measurements=transient_measurements,
+                    transient_preprocess_results=transient_preprocess_results,
+                    current_channel=current_channel,
+                    main_field_axis=main_field_axis,
+                )
+                return True
+        return False
+
+    cached_analysis = st.session_state.get("quick_lut_analysis_result")
+    if (
+        isinstance(cached_analysis, dict)
+        and cached_analysis.get("payload_hash") == active_payload_hash
+        and _render_loaded_analysis_result(cached_analysis)
+    ):
         return
 
     with st.spinner("업로드 파일 구조를 확인하는 중입니다..."):
@@ -676,6 +875,17 @@ def _run_app_shell(
     if not test_ids:
         st.error("분석 가능한 테스트가 없습니다. 매핑과 메타데이터를 확인하십시오.")
         return
+    run_timestamp = pd.Timestamp.utcnow().isoformat()
+    st.session_state["quick_lut_analysis_result"] = {
+        "payload_hash": active_payload_hash,
+        "run_id": hashlib.sha256(f"{active_payload_hash}:{run_timestamp}".encode("utf-8")).hexdigest()[:12],
+        "run_timestamp": run_timestamp,
+        "analysis_lookup": analysis_lookup,
+        "per_test_summary": per_test_summary,
+        "transient_measurements": transient_measurements,
+        "transient_preprocess_results": transient_preprocess_results,
+        "test_ids": test_ids,
+    }
 
     if usage_mode == "간단 LUT":
         if active_section == "Quick LUT":
@@ -871,6 +1081,8 @@ def _render_quick_lut_tab(
 ) -> None:
     excluded_inputs = ", ".join(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES)
     _render_field_only_quick_lut_banner()
+    st.markdown("#### 1. LUT 데이터 준비")
+    st.caption("활성 LUT payload를 기준으로 분석합니다. 상세 cache/internal 정보는 데이터 / 캐시 상세에서 확인합니다.")
     if per_test_summary.empty:
         st.warning("LUT 계산에 사용할 테스트 요약이 없습니다.")
         return
@@ -909,8 +1121,9 @@ def _render_quick_lut_tab(
             main_field_axis,
         )[0]
         st.caption(
-            f"Target metric fixed to `{target_metric_label(target_metric)}`. "
-            "Current, gain, hardware, and LCR are debug/reference only."
+            "목표 자기장 개형은 fixed rounded triangle입니다. "
+            f"내부 비교 metric: `{target_metric_label(target_metric)}`. "
+            "전류/gain/hardware/LCR 값은 Debug 참조용입니다."
         )
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
     with right:
@@ -919,7 +1132,7 @@ def _render_quick_lut_tab(
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True)
 
     if not estimate_clicked:
-        st.info("FIELD-ONLY route는 support/input waveform family와 주파수만 고른 뒤 계산합니다.")
+        st.info("Quick LUT는 support/input waveform family와 주파수를 기준으로 데이터를 고르고, fixed rounded triangle 목표 개형으로 계산합니다.")
         return
 
     recommendation = recommend_voltage_waveform(
@@ -1092,6 +1305,10 @@ def _render_finite_cycle_correction_summary(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
+    # Legacy terminal/tail guardrail metrics are retained for backend debugging,
+    # but they are no longer part of the primary Quick LUT workflow.
+    if not bool(st.session_state.get("quick_lut_show_legacy_finite_metrics", False)):
+        return
     applied = _coerce_boolish(compensation.get("finite_terminal_correction_applied"))
     reason = _normalize_optional_text(
         compensation.get("finite_terminal_correction_reason")
@@ -1215,7 +1432,7 @@ def _sanitize_finite_cycle_session_state(widget_key: str) -> None:
             "Previous finite cycle value `0.75` is not supported by the primary finite-cycle selector; "
             "reset to 1.0. 0.75 is not treated as 1.75."
         )
-        st.session_state[widget_key] = UI_DEFAULT_FINITE_CYCLE_COUNT
+        st.session_state[widget_key] = 1.0
         return
 
     if not _cycle_in_set(float(requested), UI_SUPPORTED_FINITE_CYCLE_COUNTS):
@@ -1243,6 +1460,135 @@ def _plot_reference_pp(frame: pd.DataFrame | None, column: str) -> float:
     return _signal_peak_to_peak(frame, column)
 
 
+def _detect_signal_motion_start_s(time_values: np.ndarray, signal_values: np.ndarray | None) -> float | None:
+    if signal_values is None:
+        return None
+    time_arr = np.asarray(time_values, dtype=float)
+    signal_arr = np.asarray(signal_values, dtype=float)
+    if time_arr.size != signal_arr.size or time_arr.size < 3:
+        return None
+    finite = np.isfinite(time_arr) & np.isfinite(signal_arr)
+    if finite.sum() < 3:
+        return None
+    time_arr = time_arr[finite]
+    signal_arr = signal_arr[finite]
+    order = np.argsort(time_arr)
+    time_arr = time_arr[order]
+    signal_arr = signal_arr[order]
+    peak = float(np.nanmax(np.abs(signal_arr)))
+    if not np.isfinite(peak) or peak <= 1e-12:
+        return None
+    threshold = max(peak * 0.02, 1e-9)
+    active = np.abs(signal_arr) > threshold
+    if not active.any():
+        return None
+    run_length = min(3, int(active.sum()))
+    if run_length <= 1:
+        return float(time_arr[np.flatnonzero(active)[0]])
+    consecutive = np.convolve(active.astype(int), np.ones(run_length, dtype=int), mode="valid") >= run_length
+    if consecutive.any():
+        return float(time_arr[int(np.flatnonzero(consecutive)[0])])
+    return float(time_arr[np.flatnonzero(active)[0]])
+
+
+def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.DataFrame | None:
+    source_time = compensation.get("selected_support_source_time_s")
+    source_field = compensation.get("selected_support_source_mT")
+    if source_time is None or source_field is None:
+        return None
+    time_values = np.asarray(source_time, dtype=float)
+    field_values = np.asarray(source_field, dtype=float)
+    source_voltage = compensation.get("selected_support_source_voltage_v")
+    voltage_values = np.asarray(source_voltage, dtype=float) if source_voltage is not None else None
+    if voltage_values is not None and voltage_values.size != time_values.size:
+        voltage_values = None
+    finite = np.isfinite(time_values) & np.isfinite(field_values)
+    if voltage_values is not None:
+        finite = finite & np.isfinite(voltage_values)
+    if finite.sum() < 3:
+        return None
+    time_values = time_values[finite]
+    field_values = field_values[finite]
+    if voltage_values is not None:
+        voltage_values = voltage_values[finite]
+    order = np.argsort(time_values)
+    time_values = time_values[order]
+    field_values = field_values[order]
+    if voltage_values is not None:
+        voltage_values = voltage_values[order]
+
+    # Plot the real measured support beyond target_end.  The target-aligned
+    # support reference remains available as a debug trace only.
+    target_end = first_number(
+        compensation.get("target_end_s")
+        if compensation.get("target_end_s") is not None
+        else compensation.get("target_active_end_s")
+    )
+    nonzero_start = first_number(compensation.get("selected_support_original_nonzero_start_s"))
+    nonzero_end = first_number(compensation.get("selected_support_original_nonzero_end_s"))
+    voltage_start = first_number(compensation.get("selected_support_voltage_nonzero_start_s"))
+    detected_start = (
+        voltage_start
+        if voltage_start is not None and np.isfinite(voltage_start)
+        else _detect_signal_motion_start_s(time_values, voltage_values)
+    )
+    if detected_start is None or not np.isfinite(float(detected_start)):
+        detected_start = _detect_signal_motion_start_s(time_values, field_values)
+    plot_start = (
+        nonzero_start
+        if nonzero_start is not None and np.isfinite(nonzero_start)
+        else float(detected_start)
+        if detected_start is not None and np.isfinite(float(detected_start))
+        else float(np.nanmin(time_values))
+    )
+    plot_end = nonzero_end if nonzero_end is not None and np.isfinite(nonzero_end) else float(np.nanmax(time_values))
+    if target_end is not None and np.isfinite(target_end):
+        plot_end = max(float(plot_end), float(target_end))
+    plot_end = min(float(plot_end), float(np.nanmax(time_values)))
+    keep = (time_values >= float(plot_start) - 1e-12) & (time_values <= plot_end + 1e-12)
+    if keep.sum() < 3:
+        keep = np.ones_like(time_values, dtype=bool)
+        plot_start = float(np.nanmin(time_values))
+    time_values = time_values[keep]
+    field_values = field_values[keep]
+
+    # Do not recenter the support preview: this trace is the measured support
+    # source used for phase inspection, so only smoothing and target-peak scale are
+    # applied after the detected motion start.
+    window = max(3, min(51, int(len(field_values) // 20) * 2 + 1))
+    smoothed = (
+        pd.Series(field_values)
+        .rolling(window=window, center=True, min_periods=1)
+        .median()
+        .rolling(window=window, center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+    peak = float(np.nanmax(np.abs(smoothed))) if np.isfinite(smoothed).any() else 0.0
+    scale = 50.0 / peak if peak > 1e-12 else 1.0
+    frame = pd.DataFrame(
+        {
+            "time_s": time_values - float(plot_start),
+            "support_reference_native_mT": smoothed * scale,
+        }
+    )
+    frame.attrs["support_reference_plot_timebase"] = "native_measured_source_until_zero_return"
+    frame.attrs["support_reference_native_start_s"] = plot_start
+    frame.attrs["support_reference_native_end_s"] = plot_end
+    frame.attrs["support_reference_native_rebased_to_motion_start"] = True
+    frame.attrs["support_reference_motion_start_detection_source"] = (
+        "metadata"
+        if nonzero_start is not None and np.isfinite(nonzero_start)
+        else "voltage_or_field_signal"
+        if detected_start is not None and np.isfinite(float(detected_start))
+        else "source_min_time_fallback"
+    )
+    frame.attrs["support_reference_native_scale_to_50mT"] = scale
+    frame.attrs["support_reference_native_normalization_mode"] = "scale_only_abs_peak_to_50mT_after_motion_start"
+    frame.attrs["support_reference_native_offset_removed_mT"] = 0.0
+    return frame
+
+
 def _resolve_compensation_plot_reference(
     compensation: dict[str, object],
 ) -> tuple[pd.DataFrame | None, str, str, str, float]:
@@ -1250,12 +1596,22 @@ def _resolve_compensation_plot_reference(
     # "Support-Blended Output"
     # "Nearest Support Preview"
     # "Nearest Support Output"
+    native_support = _native_support_reference_plot_frame(compensation)
+    if _is_nonempty_frame(native_support):
+        return (
+            native_support,
+            "support_reference_native_mT",
+            "support reference",
+            "native measured support source",
+            _plot_reference_pp(native_support, "support_reference_native_mT"),
+        )
+
     command_profile = compensation.get("command_profile")
     if _is_nonempty_frame(command_profile) and "support_reference_output_mT" in command_profile.columns:
         return (
             command_profile,
             "support_reference_output_mT",
-            "Support Reference",
+            "support reference",
             "support reference payload",
             _plot_reference_pp(command_profile, "support_reference_output_mT"),
         )
@@ -1276,7 +1632,7 @@ def _resolve_compensation_plot_reference(
             ),
         )
         if support_column is not None:
-            label = "Support Reference" if support_column == "support_reference_output_mT" else "Support-Blended Preview"
+            label = "support reference" if support_column == "support_reference_output_mT" else "support preview"
             return (
                 support_profile_preview,
                 support_column,
@@ -1302,7 +1658,7 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile_preview,
                 nearest_preview_column,
-                "Nearest Support Reference",
+                "nearest support reference",
                 "nearest support preview",
                 _plot_reference_pp(nearest_profile_preview, nearest_preview_column),
             )
@@ -1324,12 +1680,12 @@ def _resolve_compensation_plot_reference(
             return (
                 nearest_profile,
                 nearest_column,
-                "Nearest Support Reference",
+                "nearest support reference",
                 "nearest support output",
                 _plot_reference_pp(nearest_profile, nearest_column),
             )
 
-    return None, "measured_field_mT", "Nearest Support Reference", "none", float("nan")
+    return None, "measured_field_mT", "nearest support reference", "none", float("nan")
 
 
 def _finite_signal_value(
@@ -1374,7 +1730,7 @@ def _prepare_semantic_compensation_plot_profile(command_profile: pd.DataFrame) -
 
     predicted_column = _first_available_column(
         plot_profile,
-        ("predicted_field_mT", "expected_field_mT", "expected_output", "modeled_output"),
+        ("measured_field_aligned_mT", "predicted_field_mT", "expected_field_mT", "expected_output", "modeled_output"),
     )
     if predicted_column is not None:
         plot_profile["expected_output"] = plot_profile[predicted_column]
@@ -1384,12 +1740,14 @@ def _prepare_semantic_compensation_plot_profile(command_profile: pd.DataFrame) -
 def _retitle_compensation_semantics_figure(figure: object) -> object:
     for trace in getattr(figure, "data", []):
         if trace.name == "Target Output":
-            trace.name = "Physical Target"
+            trace.name = "목표 자기장"
         elif trace.name == "Lag-Compensated Target":
             trace.name = "Internal Reference (debug, hidden by default)"
             trace.visible = "legendonly"
         elif trace.name == "Support-Blended Output":
-            trace.name = "Support-Blended Preview"
+            trace.name = "support field preview"
+        elif trace.name == "Predicted Output":
+            trace.name = "phase/model predicted field"
     for annotation in getattr(getattr(figure, "layout", None), "annotations", []) or []:
         if getattr(annotation, "text", None) == "target end":
             annotation.text = "target_end"
@@ -1472,10 +1830,29 @@ def _render_end_marker_summary(compensation: dict[str, object], command_profile:
     marker_right.metric("predicted_settle_end", _format_optional_metric(predicted_settle_end, "s", digits=6))
 
 
-def _retitle_command_waveform_figure(figure: object) -> object:
+def _retitle_command_waveform_figure(figure: object, command_profile: pd.DataFrame | None = None) -> object:
+    """Retitle the first command plot and overlay the original input voltage."""
     for trace in getattr(figure, "data", []):
-        trace.name = "Command Waveform"
-    figure.update_layout(title="Command Waveform")
+        trace.name = "1차 모델링 command"
+    figure.update_layout(title="1차 모델링 command", xaxis_title="시간 (s)", yaxis_title="전압 (V)")
+    if command_profile is not None and "time_s" in command_profile.columns:
+        for source_column in (
+            "finite_first_input_lut_voltage_normalized_v",
+            "finite_first_input_lut_voltage_v",
+            "finite_first_base_voltage_v",
+            "baseline_limited_voltage_v",
+        ):
+            if source_column in command_profile.columns:
+                figure.add_trace(
+                    go.Scatter(
+                        x=pd.to_numeric(command_profile["time_s"], errors="coerce"),
+                        y=pd.to_numeric(command_profile[source_column], errors="coerce"),
+                        mode="lines",
+                        name="기존 입력 전압",
+                        line={"dash": "dash"},
+                    )
+                )
+                break
     return figure
 
 
@@ -1493,7 +1870,7 @@ def _render_finite_signal_consistency_summary(
     ) or "unavailable"
     status_tokens = {token.strip() for token in status.split("|") if token.strip()}
 
-    st.markdown("#### Finite Signal Consistency")
+    st.markdown("#### finite 신호 일관성 / Debug")
     if "time_axis_mismatch" in status_tokens:
         st.error(f"finite_signal_consistency_status={status}")
     elif "command_metadata_mismatch" in status_tokens:
@@ -1580,23 +1957,21 @@ def _render_support_family_selection_marker(
     if family_sensitivity_level is None:
         family_sensitivity_level = _normalize_optional_text(compensation.get("support_family_sensitivity_level"))
 
-    st.markdown("#### Support Family Selection")
+    st.markdown("#### 데이터 선택 기준 / Debug")
     st.caption(
-        "The support/input waveform family does not change the physical target. "
-        "Requested support family and selected support family are shown separately because the backend may choose "
-        "a more stable support reference."
+        "support/input waveform family는 목표 자기장 개형을 바꾸지 않습니다. "
+        "요청 family와 실제 선택 family는 데이터 안정성 판단 때문에 다를 수 있습니다."
     )
-    st.write(f"- Requested support family: `{payload_requested or 'n/a'}`")
-    st.write(f"- Selected support family: `{selected_support_family or 'n/a'}`")
+    st.write(f"- 요청 support family: `{payload_requested or 'n/a'}`")
+    st.write(f"- 선택 support family: `{selected_support_family or 'n/a'}`")
     override_label = "n/a" if override_applied is None else ("yes" if override_applied else "no")
-    st.write(f"- Override applied: `{override_label}`")
-    st.write(f"- Reason: `{override_reason or 'n/a'}`")
-    st.write(f"- Family sensitivity: `{family_sensitivity_level or 'n/a'}`")
+    st.write(f"- override 적용: `{override_label}`")
+    st.write(f"- 사유: `{override_reason or 'n/a'}`")
+    st.write(f"- family sensitivity: `{family_sensitivity_level or 'n/a'}`")
 
     if override_applied is True:
         st.warning(
-            "Support family override applied: selected support family differs from the requested support/input "
-            "waveform family because the cross-family candidate scored better."
+            "support family override가 적용되었습니다. 요청 family와 다른 후보가 더 안정적이라고 판단되었습니다."
         )
 
 
@@ -1628,16 +2003,15 @@ def _render_support_reference_provenance_panel(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
-    st.markdown("#### Support Reference Provenance")
+    st.markdown("#### 참조 데이터 출처 / Debug")
     st.caption(
-        "Raw selected support is the original uploaded/support record. "
-        "Target-aligned support reference is the plotted support trace aligned to the target timebase. "
-        "The support reference is not the physical target."
+        "raw selected support는 업로드/라이브러리 원본 record입니다. "
+        "target-aligned support reference는 target timebase에 맞춘 비교 trace이며, 물리 목표 자기장이 아닙니다."
     )
 
     raw_left, raw_right = st.columns(2)
     with raw_left:
-        st.markdown("**Raw Selected Support Source**")
+        st.markdown("**원본 선택 support source**")
         st.write(f"- selected_support_id: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_id', 'support_reference_selected_support_id', 'nearest_test_id'))}`")
         st.write(f"- selected_support_family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
         st.write(f"- source file: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_source_file'))}`")
@@ -1646,22 +2020,22 @@ def _render_support_reference_provenance_panel(
         st.write(f"- original duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_duration_s'), 's')}`")
         st.write(f"- original PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_original_pp_mT'), 'mT')}`")
     with raw_right:
-        st.markdown("**Target-aligned Support Reference**")
+        st.markdown("**Target timebase 정렬 support reference**")
         st.write(f"- plotted column: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_plotted_column'))}`")
         st.write(f"- target-aligned status: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_alignment_status', 'support_reference_trace_status'))}`")
         st.write(f"- plotted PP: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_pp'), 'mT')}`")
         st.write(f"- plotted duration: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_duration_s'), 's')}`")
         st.write(f"- support_reference_timebase: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_reference_timebase'))}`")
 
-    st.markdown("**Override / Match Reason**")
-    st.write(f"- Requested support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'requested_support_family', 'support_family_requested', 'user_requested_support_family'))}`")
-    st.write(f"- Selected support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
-    st.write(f"- Override applied: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_family_override_applied'))}`")
-    st.write(f"- Override reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_family_override_reason'))}`")
-    st.write(f"- Requested cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'requested_cycle_count', 'target_cycle_count'), 'cycle')}`")
-    st.write(f"- Selected support cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
-    st.write(f"- Cycle match type: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_type'))}`")
-    st.write(f"- Cycle match reason: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
+    st.markdown("**Override / matching 사유**")
+    st.write(f"- 요청 support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'requested_support_family', 'support_family_requested', 'user_requested_support_family'))}`")
+    st.write(f"- 선택 support family: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'selected_support_family', 'selected_support_waveform_family', 'selected_support_waveform'))}`")
+    st.write(f"- override 적용: `{_format_optional_bool(_support_provenance_value(compensation, command_profile, 'support_family_override_applied'))}`")
+    st.write(f"- override 사유: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_family_override_reason'))}`")
+    st.write(f"- 요청 cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'requested_cycle_count', 'target_cycle_count'), 'cycle')}`")
+    st.write(f"- 선택 support cycle: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'selected_support_cycle_count', 'support_cycle_count'), 'cycle')}`")
+    st.write(f"- cycle match type: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_type'))}`")
+    st.write(f"- cycle match 사유: `{_format_optional_text(_support_provenance_value(compensation, command_profile, 'support_cycle_match_reason', 'support_cycle_override_reason'))}`")
 
 
 def _render_command_prediction_consistency_card(
@@ -1685,11 +2059,11 @@ def _render_command_prediction_consistency_card(
     )
     has_metadata = any(_support_provenance_value(compensation, command_profile, key) is not None for key in metadata_keys)
 
-    st.markdown("#### Command Prediction Consistency")
+    st.markdown("#### 전압 예측 일관성 / Debug")
     st.caption(
-        "Support Reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다. "
-        "추천 전압은 Physical Target을 기준으로 계산됩니다. "
-        "Predicted Output은 표시된 추천 전압 command 기준 forward prediction입니다."
+        "support reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다. "
+        "추천 전압은 fixed rounded triangle target 기준으로 계산됩니다. "
+        "predicted field는 표시된 command 기준 forward prediction입니다."
     )
     if not has_metadata:
         st.info("Command/prediction consistency metadata unavailable")
@@ -1717,21 +2091,21 @@ def _render_command_prediction_consistency_card(
         _support_provenance_value(compensation, command_profile, "support_reference_shape_mismatch")
     )
 
-    st.write(f"- Command target: Physical Target (`{generation_target}`)")
-    st.write(f"- Support Reference role: Diagnostic only (`{support_role}`)")
-    st.write(f"- Support Reference used for command: `{used_for_command}`")
-    st.write(f"- Predicted output source: `{prediction_source}`")
-    st.write(f"- Predicted from plotted command: `{predicted_from_command}`")
-    st.write(f"- Command prediction consistency: `{consistency_status}`")
-    st.write(f"- Support Reference shape mismatch: `{_format_optional_bool(shape_mismatch)}`")
+    st.write(f"- command 기준 target: fixed rounded triangle (`{generation_target}`)")
+    st.write(f"- support reference 역할: 진단용 (`{support_role}`)")
+    st.write(f"- support reference가 command에 사용됨: `{used_for_command}`")
+    st.write(f"- 예측 field source: `{prediction_source}`")
+    st.write(f"- 표시 command 기준 예측 여부: `{predicted_from_command}`")
+    st.write(f"- 전압 예측 일관성: `{consistency_status}`")
+    st.write(f"- support reference shape mismatch: `{_format_optional_bool(shape_mismatch)}`")
     st.write(
-        f"- Support/target corr: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_corr'))}`"
+        f"- support/target 상관: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_corr'))}`"
     )
     st.write(
-        f"- Support/target NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_nrmse'))}`"
+        f"- support/target NRMSE: `{_format_optional_metric(_support_provenance_value(compensation, command_profile, 'support_reference_target_nrmse'))}`"
     )
     st.caption(
-        "Command coverage: "
+        "command coverage: "
         f"command_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'command_nonzero_start_s'), 's')} | "
         f"target_nonzero_start_s={_format_optional_metric(_support_provenance_value(compensation, command_profile, 'target_nonzero_start_s'), 's')} | "
         f"command_covers_target_active_start={_format_optional_bool(_support_provenance_value(compensation, command_profile, 'command_covers_target_active_start'))} | "
@@ -1740,8 +2114,7 @@ def _render_command_prediction_consistency_card(
 
     if shape_mismatch is True:
         st.warning(
-            "Support Reference shape mismatch: treat this trace as Support Reference (diagnostic), not as the command "
-            "target or command objective."
+            "support reference shape mismatch: 이 trace는 command target이 아니라 진단용 support reference입니다."
         )
 
 
@@ -1794,30 +2167,31 @@ def _render_finite_route_marker(compensation: dict[str, object]) -> None:
     support_tests_used = _normalize_support_tests_used(compensation.get("support_tests_used"))
     support_blended_output_nonzero = compensation.get("support_blended_output_nonzero")
 
-    st.caption(
-        f"Route: {route_mode} | finite_support_used={'yes' if finite_support_used else 'no'} | reason={route_reason}"
-    )
-    st.caption(
-        f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
-        f"| support_tests_used={support_tests_used}"
-    )
-    if support_blended_output_nonzero is not None:
-        st.caption(f"support_blended_output_nonzero={bool(support_blended_output_nonzero)}")
-
     if finite_support_used:
-        st.success("Finite empirical support route used. Using uploaded transient finite-cycle support data.")
+        st.success("finite-cycle 실측 support 데이터를 사용해 1차 command를 계산했습니다.")
     else:
-        st.warning("Steady-state fallback: finite transient support was unavailable or unusable.")
+        st.warning("finite-cycle 실측 support를 찾지 못해 fallback 경로를 사용했습니다.")
+
+    with st.expander("데이터 선택 상세 / Debug", expanded=False):
+        st.caption(
+            f"route={route_mode} | finite_support_used={'yes' if finite_support_used else 'no'} | reason={route_reason}"
+        )
+        st.caption(
+            f"selected_support_id={selected_support_id} | support_count_used={support_count_used} "
+            f"| support_tests_used={support_tests_used}"
+        )
+        if support_blended_output_nonzero is not None:
+            st.caption(f"support_blended_output_nonzero={bool(support_blended_output_nonzero)}")
 
 
 def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
-    with st.expander("Equipment / Debug", expanded=False):
+    with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
         st.write(
-            f"- modeling focus output: `{recommendation['primary_output_label']}` = "
+            f"- modeling focus metric: `{recommendation['primary_output_label']}` = "
             f"`{_format_optional_metric(recommendation['primary_output_pp'], str(recommendation['primary_output_unit']))}`"
         )
         st.write(
-            f"- selected target output: `{recommendation['target_output_label']}` = "
+            f"- legacy target metric: `{recommendation['target_output_label']}` = "
             f"`{_format_optional_metric(recommendation['target_output_pp'], str(recommendation['target_output_unit']))}`"
         )
         st.write(f"- estimated current pp: `{_format_optional_metric(recommendation['estimated_current_pp'], 'A')}`")
@@ -1840,33 +2214,124 @@ def _render_lut_equipment_debug(recommendation: dict[str, object]) -> None:
 
 def _render_field_only_quick_lut_banner() -> None:
     excluded_inputs = ", ".join(FIELD_ONLY_SHAPE_SELECTION_EXCLUDES)
-    st.markdown("### FIELD-ONLY Quick LUT")
+    st.markdown("### Quick LUT")
     st.success(
-        "FIELD-ONLY 운용 모드입니다. 목표 자기장 개형은 항상 rounded triangle이고 목표 자기장 PP는 100 mT pp fixed입니다."
+        "Quick LUT 운용 모드입니다. 목표 자기장 개형은 fixed rounded triangle로 고정하고, "
+        "목표 피크 자기장과 내부 정규화 기준은 분리해서 표시합니다."
     )
     summary_left, summary_mid, summary_right = st.columns([1.0, 1.0, 1.6])
     with summary_left:
-        st.metric("Target Field Shape", FIELD_ONLY_TARGET_SHAPE.replace("_", " "))
+        st.metric("목표 자기장 개형", "fixed rounded triangle")
     with summary_mid:
-        st.metric("Target Field PP", f"{FIELD_ONLY_FIXED_TARGET_PP:.0f} mT pp fixed")
+        target_config = st.session_state.get("quick_lut_target_config") or {}
+        target_peak = target_config.get("user_target_peak_field_mT") or target_config.get("target_peak_field_mT") or 50.0
+        try:
+            target_peak_label = f"{float(target_peak):g} mT"
+        except (TypeError, ValueError):
+            target_peak_label = "사용자 설정"
+        st.metric("목표 피크 자기장", target_peak_label)
     with summary_right:
-        st.markdown("**Shape Selection Inputs**")
-        st.write("- support/input waveform family")
-        st.write("- frequency")
-        st.write("- DAQ voltage waveform")
+        st.markdown("**모델링 입력**")
+        st.write("- support/input 파형 family")
+        st.write("- 주파수")
+        st.write("- finite cycle 또는 continuous 1cycle 정책")
         st.write(f"- excluded: `{excluded_inputs}`")
     st.caption(
-        "The waveform selector below chooses only the support/input waveform family. "
-        "Target field shape is always rounded triangle, and current / gain / hardware / LCR are excluded from main shape selection."
+        "아래 파형 선택은 support/input waveform family만 고릅니다. "
+        "목표 자기장 개형은 source waveform과 별개로 fixed rounded triangle을 사용합니다."
     )
     st.caption(
-        "Runtime: Quick LUT field-only renderer v2 · target=rounded_triangle · "
-        "target_pp=100 fixed · source=repo-local src"
+        "Field review/modeling은 사용자가 설정한 목표 피크 자기장 기준으로 scale-only 정규화합니다. Command voltage는 ±10V 기준으로 제한합니다. "
+        "HallBz convention: effective field = -HallBz raw."
+    )
+    st.caption(
+        "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
+        "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
+        "2-cycle production 정책은 폐기되었습니다."
+    )
+    st.caption("최종 LUT는 화면에 표시된 최종 전압 샘플을 그대로 저장하며 Fourier 재합성을 사용하지 않습니다.")
+    st.caption(
+        "Runtime: Quick LUT renderer · target_shape=fixed_rounded_triangle · "
+        "field_normalization_reference=user_target_peak_mT · command_limit=±10V · source=repo-local src"
     )
     st.caption(
         "변경 후에도 legacy target control이 보이면 기존 Streamlit 프로세스를 종료하고 "
         "`launch_quick_lut_local.cmd`를 다시 실행하십시오."
     )
+
+
+def _dedupe_payloads(payloads: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    deduped: list[tuple[str, bytes]] = []
+    seen: set[str] = set()
+    for file_name, file_bytes in payloads:
+        digest = hashlib.sha256(file_bytes).hexdigest()
+        if digest in seen:
+            continue
+        seen.add(digest)
+        deduped.append((file_name, file_bytes))
+    return deduped
+
+
+def _payload_snapshot_hash(payloads: list[tuple[str, bytes]]) -> str:
+    digest = hashlib.sha256()
+    for file_name, file_bytes in payloads:
+        digest.update(str(file_name).encode("utf-8", errors="ignore"))
+        digest.update(hashlib.sha256(file_bytes).digest())
+    return digest.hexdigest() if payloads else ""
+
+
+def _render_quick_lut_cache_status(
+    *,
+    continuous_payloads: list[tuple[str, bytes]],
+    finite_payloads: list[tuple[str, bytes]],
+    validation_payloads: list[tuple[str, bytes]],
+    lcr_payloads: list[tuple[str, bytes]],
+    continuous_library_payloads: list[tuple[str, bytes]],
+    finite_library_payloads: list[tuple[str, bytes]],
+) -> None:
+    status = upload_memory_status()
+    dataset_status = dataset_library_status()
+    selected_library_count = len(continuous_library_payloads) + len(finite_library_payloads)
+    with st.expander("Quick LUT cache / payload status", expanded=False):
+        st.write(f"- remembered continuous count: `{status['remembered_continuous_count']}`")
+        st.write(f"- remembered finite count: `{status['remembered_finite_count']}`")
+        st.write(f"- active continuous payload count: `{len(continuous_payloads)}`")
+        st.write(f"- active finite payload count: `{len(finite_payloads)}`")
+        st.write(f"- validation payload count: `{len(validation_payloads)}`")
+        st.write(f"- lcr payload count: `{len(lcr_payloads)}`")
+        st.write(f"- cached continuous count: `{status['cached_continuous_count']}`")
+        st.write(f"- cached finite count: `{status['cached_finite_count']}`")
+        st.write(f"- missing remembered continuous count: `{status.get('missing_remembered_continuous_count', 0)}`")
+        st.write(f"- missing remembered finite count: `{status.get('missing_remembered_finite_count', 0)}`")
+        st.write(f"- upload memory restore status: `{status.get('upload_memory_restore_status', 'unknown')}`")
+        st.write(f"- continuous upload restore status: `{status.get('continuous_upload_restore_status', 'unknown')}`")
+        st.write(f"- upload manifest path: `{status.get('upload_manifest_path', '')}`")
+        st.write(f"- selected dataset library count: `{selected_library_count}`")
+        st.write(f"- dataset library root path: `{dataset_status['dataset_root_path']}`")
+        st.write(f"- dataset manifest exists: `{dataset_status['dataset_manifest_exists']}`")
+        st.write(f"- dataset manifest file count: `{dataset_status['dataset_manifest_file_count']}`")
+        st.write(f"- upload memory manifest exists: `{status['upload_memory_manifest_exists']}`")
+        st.write(f"- cache directory path: `{status['cache_directory_path']}`")
+        st.write("- active payload source: `current_upload / remembered_upload / selected_dataset_library`")
+        if dataset_status["dataset_root_path"] and not dataset_status["dataset_manifest_exists"]:
+            st.warning("Manifest missing. Click Manifest Refresh.")
+        elif dataset_status["dataset_root_path"] and int(dataset_status["dataset_manifest_file_count"]) == 0:
+            st.warning("Dataset root saved but no supported files found.")
+        if (
+            int(status.get("remembered_continuous_count", 0)) + int(status.get("remembered_finite_count", 0)) > 0
+            and int(status.get("cached_continuous_count", 0)) + int(status.get("cached_finite_count", 0)) == 0
+        ):
+            st.warning("Remembered LUT entries exist, but the physical cached files are missing. Re-upload or reload a Dataset Library source.")
+        elif status["cached_continuous_count"] == 0 and status["cached_finite_count"] == 0:
+            st.caption("No remembered LUT data found.")
+        elif len(continuous_payloads) + len(finite_payloads) == 0:
+            st.warning("Cached files exist but are not active. Select remembered files or load active set.")
+            if st.button("Load remembered LUT files", key="quick_lut_load_remembered_uploads"):
+                activate_cached_uploads("continuous")
+                activate_cached_uploads("transient")
+                st.rerun()
+        elif status["cached_continuous_count"] + status["cached_finite_count"] > len(continuous_payloads) + len(finite_payloads):
+            st.caption("Only active remembered/current/library payloads are loaded; full cached uploads are not auto-loaded.")
 
 
 def _render_quick_lut_tab_v2(
@@ -1926,12 +2391,16 @@ def _render_quick_lut_tab_v2(
 
     left, mid, right = st.columns(3)
     with left:
+        source_waveform_options = _ordered_source_waveform_options(waveform_options)
         target_waveform = st.selectbox(
             "지원 입력 파형 family",
-            options=waveform_options or ["sine"],
+            options=source_waveform_options,
+            index=0,
             key="lut_waveform_v2",
             help="이 선택은 목표 자기장 shape selector가 아니라 support/input waveform family selector입니다.",
         )
+        st.caption("지원/input waveform family")
+        st.caption("기본값은 triangle입니다.")
         st.caption(
             "이 선택은 실험 support/input waveform family를 고르는 것이며, 목표 자기장 개형은 항상 rounded triangle입니다."
         )
@@ -1959,43 +2428,64 @@ def _render_quick_lut_tab_v2(
             available_metric_options,
             main_field_axis,
         )[0]
-        st.markdown("**FIELD-ONLY / rounded triangle / 100pp fixed**")
-        st.caption(f"Target metric fixed to `{target_metric_label(target_metric)}`")
+        st.markdown("**목표 자기장 개형 / fixed rounded triangle**")
+        st.caption("목표 자기장 개형은 고정 rounded triangle입니다. PP 고정값이 아니라 사용자가 설정한 목표 피크와 내부 정규화 기준을 분리합니다.")
         target_value = float(FIELD_ONLY_FIXED_TARGET_PP)
         compensation_target_type = "field"
         compensation_target_current_pp = float(FIELD_ONLY_FIXED_TARGET_PP)
         st.caption(
-            "Main LUT target field shape is a canonical rounded triangle and target PP is locked to `100`. "
-            "Current, gain, hardware, and LCR remain debug/reference only."
+            "목표 자기장 개형은 canonical fixed rounded triangle입니다. 모델링 내부 field normalization은 ±50 mT 기준이며, "
+            "목표 피크 자기장 설정은 command voltage scaling 의미와 분리해서 관리합니다."
         )
-        st.caption(
-            "Finite target semantics: Physical Target = fixed rounded triangle at 100pp. "
-            "Support Reference is a support-conditioned preview, not the physical target. "
-            "Predicted Output is the model response to the Command Waveform."
+        with st.expander("데이터/예측 의미 상세", expanded=False):
+            st.caption(
+                "목표 자기장, support preview, forward prediction은 서로 다른 진단 정보입니다. "
+                "메인 command 생성 기준은 fixed rounded triangle 목표 개형과 phase-aligned residual입니다."
+            )
+        modeling_input_mode_label = st.radio(
+            "모델링 입력 방식",
+            options=["Finite startup-aware", "Continuous steady-state"],
+            index=0,
+            key="quick_lut_modeling_input_mode",
+            horizontal=True,
         )
+        modeling_input_mode = "continuous_steady_state" if modeling_input_mode_label == "Continuous steady-state" else "finite_startup_aware"
+        st.session_state["quick_lut_modeling_input_mode_value"] = modeling_input_mode
+        continuous_production_cycle_count = 1.0
+        continuous_repeating_lut = modeling_input_mode == "continuous_steady_state"
+        continuous_zero_return_tail_enabled = False
+        if modeling_input_mode == "continuous_steady_state":
+            st.info(
+                "Continuous steady-state mode는 연속 구동 데이터에서 안정화된 1cycle만 추출해 모델링합니다.\n\n"
+                "생성된 1cycle voltage LUT는 반복 출력용입니다.\n\n"
+                "초반 들뜸/startup transient 응답은 모델링에 사용하지 않습니다.\n\n"
+                "Continuous mode에서는 1.5cycle을 생성하지 않습니다."
+            )
         finite_cycle_mode = st.checkbox(
             "구동 cycle 수 제한 사용",
-            value=False,
+            value=True,
             help="끄면 기존 steady-state 1-cycle 보정 로직을 사용합니다. 켜면 0초 시작/종료를 포함한 finite run 보정을 계산합니다.",
             key="finite_cycle_mode_v2",
         )
+        if modeling_input_mode == "continuous_steady_state":
+            finite_cycle_mode = False
         if finite_cycle_mode:
+            cycle_options = [float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS]
             st.caption(
-                f"Supported finite cycles: {_format_cycle_set(UI_SUPPORTED_FINITE_CYCLE_COUNTS)}. "
-                "1.75 cycle is supported when exact finite-cycle support data exists. "
-                "If exact 1.75 support is absent, 1.75 is unavailable rather than substituted. "
-                "DAQ output fixed: ±5V | DCAMP Gain fixed: 100% | target field remains rounded-triangle / 100pp fixed."
+                "Production finite 보정은 1.0 / 1.5 cycle을 지원합니다. "
+                "1.25 / 1.75 / 2.0 cycle은 검토용이며 production 보정/내보내기 대상이 아닙니다. "
+                "2-cycle production 정책은 폐기되었습니다. "
+                "최종 command voltage는 ±10V 기준으로 제한하며, target field shape는 fixed rounded triangle입니다."
             )
             _sanitize_finite_cycle_session_state("target_cycle_count_v2")
             target_cycle_count = float(
                 st.selectbox(
                     "구동 cycle 수",
-                    options=[float(value) for value in UI_SUPPORTED_FINITE_CYCLE_COUNTS],
-                    index=1,
+                    options=cycle_options,
+                    index=cycle_options.index(UI_DEFAULT_FINITE_CYCLE_COUNT),
                     key="target_cycle_count_v2",
                     help=(
-                        "1.0 / 1.25 / 1.5 / 1.75 are primary UI choices. "
-                        "1.75 cycle uses exact finite support when available; 0.75 is unsupported and not treated as 1.75."
+                        "1.0 / 1.5 cycle은 production 대상입니다. 1.25 / 1.75 / 2.0 cycle은 review-only입니다."
                     ),
                 )
             )
@@ -2011,27 +2501,217 @@ def _render_quick_lut_tab_v2(
         else:
             target_cycle_count = None
             preview_tail_cycles = 0.25
+        if modeling_input_mode == "continuous_steady_state":
+            target_cycle_count = 1.0
+            preview_tail_cycles = 0.0
+        finite_first_modeling_mode_label = st.radio(
+            "Finite 1차 모델링 방식",
+            options=["피크 싱크 기반, 기본", "기존 delay 포함 방식, review only"],
+            index=0,
+            key="finite_first_modeling_mode_selector",
+            horizontal=False,
+        )
+        finite_first_modeling_mode = (
+            "legacy_delay_preserving"
+            if finite_first_modeling_mode_label == "기존 delay 포함 방식, review only"
+            else "phase_synced"
+        )
+        st.caption("Finite 1차 모델링은 전압 피크와 자기장 피크를 맞춘 뒤 오차를 계산합니다.")
+        st.caption("기존 startup delay-preserving 방식은 비교 검토용이며 production 기본값이 아닙니다.")
     with right:
-        st.caption("Both actions below use the same fixed target: FIELD-ONLY, rounded triangle, 100pp fixed.")
+        st.markdown("#### 1. LUT 데이터 준비")
+        st.caption("Quick LUT 계산에 사용할 설정을 먼저 고르고, 버튼을 눌렀을 때만 분석/모델링을 실행합니다.")
+        st.markdown("#### 2. 1차 모델링 command")
+        st.caption("아래 동작은 모두 같은 fixed rounded triangle 목표 개형과 사용자 목표 피크 자기장 기준 정규화를 사용합니다.")
+        user_target_peak_field_mT = float(
+            st.number_input(
+                "목표 피크 자기장 (mT)",
+                min_value=1.0,
+                value=float(st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0)),
+                step=5.0,
+                key="quick_lut_user_target_peak_field_mT",
+                help="목표 개형은 fixed rounded triangle이며, 모델링 정규화 기준은 이 목표 피크 자기장 값을 사용합니다.",
+            )
+        )
+        st.caption("모델링 정규화 기준은 목표 피크 자기장과 동일하게 적용합니다. 목표 피크를 바꾸면 target field와 residual voltage 기준도 같이 바뀝니다.")
+        target_value = float(user_target_peak_field_mT) * 2.0
+        compensation_target_current_pp = float(user_target_peak_field_mT) * 2.0
+        quick_target_config = build_quick_lut_target_config(
+            modeling_input_mode=modeling_input_mode,
+            target_waveform_family=str(target_waveform) if target_waveform is not None else None,
+            target_freq_hz=float(target_freq),
+            target_cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+            use_frequency_trend=bool(use_frequency_trend),
+            finite_cycle_mode=bool(finite_cycle_mode),
+            preview_tail_cycles=float(preview_tail_cycles),
+            finite_first_modeling_mode=finite_first_modeling_mode,
+            user_target_peak_field_mT=user_target_peak_field_mT,
+        )
+        quick_config_snapshot = legacy_quick_lut_config(quick_target_config)
+        st.session_state["quick_lut_target_config"] = target_config_snapshot(quick_target_config)
+        st.session_state["quick_lut_target_config_source"] = "ui_user_selection"
+        applied_target_config = st.session_state.get("quick_lut_applied_target_config")
+        config_dirty = not target_configs_equal(applied_target_config, quick_target_config)
+        st.session_state["quick_lut_target_config_dirty"] = bool(config_dirty)
+        if st.button("Quick LUT 설정 적용", use_container_width=True, key="apply_quick_lut_settings"):
+            st.session_state["quick_lut_applied_target_config"] = target_config_snapshot(quick_target_config)
+            st.session_state["quick_lut_applied_config"] = quick_config_snapshot
+            st.session_state["quick_lut_dirty"] = False
+            st.session_state["quick_lut_target_config_dirty"] = False
+            st.session_state["quick_lut_config_applied_at"] = pd.Timestamp.now(tz="Asia/Seoul").isoformat()
+            applied_target_config = st.session_state.get("quick_lut_applied_target_config")
+            config_dirty = False
+        elif config_dirty:
+            st.session_state["quick_lut_dirty"] = True
+            st.warning("설정이 변경되었습니다. 다시 실행하려면 실행 버튼을 누르십시오.")
+            st.warning("설정이 변경되었습니다. Quick LUT 설정 적용을 누르십시오.")
+        st.caption(
+            f"현재 모델링 대상: {float(quick_target_config['target_freq_hz']):g} Hz / "
+            f"{float(quick_target_config['target_cycle_count']):g} cycle"
+        )
+        render_quick_lut_target_debug(
+            current_config=quick_target_config,
+            applied_config=applied_target_config if isinstance(applied_target_config, dict) else None,
+            dirty=bool(config_dirty),
+            last_modeling_config=st.session_state.get("quick_lut_config_used_for_modeling"),
+            first_model_config=(st.session_state.get("quick_lut_first_model_result") or {}).get("metadata", {}).get("modeled_target_config_snapshot")
+            if isinstance(st.session_state.get("quick_lut_first_model_result"), dict)
+            else None,
+            second_model_config=(st.session_state.get("quick_lut_second_model_result") or {}).get("metadata", {}).get("second_modeling_target_config_snapshot")
+            if isinstance(st.session_state.get("quick_lut_second_model_result"), dict)
+            else None,
+        )
         estimate_clicked = st.button("크기 LUT 계산", use_container_width=True, key="lut_scalar_button_v2")
-        compensation_button_label = f"{main_field_axis} 파형 보정 계산"
+        compensation_button_label = (
+            "Continuous 1차 모델링 실행"
+            if modeling_input_mode == "continuous_steady_state"
+            else "1차 모델링 실행"
+        )
         compensation_clicked = st.button(
             compensation_button_label,
             use_container_width=True,
             key="lut_comp_button_v2",
         )
         st.caption(
-            "`크기 LUT 계산`은 fixed 100pp rounded-triangle field target에 맞는 scalar voltage estimate를 계산합니다. "
-            f"`{compensation_button_label}`은 같은 fixed field target으로 recommended voltage waveform을 계산합니다."
+            "`크기 LUT 계산`은 fixed rounded-triangle target shape와 사용자 목표 피크 자기장 기준 정규화로 scalar voltage estimate를 계산합니다. "
+            f"`{compensation_button_label}`은 같은 target shape로 recommended voltage waveform을 계산합니다."
+        )
+        st.caption("이 전압은 실제 장비에 처음 넣는 1차 command입니다.")
+        st.caption("2차 보정 결과가 아닙니다.")
+
+    modeling_button_clicked = bool(estimate_clicked or compensation_clicked)
+    if modeling_button_clicked:
+        applied_for_modeling = st.session_state.get("quick_lut_applied_target_config")
+        if not isinstance(applied_for_modeling, dict) or config_dirty:
+            st.session_state["quick_lut_modeling_blocked_due_to_dirty_config"] = True
+            st.warning("Quick LUT target config가 적용되지 않았습니다. 먼저 Quick LUT 설정 적용을 누르십시오.")
+            st.caption(
+                f"UI current config: {quick_target_config['target_freq_hz']:g} Hz / "
+                f"{quick_target_config['target_cycle_count']:g} cycle"
+            )
+            return
+        st.session_state["quick_lut_modeling_blocked_due_to_dirty_config"] = False
+        st.session_state["quick_lut_config_used_for_modeling"] = target_config_snapshot(applied_for_modeling)
+        target_waveform = applied_for_modeling.get("target_waveform_family")
+        target_freq = float(applied_for_modeling["target_freq_hz"])
+        target_cycle_count = applied_for_modeling.get("target_cycle_count")
+        finite_cycle_mode = bool(applied_for_modeling.get("finite_cycle_mode"))
+        use_frequency_trend = bool(applied_for_modeling.get("use_frequency_trend"))
+        preview_tail_cycles = float(applied_for_modeling.get("preview_tail_cycles") or 0.0)
+        finite_first_modeling_mode = str(applied_for_modeling.get("finite_first_modeling_mode") or "phase_synced")
+        modeling_input_mode = str(applied_for_modeling.get("modeling_input_mode") or modeling_input_mode)
+        continuous_repeating_lut = bool(applied_for_modeling.get("continuous_repeating_lut"))
+        continuous_zero_return_tail_enabled = bool(applied_for_modeling.get("continuous_zero_return_tail_enabled") or False)
+        render_quick_lut_target_summary(applied_for_modeling, title="Applied Quick LUT target config")
+
+    if modeling_input_mode == "continuous_steady_state":
+        render_continuous_steady_state_runtime_panel(
+            analysis_lookup=analysis_lookup,
+            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
+            modeling_case_builder=_build_continuous_steady_state_modeling_case_for_quick_lut,
+        )
+        render_continuous_actual_drive_runtime_panel(
+            waveform_type=str(target_waveform) if target_waveform is not None else None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
         )
 
-    feedback_selection = render_quick_lut_feedback_input_section(finite_cycle_mode=bool(finite_cycle_mode))
+    feedback_selection = None
+    feedback_source_meta: dict[str, object] = {}
+    if finite_cycle_mode:
+        feedback_selection, feedback_source_meta = select_actual_drive_feedback_candidate_for_target(
+            waveform_type=None,
+            freq_hz=float(target_freq) if target_freq is not None else None,
+            cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+            run_label="first_run",
+        )
+        st.session_state["quick_lut_actual_drive_folder_source_meta"] = feedback_source_meta
 
     if not estimate_clicked and not compensation_clicked:
-        st.info("FIELD-ONLY route는 지원 입력 파형 family와 주파수만 고른 뒤 계산합니다.")
+        cached_first_model = st.session_state.get("quick_lut_first_model_result")
+        cached_command_profile = (
+            cached_first_model.get("command_profile")
+            if isinstance(cached_first_model, dict)
+            else None
+        )
+        if finite_cycle_mode and isinstance(cached_command_profile, pd.DataFrame) and not cached_command_profile.empty:
+            st.info("이전 1차 모델링 command 결과를 유지하고 있습니다. 설정을 바꾸지 않았다면 바로 2차 보정 command를 생성할 수 있습니다.")
+            st.plotly_chart(
+                _retitle_command_waveform_figure(
+                    plot_command_waveform(cached_command_profile, value_column="limited_voltage_v"),
+                    cached_command_profile,
+                ),
+                use_container_width=True,
+            )
+            render_second_modeling_controls(
+                command_profile=cached_command_profile,
+                feedback_selection=feedback_selection,
+                freq_hz=float(target_freq),
+                cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),
+                waveform_type=str(target_waveform) if target_waveform is not None else None,
+            )
+        else:
+            st.info("Quick LUT route는 지원 입력 파형 family와 주파수로 source를 고른 뒤 fixed rounded triangle 목표 개형으로 계산합니다.")
         return
 
     if compensation_clicked:
+        continuous_extraction_case = None
+        if modeling_input_mode == "continuous_steady_state":
+            continuous_extraction_case = st.session_state.get("continuous_steady_state_extraction_result")
+            if not isinstance(continuous_extraction_case, dict) or st.session_state.get("continuous_steady_state_dirty"):
+                extract_bundle = run_continuous_steady_state_extraction(
+                    selected_candidate_name=st.session_state.get("continuous_steady_state_selected_candidate"),
+                    selected_frame=st.session_state.get("continuous_steady_state_selected_frame"),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
+                    freq_hz=float(target_freq),
+                    modeling_case_builder=_build_continuous_steady_state_modeling_case_for_quick_lut,
+                )
+                continuous_extraction_case = extract_bundle.get("extraction_result")
+                if extract_bundle.get("status") == "ok" and isinstance(continuous_extraction_case, dict):
+                    st.session_state["continuous_steady_state_extraction_result"] = continuous_extraction_case
+                    st.session_state["continuous_steady_state_window_frame"] = continuous_extraction_case["steady_state_one_cycle_frame"]
+                    st.session_state["continuous_steady_state_metadata"] = continuous_extraction_case["metadata"]
+                    st.session_state["continuous_steady_state_extraction_status"] = "ok"
+                    st.session_state["continuous_steady_state_dirty"] = False
+                else:
+                    st.warning(f"먼저 유효한 Steady-state 1cycle 추출을 실행하십시오: {extract_bundle.get('error_reason')}")
+                    return
+            continuous_meta = dict(continuous_extraction_case.get("metadata") or {})
+            invalid_reason = None
+            if continuous_meta.get("steady_state_extraction_status") != "ok":
+                invalid_reason = continuous_meta.get("steady_state_extraction_status")
+            elif continuous_meta.get("selected_cycle_duration_status") not in (None, "ok"):
+                invalid_reason = continuous_meta.get("selected_cycle_duration_status")
+            elif continuous_meta.get("continuous_timebase_status") not in (None, "ok"):
+                invalid_reason = continuous_meta.get("continuous_timebase_status")
+            elif continuous_meta.get("frequency_match_status") == "mismatch":
+                invalid_reason = "frequency_mismatch"
+            if invalid_reason is not None:
+                st.session_state["continuous_first_modeling_input_valid"] = False
+                st.session_state["continuous_first_modeling_block_reason"] = invalid_reason
+                st.warning("Steady-state 1cycle 추출이 유효하지 않아 Continuous 1차 모델링을 실행할 수 없습니다.")
+                return
+            st.session_state["continuous_first_modeling_input_valid"] = True
         compensation_title = f"{main_field_axis} 파형 보정"
         compensation_basis = f"fixed rounded-triangle measured {main_field_axis} waveform"
         clamp_label = f"목표 {main_field_axis} 크기"
@@ -2047,7 +2727,7 @@ def _render_quick_lut_tab_v2(
         )
         st.markdown(f"#### {compensation_title}")
         st.caption(
-            f"이 기능은 {compensation_basis} (100pp fixed)을 기준으로 recommended voltage waveform을 계산합니다. "
+            f"이 기능은 {compensation_basis} 기준의 정규화된 field target으로 recommended voltage waveform을 계산합니다. "
             "Current, gain, hardware, and LCR are not the main shape-selection basis in this path."
         )
         frequency_mode = "interpolate" if use_frequency_trend else "exact"
@@ -2089,16 +2769,17 @@ def _render_quick_lut_tab_v2(
                     "현재 조합에는 실험점이 1개뿐이라 단일 실험의 harmonic transfer로만 역보정했습니다."
                 )
             elif not compensation["target_output_pp"] >= compensation["available_output_pp_min"] or not compensation["target_output_pp"] <= compensation["available_output_pp_max"]:
-                if compensation["allow_output_extrapolation"]:
-                    st.warning(
-                        "목표 출력이 실험 support 범위를 벗어나 외삽으로 계산했습니다. "
-                        f"support={compensation['available_output_pp_min']:.3f} ~ {compensation['available_output_pp_max']:.3f} {compensation['target_output_unit']}"
-                    )
-                else:
-                    st.warning(
-                        f"{clamp_label}가 지원 범위를 벗어나 "
-                        f"harmonic transfer가 clamp되었습니다. ratio={compensation['phase_clamp_fraction']:.1%}"
-                    )
+                with st.expander("Advanced / Legacy support range diagnostics", expanded=False):
+                    if compensation["allow_output_extrapolation"]:
+                        st.warning(
+                            "Legacy diagnostic: requested normalized field level is outside support range and was extrapolated. "
+                            f"support={compensation['available_output_pp_min']:.3f} ~ {compensation['available_output_pp_max']:.3f} {compensation['target_output_unit']}"
+                        )
+                    else:
+                        st.warning(
+                            f"Legacy diagnostic: {clamp_label} is outside support range; "
+                            f"harmonic transfer was clamped. ratio={compensation['phase_clamp_fraction']:.1%}"
+                        )
             elif compensation["phase_clamp_fraction"] > 0:
                 st.warning(
                     f"{clamp_label} 일부가 지원 범위를 벗어나 "
@@ -2120,17 +2801,107 @@ def _render_quick_lut_tab_v2(
                 )
 
             command_profile = compensation["command_profile"]
-            feedback_metadata = None
-            if finite_cycle_mode:
-                command_profile, feedback_metadata = apply_feedback_correction_from_selection(
-                    command_profile,
-                    feedback_selection,
-                    waveform_type=str(target_waveform),
+            first_command_profile = command_profile.copy(deep=True)
+            if isinstance(compensation, dict):
+                support_time = compensation.get("selected_support_source_time_s")
+                support_field = compensation.get("selected_support_source_mT")
+                support_voltage = compensation.get("selected_support_source_voltage_v")
+                support_voltage_start = compensation.get("selected_support_voltage_nonzero_start_s")
+                support_voltage_end = compensation.get("selected_support_voltage_nonzero_end_s")
+                support_original_start = compensation.get("selected_support_original_nonzero_start_s")
+                support_original_end = compensation.get("selected_support_original_nonzero_end_s")
+                if support_time is not None and support_field is not None:
+                    first_command_profile.attrs["selected_support_source_time_s"] = support_time
+                    first_command_profile.attrs["selected_support_source_mT"] = support_field
+                    if support_voltage is not None:
+                        first_command_profile.attrs["selected_support_source_voltage_v"] = support_voltage
+                    if support_voltage_start is not None:
+                        first_command_profile.attrs["selected_support_voltage_nonzero_start_s"] = support_voltage_start
+                    if support_voltage_end is not None:
+                        first_command_profile.attrs["selected_support_voltage_nonzero_end_s"] = support_voltage_end
+                    if support_original_start is not None:
+                        first_command_profile.attrs["selected_support_original_nonzero_start_s"] = support_original_start
+                    if support_original_end is not None:
+                        first_command_profile.attrs["selected_support_original_nonzero_end_s"] = support_original_end
+                    first_command_profile.attrs["selected_support_source_file"] = compensation.get("selected_support_source_file")
+            finite_first_phase_meta: dict[str, object] = {}
+            if modeling_input_mode == "finite_startup_aware" and finite_cycle_mode:
+                first_command_profile, finite_first_phase_meta = apply_finite_first_phase_sync_modeling(
+                    first_command_profile,
                     freq_hz=float(target_freq),
-                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else None,
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else 1.0,
+                    mode=finite_first_modeling_mode,
+                    target_peak_field_mT=float(
+                        applied_for_modeling.get(
+                            "user_target_peak_field_mT",
+                            st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0),
+                        )
+                        or 50.0
+                    ),
                 )
+                command_profile = first_command_profile.copy(deep=True)
                 compensation["command_profile"] = command_profile
-            plot_command_profile = _prepare_semantic_compensation_plot_profile(command_profile)
+            if modeling_input_mode == "continuous_steady_state":
+                first_bundle = run_continuous_first_modeling(
+                    extraction_result=continuous_extraction_case,
+                    freq_hz=float(target_freq),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
+                )
+                if first_bundle.get("status") != "ok":
+                    st.session_state["continuous_first_modeling_input_valid"] = False
+                    st.session_state["continuous_first_modeling_block_reason"] = first_bundle.get("error_reason")
+                    st.warning(f"Continuous 1차 모델링 command 생성에 실패했습니다: {first_bundle.get('error_reason')}")
+                    return
+                first_command_profile = first_bundle["command_profile"].copy(deep=True)
+                continuous_first_meta = dict(first_bundle.get("first_model_metadata") or {})
+                st.session_state["quick_lut_first_model_result_continuous_metadata"] = continuous_first_meta
+                st.session_state["continuous_first_modeling_run_id"] = _runtime_git_value("rev-parse", "--short", "HEAD")
+                st.markdown("#### Continuous 1차 모델링 command")
+                st.caption("1cycle 반복 출력용 voltage LUT")
+                st.caption("목표 자기장 vs 보정 계산용 실측 자기장 / 보정 전압 변화량")
+                first_command_profile["modeling_input_mode"] = "continuous_steady_state"
+                first_command_profile["continuous_production_cycle_count"] = 1.0
+                first_command_profile["continuous_repeating_lut"] = True
+                first_command_profile["startup_transient_excluded"] = True
+                first_command_profile["steady_state_cycle_extraction_used"] = True
+                first_command_profile["zero_return_tail_enabled"] = False
+                first_command_profile["continuous_zero_return_tail_enabled"] = False
+                first_command_profile["continuous_loop_output"] = True
+                first_command_profile["continuous_export_cycle_count"] = 1.0
+                first_command_profile["loop_endpoint_policy"] = "period_exclusive"
+            target_config_for_result = target_config_snapshot(
+                st.session_state.get("quick_lut_config_used_for_modeling") or quick_target_config
+            )
+            first_target_metadata = modeling_metadata_from_target_config(target_config_for_result, prefix="modeled")
+            st.session_state["quick_lut_first_model_result"] = {
+                "command_profile": first_command_profile.copy(deep=True),
+                "metadata": {
+                    "source": "quick_lut_first_model",
+                    "waveform_type": str(target_waveform) if target_waveform is not None else None,
+                    "freq_hz": float(target_freq),
+                    "cycle_count": float(target_cycle_count) if target_cycle_count is not None else None,
+                    "command_source_column": "limited_voltage_v",
+                    "modeling_input_mode": modeling_input_mode,
+                    **finite_first_phase_meta,
+                    "continuous_production_cycle_count": 1.0 if modeling_input_mode == "continuous_steady_state" else None,
+                    "continuous_repeating_lut": modeling_input_mode == "continuous_steady_state",
+                    "zero_return_tail_enabled": False if modeling_input_mode == "continuous_steady_state" else None,
+                    **first_target_metadata,
+                },
+            }
+            if modeling_input_mode == "continuous_steady_state":
+                st.session_state["quick_lut_first_model_result_continuous"] = normalize_continuous_result_contract(
+                    {
+                        "command_profile": first_command_profile.copy(deep=True),
+                        "metadata": {
+                            **continuous_first_meta,
+                            **st.session_state["quick_lut_first_model_result"]["metadata"],
+                            "continuous_first_modeling_status": "ok",
+                        },
+                    },
+                    "first",
+                )
+            plot_command_profile = _prepare_semantic_compensation_plot_profile(first_command_profile)
             (
                 reference_profile,
                 reference_column,
@@ -2145,28 +2916,37 @@ def _render_quick_lut_tab_v2(
             available_gain_pct = float(command_profile["available_amp_gain_pct"].iloc[0])
             amp_output_pp = float(command_profile["amp_output_pp_at_required"].iloc[0])
             output_unit = compensation["target_output_unit"]
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("DAQ Voltage PP", f"{limited_voltage_pp:.3f} V")
-            c2.metric(
-                f"목표 {compensation['target_output_label']}",
-                f"{compensation['target_output_pp']:.3f} {output_unit}",
-            )
-            c3.metric("지원 실험점 수", f"{compensation['support_point_count']}")
-            c4.metric("필요 AMP Gain", f"{required_gain_pct:.1f} %")
-            c5.metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
-            st.caption(
-                f"raw recommended voltage pp={recommended_voltage_pp:.3f} V, "
-                f"DAQ limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
-                f"AMP output={amp_output_pp:.1f} Vpp"
-            )
-            if compensation["within_hardware_limits"]:
-                st.success(
-                    f"하드웨어 가능: 필요 AMP gain {required_gain_pct:.1f}% / 사용 가능 {available_gain_pct:.1f}%"
+            configured_target_peak = float(
+                target_config_for_result.get(
+                    "user_target_peak_field_mT",
+                    st.session_state.get("quick_lut_user_target_peak_field_mT", 50.0),
                 )
-            else:
-                st.error(
-                    f"하드웨어 제한 초과: 필요 AMP gain {required_gain_pct:.1f}% / 사용 가능 {available_gain_pct:.1f}%"
+                or 50.0
+            )
+            summary_cols = st.columns(3)
+            summary_cols[0].metric("목표 피크 자기장", f"±{configured_target_peak:g} mT")
+            summary_cols[1].metric("모델링 정규화 기준", f"±{configured_target_peak:g} mT")
+            summary_cols[2].metric("추정 출력 lag", f"{compensation['estimated_output_lag_seconds']:.4f} s")
+            st.caption("목표 자기장 개형: fixed rounded triangle. 목표 피크값과 내부 정규화 기준은 분리되어 표시됩니다.")
+            with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                st.caption("현재 모델링 의미와 무관한 legacy calibration diagnostic입니다.")
+                c1.metric("Legacy voltage PP", f"{limited_voltage_pp:.3f} V")
+                c2.metric("Legacy required gain", f"{required_gain_pct:.1f} %")
+                c3.metric("Legacy amplifier output", f"{amp_output_pp:.1f} Vpp")
+                st.caption(
+                    f"raw recommended voltage pp={recommended_voltage_pp:.3f} V, "
+                    f"legacy voltage limit={compensation['max_daq_voltage_pp']:.1f} Vpp, "
+                    f"legacy amplifier output={amp_output_pp:.1f} Vpp"
                 )
+                if compensation["within_hardware_limits"]:
+                    st.success(
+                        f"Legacy calibration reference ok: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                    )
+                else:
+                    st.warning(
+                        f"Legacy calibration reference exceeds limit: required gain {required_gain_pct:.1f}% / available {available_gain_pct:.1f}%"
+                    )
 
             comp_left, comp_right = st.columns(2)
             with comp_left:
@@ -2177,9 +2957,9 @@ def _render_quick_lut_tab_v2(
                     title=(
                         "Current Waveform Compensation"
                         if compensation_target_type == "current"
-                        else f"Field Waveform Compensation: {main_field_axis}"
+                        else "정규화 field 기반 1차 모델링 입력 검토"
                     ),
-                    yaxis_title=("Current (A)" if compensation_target_type == "current" else f"{main_field_axis} (mT)"),
+                    yaxis_title=("Current (A)" if compensation_target_type == "current" else "field (mT, normalized)"),
                     reference_label=reference_label,
                 )
                 compensation_figure = _retitle_compensation_semantics_figure(compensation_figure)
@@ -2189,6 +2969,7 @@ def _render_quick_lut_tab_v2(
                     compensation_figure,
                     use_container_width=True,
                 )
+                st.caption("이 plot은 목표 field, 선택된 support field preview, phase/model prediction의 관계를 검토합니다. 전압 command 자체는 오른쪽 1차 모델링 command plot과 export source를 기준으로 합니다.")
                 _render_support_trace_marker(
                     compensation,
                     command_profile,
@@ -2199,118 +2980,130 @@ def _render_quick_lut_tab_v2(
                 )
             with comp_right:
                 command_figure = _retitle_command_waveform_figure(
-                    plot_command_waveform(command_profile, value_column="limited_voltage_v")
+                    plot_command_waveform(first_command_profile, value_column="limited_voltage_v"),
+                    first_command_profile,
                 )
                 st.plotly_chart(
                     command_figure,
                     use_container_width=True,
                 )
             if finite_cycle_mode:
-                st.caption(
-                    "그래프의 `Target Output`은 전압 0초 시작 기준으로 정렬된 목표이고, "
-                    "`Lag-Compensated Target`은 내부 보정 계산에 사용된 선행 목표입니다."
-                )
+                render_finite_first_phase_sync_review(first_command_profile, finite_first_phase_meta)
                 _render_finite_route_marker(compensation)
-                st.caption(
-                    "Plot semantics: `Physical Target` is the requested field waveform; `Support Reference` is not "
-                    "the target; `Predicted Output` is the model response; `Command Waveform` is shown separately. "
-                )
+                st.caption("데이터 선택 요약: 선택된 support/input family와 목표 주파수/cycle 조건으로 1차 command를 계산했습니다.")
                 with st.expander("Advanced / Debug plot references", expanded=False):
                     st.caption(
-                        "`Internal Reference (debug, hidden by default)` may appear as a legend-only trace when the "
-                        "backend provides an internal lag/support-conditioned reference. It is not the physical target."
+                        "`Internal Reference (debug, hidden by default)`는 backend가 내부 lag/support-conditioned "
+                        "reference를 제공할 때 legend-only trace로만 표시됩니다. 이것은 physical target이 아닙니다."
                     )
-                _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
-                _render_support_reference_provenance_panel(compensation, command_profile)
-                _render_command_prediction_consistency_card(compensation, command_profile)
-                _render_finite_prediction_availability(compensation)
-                _render_end_marker_summary(compensation, command_profile)
-                _render_finite_signal_consistency_summary(compensation, command_profile)
-                render_startup_compensation_review(compensation, command_profile)
-                _render_finite_cycle_correction_summary(compensation, command_profile)
-                render_feedback_correction_review(command_profile, feedback_metadata or {})
+                    st.caption(
+                        "Legacy provenance labels are kept here only for debugging."
+                    )
+                with st.expander("데이터 선택 상세 / Debug", expanded=False):
+                    _render_support_family_selection_marker(compensation, requested_support_family=target_waveform)
+                    # Contract marker: _render_support_reference_provenance_panel(compensation, command_profile)
+                    _render_support_reference_provenance_panel(compensation, first_command_profile)
+                    # Contract marker: _render_command_prediction_consistency_card(compensation, command_profile)
+                    _render_command_prediction_consistency_card(compensation, first_command_profile)
+                    _render_finite_prediction_availability(compensation)
+                    _render_end_marker_summary(compensation, first_command_profile)
+                    # Contract marker: _render_finite_signal_consistency_summary(compensation, command_profile)
+                    _render_finite_signal_consistency_summary(compensation, first_command_profile)
+                    render_startup_compensation_review(compensation, first_command_profile)
+                # Contract marker: _render_finite_cycle_correction_summary(compensation, command_profile)
+                _render_finite_cycle_correction_summary(compensation, first_command_profile)
+                render_second_modeling_controls(
+                    command_profile=first_command_profile,
+                    feedback_selection=feedback_selection,
+                    freq_hz=float(target_freq),
+                    cycle_count=float(target_cycle_count) if target_cycle_count is not None else float("nan"),
+                    waveform_type=str(target_waveform) if target_waveform is not None else None,
+                )
             else:
                 st.caption("현재는 steady-state 모드라 기존 1-cycle 보정 로직을 그대로 사용합니다.")
-                render_startup_compensation_review(compensation, command_profile)
+                with st.expander("Advanced / Legacy startup compensation review", expanded=False):
+                    render_startup_compensation_review(compensation, command_profile)
 
-            st.write(f"- mode: `{compensation['mode']}`")
-            st.write(f"- current axis: `{current_channel}`")
-            st.write(f"- target output type: `{compensation['target_output_type']}`")
-            st.write(f"- finite cycle mode: `{compensation['finite_cycle_mode']}`")
-            if compensation["finite_cycle_mode"]:
-                st.write(f"- active cycle count: `{compensation['target_cycle_count']:.2f}`")
-                st.write(f"- preview tail cycles: `{compensation['preview_tail_cycles']:.2f}`")
-            st.write(
-                f"- estimated output lag: `{compensation['estimated_output_lag_seconds']:.6f}` s "
-                f"(`{compensation['estimated_output_lag_cycles']:.4f}` cycle)"
-            )
-            st.write(
-                f"- requested/used freq: `{compensation['requested_freq_hz']:.3f}` / "
-                f"`{compensation['used_freq_hz']:.3f}` Hz"
-            )
-            st.write(
-                f"- available freq range: `{compensation['available_freq_min']:.3f}` ~ "
-                f"`{compensation['available_freq_max']:.3f}` Hz "
-                f"({compensation['frequency_support_count']} freq)"
-            )
-            st.write(f"- nearest support test: `{compensation['nearest_test_id']}`")
-            st.write(
-                f"- available output pp: `{compensation['available_output_pp_min']:.3f}` ~ "
-                f"`{compensation['available_output_pp_max']:.3f}` {output_unit}"
-            )
-            st.write(f"- raw recommended voltage pp: `{recommended_voltage_pp:.3f}` V")
-            st.write(f"- DAQ-limited voltage pp: `{limited_voltage_pp:.3f}` V")
-            st.write(f"- required dc amp gain multiplier: `{required_gain_multiplier:.3f}x`")
-            st.write(f"- support amp gain: `{compensation['support_amp_gain_pct']:.1f}` %")
-            st.write(f"- required amp gain: `{required_gain_pct:.1f}` %")
-            st.write(f"- available amp gain: `{available_gain_pct:.1f}` %")
-            st.write(f"- amp output at required gain: `{compensation['amp_output_pp_at_required']:.3f}` Vpp")
-            st.write(f"- within hardware limits: `{compensation['within_hardware_limits']}`")
-            if pd.notna(compensation["scale_ratio_from_nearest"]):
-                st.write(f"- nearest profile scale ratio: `{compensation['scale_ratio_from_nearest']:.3f}`")
+            with st.expander("데이터 선택 상세 / Debug", expanded=False):
+                st.write(f"- mode: `{compensation['mode']}`")
+                st.write(f"- current axis: `{current_channel}`")
+                st.write(f"- legacy target metric type: `{compensation['target_output_type']}`")
+                st.write(f"- finite cycle mode: `{compensation['finite_cycle_mode']}`")
+                if compensation["finite_cycle_mode"]:
+                    st.write(f"- active cycle count: `{compensation['target_cycle_count']:.2f}`")
+                    st.write(f"- preview tail cycles: `{compensation['preview_tail_cycles']:.2f}`")
+                st.write(
+                    f"- estimated output lag: `{compensation['estimated_output_lag_seconds']:.6f}` s "
+                    f"(`{compensation['estimated_output_lag_cycles']:.4f}` cycle)"
+                )
+                st.write(
+                    f"- requested/used freq: `{compensation['requested_freq_hz']:.3f}` / "
+                    f"`{compensation['used_freq_hz']:.3f}` Hz"
+                )
+                st.write(
+                    f"- available freq range: `{compensation['available_freq_min']:.3f}` ~ "
+                    f"`{compensation['available_freq_max']:.3f}` Hz "
+                    f"({compensation['frequency_support_count']} freq)"
+                )
+                st.write(f"- nearest support test: `{compensation['nearest_test_id']}`")
+                st.write(
+                    f"- available output pp: `{compensation['available_output_pp_min']:.3f}` ~ "
+                    f"`{compensation['available_output_pp_max']:.3f}` {output_unit}"
+                )
+                st.write(f"- raw recommended voltage pp: `{recommended_voltage_pp:.3f}` V")
+                st.write(f"- DAQ-limited voltage pp: `{limited_voltage_pp:.3f}` V")
+                st.write(f"- required dc amp gain multiplier: `{required_gain_multiplier:.3f}x`")
+                st.write(f"- support amp gain: `{compensation['support_amp_gain_pct']:.1f}` %")
+                st.write(f"- required amp gain: `{required_gain_pct:.1f}` %")
+                st.write(f"- available amp gain: `{available_gain_pct:.1f}` %")
+                st.write(f"- amp output at required gain: `{compensation['amp_output_pp_at_required']:.3f}` Vpp")
+                st.write(f"- within hardware limits: `{compensation['within_hardware_limits']}`")
+                if pd.notna(compensation["scale_ratio_from_nearest"]):
+                    st.write(f"- nearest profile scale ratio: `{compensation['scale_ratio_from_nearest']:.3f}`")
 
-            st.markdown("#### 보정 LUT 실험점")
-            st.dataframe(compensation["support_table"], use_container_width=True)
+            with st.expander("상세 진단 / Debug", expanded=False):
+                st.markdown("#### 보정 LUT 실험점")
+                st.dataframe(compensation["support_table"], use_container_width=True)
 
-            control_formula = build_control_formula(command_profile, value_column="limited_voltage_v")
-            if control_formula is not None:
-                st.markdown("#### 제어 전달용 수식")
-                mode_text = "finite run piecewise formula" if control_formula["finite_cycle_mode"] else "steady-state periodic formula"
-                st.caption(f"제어파트 전달용 표현: {mode_text}")
-                fc1, fc2, fc3 = st.columns(3)
-                fc1.metric("Fourier RMSE", f"{control_formula['rmse']:.4f} V")
-                fc2.metric("Fourier NRMSE", f"{control_formula['nrmse']:.2%}")
-                fc3.metric("최대 절대오차", f"{control_formula['max_abs_error']:.4f} V")
-                st.plotly_chart(
-                    plot_formula_comparison(control_formula["reconstruction_frame"]),
-                    use_container_width=True,
-                )
-                st.code(control_formula["formula_text"], language="text")
-                st.markdown("#### 제어용 Python 식")
-                st.code(control_formula["python_snippet"], language="python")
-                st.markdown("#### 조화파 계수표")
-                st.dataframe(control_formula["coefficient_table"], use_container_width=True)
+                control_formula = build_control_formula(command_profile, value_column="limited_voltage_v")
+                if control_formula is not None:
+                    st.markdown("#### 제어 전달용 수식")
+                    mode_text = "finite run piecewise formula" if control_formula["finite_cycle_mode"] else "steady-state periodic formula"
+                    st.caption(f"제어파트 전달용 표현: {mode_text}")
+                    fc1, fc2, fc3 = st.columns(3)
+                    fc1.metric("Fourier RMSE", f"{control_formula['rmse']:.4f} V")
+                    fc2.metric("Fourier NRMSE", f"{control_formula['nrmse']:.2%}")
+                    fc3.metric("최대 절대오차", f"{control_formula['max_abs_error']:.4f} V")
+                    st.plotly_chart(
+                        plot_formula_comparison(control_formula["reconstruction_frame"]),
+                        use_container_width=True,
+                    )
+                    st.code(control_formula["formula_text"], language="text")
+                    st.markdown("#### 제어용 Python 식")
+                    st.code(control_formula["python_snippet"], language="python")
+                    st.markdown("#### 조화파 계수표")
+                    st.dataframe(control_formula["coefficient_table"], use_container_width=True)
 
-                formula_text_bytes = control_formula["formula_text"].encode("utf-8")
-                coeff_csv_bytes = control_formula["coefficient_table"].to_csv(index=False).encode("utf-8-sig")
-                formula_file_prefix = (
-                    f"control_formula_{target_waveform}_{float(target_freq):g}Hz_"
-                    f"{compensation['target_output_type']}_{compensation_target_current_pp:g}"
-                )
-                st.download_button(
-                    label="제어 수식 TXT 다운로드",
-                    data=formula_text_bytes,
-                    file_name=f"{formula_file_prefix}.txt",
-                    mime="text/plain",
-                    key="download_comp_formula_txt_v2",
-                )
-                st.download_button(
-                    label="조화파 계수 CSV 다운로드",
-                    data=coeff_csv_bytes,
-                    file_name=f"{formula_file_prefix}_coefficients.csv",
-                    mime="text/csv",
-                    key="download_comp_formula_coeffs_v2",
-                )
+                    formula_text_bytes = control_formula["formula_text"].encode("utf-8")
+                    coeff_csv_bytes = control_formula["coefficient_table"].to_csv(index=False).encode("utf-8-sig")
+                    formula_file_prefix = (
+                        f"control_formula_{target_waveform}_{float(target_freq):g}Hz_"
+                        f"{compensation['target_output_type']}_{compensation_target_current_pp:g}"
+                    )
+                    st.download_button(
+                        label="제어 수식 TXT 다운로드",
+                        data=formula_text_bytes,
+                        file_name=f"{formula_file_prefix}.txt",
+                        mime="text/plain",
+                        key="download_comp_formula_txt_v2",
+                    )
+                    st.download_button(
+                        label="조화파 계수 CSV 다운로드",
+                        data=coeff_csv_bytes,
+                        file_name=f"{formula_file_prefix}_coefficients.csv",
+                        mime="text/csv",
+                        key="download_comp_formula_coeffs_v2",
+                    )
 
             comp_csv = command_profile.to_csv(index=False).encode("utf-8-sig")
             comp_file_name = (
@@ -2332,6 +3125,12 @@ def _render_quick_lut_tab_v2(
                 freq_hz=float(target_freq),
                 cycle_count=target_cycle_count,
             )
+            if modeling_input_mode == "continuous_steady_state":
+                render_continuous_final_voltage_lut_export_section(
+                    waveform_type=target_waveform,
+                    freq_hz=float(target_freq),
+                    key_namespace="quick_lut_compensation_result",
+                )
 
             if finite_cycle_mode:
                 finite_model = _build_empirical_finite_model(
@@ -2442,16 +3241,17 @@ def _render_quick_lut_tab_v2(
         elif recommendation["in_range"]:
             st.success("선택한 목표값이 실험 데이터 범위 안에 있어 보간으로 계산했습니다.")
         else:
-            if recommendation["allow_target_extrapolation"]:
-                st.warning(
-                    "목표값이 실험 데이터 범위를 벗어나 외삽으로 계산했습니다. "
-                    f"support={recommendation['available_target_min']:.3f} ~ {recommendation['available_target_max']:.3f}"
-                )
-            else:
-                st.warning(
-                    "목표값이 실험 데이터 범위를 벗어나 nearest clamp로 계산했습니다. "
-                    f"사용값={recommendation['used_target_value']:.3f}"
-                )
+            with st.expander("Advanced / Legacy support range diagnostics", expanded=False):
+                if recommendation["allow_target_extrapolation"]:
+                    st.warning(
+                        "legacy scalar LUT target value is outside support range and was extrapolated. "
+                        f"support={recommendation['available_target_min']:.3f} ~ {recommendation['available_target_max']:.3f}"
+                    )
+                else:
+                    st.warning(
+                        "legacy scalar LUT target value is outside support range and was nearest-clamped. "
+                        f"used={recommendation['used_target_value']:.3f}"
+                    )
         if recommendation["frequency_mode"] == "frequency_interpolated":
             st.info(
                 f"주파수 trend 보간 사용: 요청 {recommendation['requested_freq_hz']:.3f} Hz, "
@@ -2470,16 +3270,17 @@ def _render_quick_lut_tab_v2(
         )
         c3.metric("Support Freqs", f"{recommendation['frequency_support_count']}")
         c4.metric("Waveform Scope", str(recommendation["recommendation_scope_label"]))
-        st.caption(
-            f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
-            f"DAQ limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
-            f"AMP output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
-        )
-        if recommendation["within_hardware_limits"]:
-            st.info("Equipment note: the recommended voltage stays within current DAQ / AMP limits.")
-        else:
-            st.warning("Equipment note: the recommended voltage exceeds current DAQ / AMP limits.")
-        _render_lut_equipment_debug(recommendation)
+        with st.expander("Advanced / Legacy equipment diagnostics", expanded=False):
+            st.caption(
+                f"raw recommended voltage pp={recommendation['estimated_voltage_pp']:.3f} V, "
+                f"legacy voltage limit={recommendation['max_daq_voltage_pp']:.1f} Vpp, "
+                f"legacy amplifier output={recommendation['amp_output_pp_at_required']:.1f} Vpp"
+            )
+            if recommendation["within_hardware_limits"]:
+                st.info("Legacy equipment note: the recommended voltage stays within legacy calibration limits.")
+            else:
+                st.warning("Legacy equipment note: the recommended voltage exceeds legacy calibration limits.")
+            _render_lut_equipment_debug(recommendation)
 
         lut_left, lut_right = st.columns(2)
         with lut_left:
@@ -2513,10 +3314,8 @@ def _render_quick_lut_tab_v2(
 
         st.write(f"- template test: `{recommendation['template_test_id']}`")
         st.write(f"- support waveform family: `{recommendation['support_waveform_type']}` (`{recommendation['support_waveform_role']}`)")
-        st.write(
-            f"- fixed field target: `{recommendation['field_only_target_shape']}` / "
-            f"`{recommendation['field_only_fixed_target_pp']:.0f}pp`"
-        )
+        st.write(f"- target field shape: `{recommendation['field_only_target_shape']}`")
+        st.write("- modeling normalization reference: `user_target_peak_mT`")
         st.write(f"- target metric: `{target_metric_label(target_metric)}`")
         st.write(f"- recommendation scope: `{recommendation['recommendation_scope_label']}`")
         st.write(f"- finite cycle mode: `{recommendation['finite_cycle_mode']}`")
@@ -2539,13 +3338,14 @@ def _render_quick_lut_tab_v2(
             f"(range `{recommendation['available_target_min']:.3f}` ~ `{recommendation['available_target_max']:.3f}`)"
         )
         st.write(f"- mode: `{recommendation['recommendation_mode']}`")
-        st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
-        st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
+        with st.expander("Advanced / Legacy hardware diagnostics", expanded=False):
+            st.write(f"- raw recommended voltage pp: `{recommendation['estimated_voltage_pp']:.3f}` V")
+            st.write(f"- DAQ-limited voltage pp: `{recommendation['limited_voltage_pp']:.3f}` V")
+            st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
         st.write(
             "- main shape-selection excludes: "
             f"`{', '.join(recommendation['shape_selection_excludes'])}`"
         )
-        st.write("- equipment note: gain and hardware numbers are reference-only, not the primary modeling target")
 
         st.markdown("#### 근거 실험점")
         neighbor_points = recommendation["neighbor_points"].copy()

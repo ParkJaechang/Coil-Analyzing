@@ -80,6 +80,7 @@ def test_actual_drive_cache_add_edit_delete_uses_scalar_ids() -> None:
 def test_upload_cache_ui_source_has_management_markers_and_no_mojibake() -> None:
     sources = {
         "lut": (SRC_ROOT / "field_analysis" / "ui_voltage_lut_review.py").read_text(encoding="utf-8"),
+        "lut_export": (SRC_ROOT / "field_analysis" / "ui_final_voltage_lut_export.py").read_text(encoding="utf-8"),
         "actual": (SRC_ROOT / "field_analysis" / "ui_actual_drive_cache.py").read_text(encoding="utf-8"),
         "actual_review": (SRC_ROOT / "field_analysis" / "ui_finite_actual_drive_review.py").read_text(encoding="utf-8"),
     }
@@ -97,7 +98,7 @@ def test_upload_cache_ui_source_has_management_markers_and_no_mojibake() -> None
         "업로드된 validation 캐시",
         "캐시가 비어 있습니다",
         "읽을 수 없음",
-        "최종 모델링 전압 LUT CSV 다운로드",
+        "최종 전압 LUT 추출",
         "LUT Review",
         "실구동 결과 리뷰",
         "2차 보정 전압은 계산하지 않습니다",

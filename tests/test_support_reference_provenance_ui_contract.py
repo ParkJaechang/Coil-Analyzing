@@ -15,12 +15,12 @@ def test_support_reference_provenance_panel_markers_exist() -> None:
     source = _source()
 
     expected_markers = [
-        "Support Reference Provenance",
-        "Raw Selected Support Source",
-        "Target-aligned Support Reference",
-        "Override / Match Reason",
-        "Raw selected support is the original uploaded/support record.",
-        "Target-aligned support reference is the plotted support trace aligned to the target timebase.",
+        "참조 데이터 출처 / Debug",
+        "원본 선택 support source",
+        "Target timebase 정렬 support reference",
+        "Override / matching 사유",
+        "raw selected support는 업로드/라이브러리 원본 record입니다.",
+        "target-aligned support reference는 target timebase에 맞춘 비교 trace이며",
         "_render_support_reference_provenance_panel(compensation, command_profile)",
     ]
     missing = [marker for marker in expected_markers if marker not in source]
@@ -59,31 +59,31 @@ def test_support_reference_provenance_payload_keys_are_used() -> None:
 def test_support_reference_provenance_explains_requested_vs_selected_split() -> None:
     source = _source()
 
-    assert "Requested support family:" in source
-    assert "Selected support family:" in source
-    assert "Requested cycle:" in source
-    assert "Selected support cycle:" in source
-    assert "support reference is not the physical target" in source.lower()
+    assert "요청 support family:" in source
+    assert "선택 support family:" in source
+    assert "요청 cycle:" in source
+    assert "선택 support cycle:" in source
+    assert "물리 목표 자기장이 아닙니다" in source
 
 
 def test_command_prediction_consistency_status_card_markers_exist() -> None:
     source = _source()
 
     expected_markers = [
-        "Command Prediction Consistency",
-        "Command target: Physical Target",
-        "Support Reference role: Diagnostic only",
-        "Support Reference used for command:",
-        "Predicted output source:",
-        "Predicted from plotted command:",
-        "Command prediction consistency:",
-        "Support Reference shape mismatch:",
-        "Support/target corr:",
-        "Support/target NRMSE:",
+        "전압 예측 일관성 / Debug",
+        "command 기준 target: fixed rounded triangle",
+        "support reference 역할: 진단용",
+        "support reference가 command에 사용됨:",
+        "예측 field source:",
+        "표시 command 기준 예측 여부:",
+        "전압 예측 일관성:",
+        "support reference shape mismatch:",
+        "support/target 상관:",
+        "support/target NRMSE:",
         "Command/prediction consistency metadata unavailable",
-        "Support Reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다.",
-        "추천 전압은 Physical Target을 기준으로 계산됩니다.",
-        "Predicted Output은 표시된 추천 전압 command 기준 forward prediction입니다.",
+        "support reference는 명령 목표가 아니라 선택된 support의 비교/진단용 trace입니다.",
+        "추천 전압은 fixed rounded triangle target 기준으로 계산됩니다.",
+        "predicted field는 표시된 command 기준 forward prediction입니다.",
         "_render_command_prediction_consistency_card(compensation, command_profile)",
     ]
     missing = [marker for marker in expected_markers if marker not in source]

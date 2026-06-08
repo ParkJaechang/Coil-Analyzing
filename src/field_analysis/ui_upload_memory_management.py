@@ -17,6 +17,7 @@ from .ui_upload_state import delete_upload_memory_group
 from .ui_upload_state import delete_upload_memory_items as delete_upload_memory_items_by_id
 from .ui_upload_state import persist_uploaded_files
 from .ui_upload_state import reset_uploader_session_state
+from .ui_upload_memory_status import upload_memory_status
 
 
 GROUP_UPLOAD_LABELS = {
@@ -63,7 +64,10 @@ def build_upload_memory_group_records(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[dict[str, Any]]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     records: list[dict[str, Any]] = []
     for item in build_upload_memory_items(paths=resolved_paths):
         if item.get("category") != category:
@@ -74,6 +78,7 @@ def build_upload_memory_group_records(
                 "category": category,
                 "upload_item_id": str(item.get("upload_item_id") or ""),
                 "original filename": str(item.get("original_filename") or ""),
+                "canonical filename": str(item.get("canonical_filename") or item.get("original_filename") or ""),
                 "stored filename": str(item.get("stored_filename") or ""),
                 "stored path": str(item.get("stored_path") or ""),
                 "internal id": str(item.get("upload_item_id") or ""),
@@ -96,7 +101,10 @@ def find_duplicate_upload_names(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[str]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     existing = {
         str(item.get("original_filename") or "")
         for item in build_upload_memory_items(paths=resolved_paths)
@@ -111,7 +119,10 @@ def delete_upload_memory_items(
     *,
     paths: UploadStatePaths | None = None,
 ) -> list[str]:
+    from .upload_category_aliases import normalize_upload_category
+
     resolved_paths = paths or build_upload_state_paths()
+    category = normalize_upload_category(category)
     requested = {str(value) for value in item_ids_or_stored_names if str(value)}
     resolved_ids: list[str] = []
     for item in build_upload_memory_items(paths=resolved_paths):
@@ -129,10 +140,16 @@ def render_upload_memory_management(*, paths: UploadStatePaths | None = None) ->
     resolved_paths = paths or build_upload_state_paths()
     st.caption("Upload memory")
     st.caption("Manage cached uploads per file. Selection values are stable scalar upload_item_id values.")
+    st.caption("표시명은 원본/canonical 파일명입니다. 저장명에 붙은 hash prefix는 내부 충돌 방지용입니다.")
     _render_danger_actions(resolved_paths)
     _render_summary(resolved_paths)
-    for category in UPLOAD_CATEGORIES:
-        _render_group(category, resolved_paths)
+    with st.expander("Legacy / 고급 업로드", expanded=False):
+        st.warning(
+            "현재 기본 Quick LUT workflow는 Global upload memory, Dataset Library, 지정 폴더 자동 로드를 우선 사용합니다. "
+            "아래 수동 업로드/삭제 UI는 legacy 또는 복구 작업이 필요할 때만 사용하십시오."
+        )
+        for category in UPLOAD_CATEGORIES:
+            _render_group(category, resolved_paths)
 
 
 def _render_danger_actions(paths: UploadStatePaths) -> None:
@@ -159,6 +176,13 @@ def _render_summary(paths: UploadStatePaths) -> None:
             st.dataframe(pd.DataFrame(rows)[["label", "count", "item_ids"]], hide_index=True, use_container_width=True)
     else:
         st.caption("No cached uploads.")
+        status = upload_memory_status(paths=paths)
+        missing = status.get("upload_memory_missing_remembered_counts", {})
+        if any(int(value or 0) for value in missing.values()):
+            st.warning(
+                "Upload manifest remembers files, but the physical cached files are missing. "
+                f"missing counts: {missing}"
+            )
 
 
 def _render_group(category: str, paths: UploadStatePaths) -> None:
@@ -198,6 +222,8 @@ def _render_group(category: str, paths: UploadStatePaths) -> None:
                 selected_ids.append(row_id)
             cols[1].write(f"**{row['original filename']}**")
             cols[1].caption(f"upload_item_id: {row_id}")
+            if row["stored filename"] != row["canonical filename"]:
+                cols[1].caption(f"storage filename: {row['stored filename']}")
             cols[2].caption(
                 f"size={row['file size']} bytes | waveform={row['parsed waveform'] or 'n/a'} | "
                 f"freq={_format_optional(row['parsed freq_hz'])} | cycle={_format_optional(row['parsed cycle_count'])} | "

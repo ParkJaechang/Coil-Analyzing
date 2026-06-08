@@ -18,8 +18,8 @@
 
 ## 고정 실험 조건
 
-- DAQ output: `±5V`
-- DAQ peak-to-peak: `10Vpp`
+- DAQ output: `±10V`
+- DAQ peak-to-peak: `20Vpp`
 - DCAMP Gain: `100%`
 
 ## 디렉터리 구성

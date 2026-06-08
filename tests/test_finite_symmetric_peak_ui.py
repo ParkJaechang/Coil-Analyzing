@@ -16,9 +16,9 @@ def test_raw_waveforms_normalization_and_symmetric_peak_ui_markers_exist() -> No
 
     assert "build_finite_symmetric_peak_review" in raw_ui
     assert "render_finite_symmetric_peak_review" in raw_ui
-    assert "Raw vs normalized field" in plot_ui
-    assert "Normalization panel" in plot_ui
-    assert "normalization enabled" in plot_ui
+    assert "raw/정규화 field trace" in plot_ui
+    assert "정규화 요약" in plot_ui
+    assert "정규화 사용" in plot_ui
     assert "source peak" in plot_ui
     assert "scale factor" in plot_ui
     assert "active window start/end" in plot_ui
@@ -32,7 +32,7 @@ def test_finite_symmetric_peak_ui_policy_and_metrics_markers_exist() -> None:
     plot_ui = (REPO_ROOT / "src" / "field_analysis" / "ui_raw_waveforms_plot.py").read_text(encoding="utf-8")
 
     expected = [
-        "Finite symmetric peak review",
+        "Finite 대칭 peak 검토",
         "지원 cycles: 1.0 / 1.5",
         "미지원 cycles: 1.25 / 1.75",
         "phase-delay peak correction disabled",
@@ -43,9 +43,9 @@ def test_finite_symmetric_peak_ui_policy_and_metrics_markers_exist() -> None:
         "peak_symmetry_ratio",
         "command_voltage_peak_v",
         "command_voltage_limit_status",
-        "normalized physical target",
+        "정규화 목표 자기장",
         "normalized field/predicted field",
-        "positive/negative lobe markers",
+        "양/음 lobe marker",
         "baseline command",
         "symmetric peak command candidate",
         "command delta",

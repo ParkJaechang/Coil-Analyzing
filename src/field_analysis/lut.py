@@ -7,6 +7,7 @@ import pandas as pd
 
 from .hardware import apply_command_hardware_model
 from .models import DatasetAnalysis
+from .target_templates import analytic_fixed_rounded_triangle_normalized
 from .utils import canonicalize_waveform_type, field_axis_display_name
 
 
@@ -104,33 +105,9 @@ def build_fixed_field_target_template(
     """Build the canonical rounded-triangle field target shape."""
 
     grid = np.linspace(0.0, 1.0, max(int(points_per_cycle), 8))
-    triangle = np.piecewise(
-        grid,
-        [
-            grid < 0.25,
-            (grid >= 0.25) & (grid < 0.5),
-            (grid >= 0.5) & (grid < 0.75),
-            grid >= 0.75,
-        ],
-        [
-            lambda value: 4.0 * value,
-            lambda value: 2.0 - 4.0 * value,
-            lambda value: -4.0 * (value - 0.5),
-            lambda value: -4.0 + 4.0 * value,
-        ],
+    normalized = _normalize_template_values(
+        analytic_fixed_rounded_triangle_normalized(grid, corner_fraction=float(smoothing_fraction) / 2.0)
     )
-
-    window_points = max(int(round(len(grid) * float(smoothing_fraction))), 3)
-    if window_points % 2 == 0:
-        window_points += 1
-    window = np.hanning(window_points)
-    if not np.isfinite(window).all() or np.sum(window) <= 0:
-        window = np.ones(window_points, dtype=float)
-    window = window / np.sum(window)
-    pad = window_points // 2
-    extended = np.concatenate([triangle[-pad:], triangle, triangle[:pad]])
-    rounded = np.convolve(extended, window, mode="same")[pad:-pad]
-    normalized = _normalize_template_values(rounded)
     period_s = 1.0 / freq_hz if freq_hz and freq_hz > 0 else 1.0
     return pd.DataFrame(
         {

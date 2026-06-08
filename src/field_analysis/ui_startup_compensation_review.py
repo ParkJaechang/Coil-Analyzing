@@ -12,7 +12,7 @@ def render_startup_compensation_review(
     compensation: dict[str, object],
     command_profile: pd.DataFrame,
 ) -> None:
-    st.markdown("#### Startup Compensation Review")
+    st.markdown("#### startup 과도응답 진단 / Advanced Legacy")
     st.caption(
         "이 섹션은 startup-aware compensation의 실사용자 검토용입니다. "
         "모델링 품질은 사용자 그래프 검수로 판단합니다. Physical Target은 변경되지 않습니다."
@@ -58,6 +58,8 @@ def render_startup_compensation_review(
         f"file={_startup_payload_value(compensation, command_profile, 'startup_source_file') or 'n/a'} | "
         f"support_id={_startup_payload_value(compensation, command_profile, 'startup_source_support_id') or 'n/a'}"
     )
+    st.caption("이 그래프는 1차 모델링 전압 command입니다.")
+    st.caption("2차 보정 command는 아래 2차 보정 command 섹션에서 별도로 표시됩니다.")
 
     plot_left, plot_right = st.columns(2)
     field_figure = _startup_plot(
@@ -81,8 +83,8 @@ def render_startup_compensation_review(
     voltage_figure = _startup_plot(
         command_profile,
         (
-            ("baseline_recommended_voltage_v", "Baseline Recommended Voltage", "dash"),
-            ("compensated_recommended_voltage_v", "Compensated Recommended Voltage", "solid"),
+            ("baseline_recommended_voltage_v", "1차 추천 전압 command", "dash"),
+            ("compensated_recommended_voltage_v", "전압 제한 적용 후 diagnostic", "solid"),
             ("startup_compensation_command_delta_v", "Startup Compensation Command Delta", "dot"),
         ),
         title="Startup Command Comparison",
@@ -94,6 +96,10 @@ def render_startup_compensation_review(
             st.caption("startup command comparison data unavailable")
         else:
             st.plotly_chart(voltage_figure, use_container_width=True)
+            with st.expander("Startup command source 상세 진단", expanded=False):
+                st.caption("1차 추천 전압 command: `baseline_recommended_voltage_v`")
+                st.caption("전압 제한 적용 후 diagnostic: `compensated_recommended_voltage_v`")
+                st.caption("2차 보정 command column은 이 그래프에 사용하지 않습니다.")
 
     metric_left, metric_right = st.columns(2)
     with metric_left:
@@ -156,7 +162,7 @@ def _render_startup_unavailable_panel(command_profile: pd.DataFrame) -> None:
         "startup_compensation_command_delta_v",
     )
     missing = [field for field in required_fields if field not in command_profile.columns]
-    st.info("Startup compensation data unavailable for this route.")
+    st.info("startup 과도응답 진단 데이터가 이 경로에서는 제공되지 않습니다.")
     st.caption(
         "시작 과도응답 보정 데이터가 이 경로에서는 제공되지 않습니다. "
         "finite-cycle field compensation에서 사용할 수 있습니다."

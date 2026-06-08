@@ -14,9 +14,27 @@ from .dataset_library import (
 )
 
 
-def render_dataset_library_panel() -> None:
+def dataset_library_status() -> dict[str, object]:
     settings = load_dataset_library_settings()
-    session_key = "dataset_library_root"
+    dataset_root = str(settings.get("dataset_root") or "").strip()
+    if not dataset_root:
+        return {
+            "dataset_root_path": "",
+            "dataset_manifest_exists": False,
+            "dataset_manifest_file_count": 0,
+        }
+    manifest_path = get_dataset_manifest_path(dataset_root)
+    manifest = load_dataset_manifest(dataset_root) if manifest_path.exists() else {"file_count": 0}
+    return {
+        "dataset_root_path": dataset_root,
+        "dataset_manifest_exists": manifest_path.exists(),
+        "dataset_manifest_file_count": int(manifest.get("file_count") or 0),
+    }
+
+
+def render_dataset_library_panel(*, key_prefix: str = "dataset_library") -> None:
+    settings = load_dataset_library_settings()
+    session_key = f"{key_prefix}_root"
     if session_key not in st.session_state:
         st.session_state[session_key] = str(settings.get("dataset_root") or "")
 
@@ -32,10 +50,10 @@ def render_dataset_library_panel() -> None:
         ).strip()
         current_manifest = None
         action_left, action_right = st.columns(2)
-        if action_left.button("Save Root", use_container_width=True, key="dataset_library_save"):
+        if action_left.button("Save Root", use_container_width=True, key=f"{key_prefix}_save"):
             save_dataset_library_settings({"dataset_root": dataset_root_value})
             st.success("Dataset root saved.")
-        if action_right.button("Manifest Refresh", use_container_width=True, key="dataset_library_refresh"):
+        if action_right.button("Manifest Refresh", use_container_width=True, key=f"{key_prefix}_refresh"):
             if not dataset_root_value:
                 st.warning("Enter a dataset root path first.")
             else:
@@ -125,4 +143,4 @@ def _format_dataset_entry_option(entry: dict[str, object]) -> str:
     return f"{path} ({size_bytes} bytes)"
 
 
-__all__ = ["render_dataset_library_file_selector", "render_dataset_library_panel"]
+__all__ = ["dataset_library_status", "render_dataset_library_file_selector", "render_dataset_library_panel"]

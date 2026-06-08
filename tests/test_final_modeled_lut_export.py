@@ -16,6 +16,8 @@ from field_analysis.final_modeled_lut import (
     final_modeled_voltage_lut_to_csv_bytes,
     load_final_modeled_voltage_lut,
 )
+from field_analysis.ui_final_voltage_lut_export import build_final_voltage_lut_frame, build_final_voltage_lut_filename, _tail_suffix
+from field_analysis.ui_continuous_final_lut_export import build_continuous_final_lut_frame
 
 
 def _command_profile() -> pd.DataFrame:
@@ -41,7 +43,6 @@ def test_export_final_modeled_lut_uses_limited_voltage_sample_by_sample() -> Non
         freq_hz=1.0,
         cycle_count=1.25,
         waveform="sine",
-        voltage_limit_v=5.0,
     )
 
     frame = payload["frame"]
@@ -59,6 +60,9 @@ def test_export_final_modeled_lut_uses_limited_voltage_sample_by_sample() -> Non
     assert metadata["sample_count"] == len(profile)
     assert "correction_delta_v" not in frame.columns
     assert "second_voltage_v" not in frame.columns
+    assert metadata["finite_production_cycle_supported"] is False
+    assert metadata["finite_production_export_status"] == "unsupported_cycle_policy_1p0_1p5_only"
+    assert metadata["production_cycle_policy"] == "1p0_1p5_cycles"
 
 
 def test_exported_lut_csv_round_trips_with_seconds_timebase_preserved() -> None:
@@ -114,3 +118,65 @@ def test_uploaded_lut_parser_reports_missing_required_schema_without_second_corr
     assert "voltage_v" in str(parsed["parse_error"])
     assert "correction_delta_v" not in parsed["frame"].columns
     assert "second_voltage_v" not in parsed["frame"].columns
+
+
+def test_export_one_cycle_reports_supported_finite_production_cycle() -> None:
+    payload = build_final_modeled_voltage_lut_export(_command_profile(), freq_hz=1.0, cycle_count=1.0, waveform="sine")
+
+    metadata = payload["metadata"]
+    assert metadata["finite_production_cycle_supported"] is True
+    assert metadata["finite_production_export_status"] == "ok"
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]
+    assert metadata["unsupported_cycles"] == [1.25, 1.75, 2.0]
+
+
+def test_export_one_point_five_cycle_reports_supported_finite_production_cycle() -> None:
+    payload = build_final_modeled_voltage_lut_export(_command_profile(), freq_hz=1.0, cycle_count=1.5, waveform="sine")
+
+    metadata = payload["metadata"]
+    assert metadata["finite_production_cycle_supported"] is True
+    assert metadata["finite_production_export_status"] == "ok"
+    assert metadata["production_supported_cycles"] == [1.0, 1.5]
+    assert metadata["cycle_count"] == 1.5
+
+
+def test_one_point_five_final_lut_filename_uses_actual_cycle() -> None:
+    filename = build_final_voltage_lut_filename(waveform_type="sine", freq_hz=2.0, cycle_count=1.5)
+
+    assert filename == "finite_recommended_voltage_lut_sine_2Hz_1.5cycle.csv"
+
+
+def test_second_export_tail_off_suffix_and_three_column_frame() -> None:
+    profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.5, 1.0],
+            "limited_voltage_v": [0.0, 1.0, 0.0],
+            "second_limited_voltage_v": [0.0, 0.8, 0.0],
+            "post_cycle_zero_tail_enabled": [False, False, False],
+        }
+    )
+
+    exported = build_final_voltage_lut_frame(profile, voltage_source_column="second_limited_voltage_v")
+
+    assert _tail_suffix(profile) == "_tailoff"
+    assert list(exported.columns) == ["sample_index", "time_s", "voltage_v"]
+    assert len(exported) == 3
+
+
+def test_continuous_final_lut_export_blocks_nan_voltage() -> None:
+    profile = pd.DataFrame(
+        {
+            "time_s": [0.0, 0.25, 0.5],
+            "limited_voltage_v": [0.0, np.nan, 1.0],
+            "continuous_loop_output": [True, True, True],
+            "loop_endpoint_policy": ["period_exclusive"] * 3,
+            "freq_hz": [1.0, 1.0, 1.0],
+        }
+    )
+
+    try:
+        build_continuous_final_lut_frame(profile, voltage_source_column="limited_voltage_v", freq_hz=1.0, stage="first")
+    except ValueError as exc:
+        assert "nonfinite_voltage" in str(exc)
+    else:  # pragma: no cover - assertion branch
+        raise AssertionError("expected nonfinite voltage export block")

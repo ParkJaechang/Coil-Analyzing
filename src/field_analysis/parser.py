@@ -33,8 +33,20 @@ CONTINUOUS_FILENAME_PATTERN = re.compile(
     r"^continuous_(?P<waveform>sine|sin|triangle|tri)_(?P<freq>\d+(?:[._p]\d+)?)hz$",
     flags=re.IGNORECASE,
 )
+CONTINUOUS_DEFAULT_TRIANGLE_FILENAME_PATTERN = re.compile(
+    r"^continuous_(?P<freq>\d+(?:[._p]\d+)?)hz$",
+    flags=re.IGNORECASE,
+)
 FINITE_FILENAME_PATTERN = re.compile(
     r"^finite_(?P<waveform>sine|sin|triangle|tri)_(?P<freq>\d+(?:[._p]\d+)?)hz_(?P<cycle>\d+(?:[._p]\d+)?)cycle$",
+    flags=re.IGNORECASE,
+)
+FINITE_DEFAULT_TRIANGLE_FILENAME_PATTERN = re.compile(
+    r"^finite_(?P<cycle>\d+(?:[._p]\d+)?)cycle_(?P<freq>\d+(?:[._p]\d+)?)hz$",
+    flags=re.IGNORECASE,
+)
+FINITE_DEFAULT_TRIANGLE_HZ_CYCLE_FILENAME_PATTERN = re.compile(
+    r"^(?:finite_)?(?P<freq>\d+(?:[._p]\d+)?)hz_(?P<cycle>\d+(?:[._p]\d+)?)cycle$",
     flags=re.IGNORECASE,
 )
 
@@ -72,6 +84,46 @@ def infer_dataset_filename_metadata(file_name: str) -> dict[str, Any]:
             "Target Current(A)": None,
             "filename_metadata_inferred": True,
         }
+    finite_default_match = FINITE_DEFAULT_TRIANGLE_FILENAME_PATTERN.match(stem)
+    if finite_default_match is not None:
+        freq_hz = _parse_filename_decimal(finite_default_match.group("freq"))
+        cycle_count = _parse_filename_decimal(finite_default_match.group("cycle"))
+        return {
+            "source_type": "finite_cycle",
+            "waveform": "triangle",
+            "waveform_type": "triangle",
+            "waveform_source": "default_triangle_filename",
+            "freq_hz": freq_hz,
+            "cycle": cycle_count,
+            "cycle_count": cycle_count,
+            "daq_amplitude_v": 5.0,
+            "daq_pp_v": 10.0,
+            "dcamp_gain_percent": 100.0,
+            "gain": 100.0,
+            "target_current_a": None,
+            "Target Current(A)": None,
+            "filename_metadata_inferred": True,
+        }
+    finite_hz_cycle_match = FINITE_DEFAULT_TRIANGLE_HZ_CYCLE_FILENAME_PATTERN.match(stem)
+    if finite_hz_cycle_match is not None:
+        freq_hz = _parse_filename_decimal(finite_hz_cycle_match.group("freq"))
+        cycle_count = _parse_filename_decimal(finite_hz_cycle_match.group("cycle"))
+        return {
+            "source_type": "finite_cycle",
+            "waveform": "triangle",
+            "waveform_type": "triangle",
+            "waveform_source": "default_triangle_filename_hz_cycle",
+            "freq_hz": freq_hz,
+            "cycle": cycle_count,
+            "cycle_count": cycle_count,
+            "daq_amplitude_v": 5.0,
+            "daq_pp_v": 10.0,
+            "dcamp_gain_percent": 100.0,
+            "gain": 100.0,
+            "target_current_a": None,
+            "Target Current(A)": None,
+            "filename_metadata_inferred": True,
+        }
 
     continuous_match = CONTINUOUS_FILENAME_PATTERN.match(stem)
     if continuous_match is not None:
@@ -81,6 +133,25 @@ def infer_dataset_filename_metadata(file_name: str) -> dict[str, Any]:
             "source_type": "continuous",
             "waveform": waveform_type,
             "waveform_type": waveform_type,
+            "freq_hz": freq_hz,
+            "cycle": None,
+            "cycle_count": None,
+            "daq_amplitude_v": 5.0,
+            "daq_pp_v": 10.0,
+            "dcamp_gain_percent": 100.0,
+            "gain": 100.0,
+            "target_current_a": None,
+            "Target Current(A)": None,
+            "filename_metadata_inferred": True,
+        }
+    continuous_default_match = CONTINUOUS_DEFAULT_TRIANGLE_FILENAME_PATTERN.match(stem)
+    if continuous_default_match is not None:
+        freq_hz = _parse_filename_decimal(continuous_default_match.group("freq"))
+        return {
+            "source_type": "continuous",
+            "waveform": "triangle",
+            "waveform_type": "triangle",
+            "waveform_source": "default_triangle_filename",
             "freq_hz": freq_hz,
             "cycle": None,
             "cycle_count": None,
