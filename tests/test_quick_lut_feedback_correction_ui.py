@@ -437,6 +437,23 @@ def test_default_first_drive_filename_matches_by_freq_cycle_without_waveform() -
     assert count_exact_matches([candidate], waveform_type="sine", freq_hz=0.25, cycle_count=1.5) == 0
 
 
+def test_actual_drive_preamble_without_waveform_defaults_to_triangle() -> None:
+    from field_analysis.ui_quick_lut_feedback_selection import classify_feedback_csv_candidate
+
+    csv_bytes = (
+        b"# Frequency(Hz),1.000\n"
+        b"# Cycles,1.500\n"
+        b"Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Voltage1_V\n"
+        b"0,0.0,0,0,-1.0,0,0\n"
+    )
+
+    info = classify_feedback_csv_candidate("finite_1.5cycle_1hz.csv", csv_bytes)
+
+    assert info["file_type"] == "actual_drive_result"
+    assert info["metadata_source"] == "preamble"
+    assert info["waveform_type"] == "triangle"
+
+
 def test_feedback_plot_dataframe_accepts_optional_prediction() -> None:
     from field_analysis.ui_quick_lut_feedback import build_feedback_plot_frame
 

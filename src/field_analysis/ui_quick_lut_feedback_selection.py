@@ -138,7 +138,7 @@ def _preamble_metadata(csv_bytes: bytes | None) -> dict[str, object]:
         if len(parts) >= 2 and parts[0]:
             values[parts[0]] = parts[1]
     return {
-        "waveform_type": (values.get("Waveform") or values.get("WaveformFamily") or "sine").lower(),
+        "waveform_type": (values.get("Waveform") or values.get("WaveformFamily") or "triangle").lower(),
         "freq_hz": _positive_float_or_none(values.get("Frequency(Hz)")),
         "cycle_count": _positive_float_or_none(values.get("Cycles")),
     }
