@@ -17,6 +17,8 @@ for path in (SRC_ROOT, TEST_ROOT):
 from field_analysis.finite_actual_drive import build_actual_drive_review_case
 from field_analysis.finite_actual_drive import process_actual_drive_review_folder
 from field_analysis.finite_actual_drive import read_actual_drive_result
+from field_analysis.finite_actual_drive_io import parse_finite_actual_drive_filename
+from field_analysis.finite_actual_drive_io import resolve_actual_drive_metadata
 from test_finite_actual_drive_response import _write_actual_drive_csv
 
 
@@ -37,6 +39,55 @@ def _write_large_actual_drive_csv(path: Path) -> None:
         "Row,TimeMs,HallBx,HallBy,HallBz,Current1_A,Current2_A,Voltage1_V,Voltage2_V",
     ]
     path.write_text("\n".join([*preamble, *rows]), encoding="utf-8")
+
+
+def test_actual_drive_preamble_without_waveform_defaults_to_triangle() -> None:
+    metadata = resolve_actual_drive_metadata(
+        Path("actual_drive_result.csv"),
+        {"Frequency(Hz)": "1.000", "Cycles": "1.500"},
+        waveform_type=None,
+        freq_hz=None,
+        cycle_count=None,
+    )
+
+    assert metadata["metadata_source"] == "preamble"
+    assert metadata["waveform_type"] == "triangle"
+    assert metadata["freq_hz"] == pytest.approx(1.0)
+    assert metadata["cycle_count"] == pytest.approx(1.5)
+
+
+def test_actual_drive_preamble_explicit_waveform_wins() -> None:
+    metadata = resolve_actual_drive_metadata(
+        Path("actual_drive_result.csv"),
+        {"Frequency(Hz)": "1.000", "Cycles": "1.500", "Waveform": "sine"},
+        waveform_type=None,
+        freq_hz=None,
+        cycle_count=None,
+    )
+
+    assert metadata["metadata_source"] == "preamble"
+    assert metadata["waveform_type"] == "sine"
+
+
+def test_actual_drive_current_selection_waveform_wins_when_preamble_waveform_missing() -> None:
+    metadata = resolve_actual_drive_metadata(
+        Path("actual_drive_result.csv"),
+        {"Frequency(Hz)": "1.000", "Cycles": "1.500"},
+        waveform_type="sine",
+        freq_hz=None,
+        cycle_count=None,
+    )
+
+    assert metadata["metadata_source"] == "preamble"
+    assert metadata["waveform_type"] == "sine"
+
+
+def test_actual_drive_simple_filename_fallback_defaults_to_triangle() -> None:
+    metadata = parse_finite_actual_drive_filename("finite_1Hz_1.0cycle.csv")
+
+    assert metadata["waveform_type"] == "triangle"
+    assert metadata["freq_hz"] == pytest.approx(1.0)
+    assert metadata["cycle_count"] == pytest.approx(1.0)
 
 
 def test_actual_drive_review_normalizes_large_field_and_voltage_for_shape_review(tmp_path: Path) -> None:

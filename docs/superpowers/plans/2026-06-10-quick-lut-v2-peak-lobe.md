@@ -10,6 +10,27 @@
 
 ---
 
+### PR #62 Scope Update
+
+This PR is now scoped as a reviewable v2 shell/core-contract PR. Peak-lobe production integration into `apply_finite_first_phase_sync_modeling()` is intentionally deferred to the next PR.
+
+- Keep the peak-lobe helper pure and diagnostic-only.
+- Preserve the legacy Quick LUT UI and the existing default quick entrypoint.
+- Keep the v2 entrypoint explicit and small.
+- Do not wire full v2 upload/cache/model/export behavior in this PR.
+- Do not implement smoothing, tapering, harmonic/Fourier resynthesis, or hardware execution automation here.
+- Keep final LUT export contract planning centered on `sample_index,time_s,voltage_v` with the existing +/-10V command policy.
+
+Additional review-hardening completed in this scope:
+
+- [x] Actual-drive preamble metadata now defaults missing waveform to the caller waveform, then triangle.
+- [x] Peak-lobe command-voltage naming is explicit while keeping a compatibility alias.
+- [x] Peak-lobe voltage-limit diagnostics report exceedance without clipping.
+- [x] Peak-lobe polarity sequence contracts reject unexpected detected lobe order.
+- [x] Smoothing/taper are represented as false metadata only.
+- [x] Launcher tests document legacy/v2 separation and the existing quick entrypoint as legacy default.
+- [x] Support-reference active-start tests cover leading zeros, isolated early noise, and no-voltage fallback.
+
 ### Task 1: Preserve Legacy And Add v2 Entrypoint
 
 **Files:**

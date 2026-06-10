@@ -30,6 +30,7 @@ def test_quick_lut_legacy_entrypoint_preserves_existing_app_contract() -> None:
     assert "run_quick_lut_app" in source
     assert "field_analysis.app_ui" in source
     assert "field_analysis.app_ui_snapshot" in source
+    assert "field_analysis.app_ui_v2" not in source
 
 
 def test_quick_lut_v2_entrypoint_targets_new_streamlit_shell() -> None:
@@ -53,6 +54,18 @@ def test_quick_lut_v2_app_shell_exposes_ordered_workflow_contract() -> None:
     assert "legacy" in source
     assert "peak-lobe" in source
     assert "run_quick_lut_v2_app" in _function_names(path)
+    assert {"render_data_stage", "render_first_model_stage", "render_placeholder_stage"}.issubset(
+        _function_names(path)
+    )
+
+
+def test_existing_quick_entrypoint_remains_legacy_default() -> None:
+    source = _read(REPO_ROOT / "app_field_analysis_quick.py")
+
+    assert "run_quick_lut_app" in source
+    assert "field_analysis.app_ui" in source
+    assert "field_analysis.app_ui_snapshot" in source
+    assert "field_analysis.app_ui_v2" not in source
 
 
 def test_quick_lut_v2_and_legacy_local_launchers_are_explicit() -> None:
