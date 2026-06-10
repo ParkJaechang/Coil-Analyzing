@@ -25,6 +25,18 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "source_input_waveform_family": command_profile.get("waveform_type", pd.Series(["triangle"])).iloc[0],
         "target_field_shape": "fixed_rounded_triangle",
         "finite_first_modeling_mode": metadata.get("finite_first_modeling_mode", "phase_synced"),
+        "gain_mode": metadata.get("finite_first_gain_mode"),
+        "base_command_source": metadata.get("base_command_source"),
+        "residual_trim_source": metadata.get("residual_trim_source"),
+        "final_voltage_source": metadata.get("final_voltage_source_column"),
+        "peak_lobe_enabled": metadata.get("peak_lobe_enabled"),
+        "peak_lobe_status": metadata.get("peak_lobe_status"),
+        "peak_lobe_cycle_policy": metadata.get("peak_lobe_cycle_policy"),
+        "peak_lobe_lobe_count": metadata.get("peak_lobe_lobe_count"),
+        "peak_lobe_lobe_gains": metadata.get("peak_lobe_lobe_gains"),
+        "peak_lobe_command_peak_abs_v": metadata.get("peak_lobe_command_peak_abs_v"),
+        "peak_lobe_voltage_limit_exceeded": metadata.get("peak_lobe_voltage_limit_exceeded"),
+        "peak_lobe_fallback_reason": metadata.get("peak_lobe_fallback_reason"),
         "phase sync 기준": metadata.get("phase_sync_peak_reference"),
         "phase sync peak polarity": metadata.get("phase_sync_peak_polarity"),
         "measured peak value mT": metadata.get("measured_peak_value_mT"),
@@ -48,6 +60,7 @@ def render_finite_first_phase_sync_review(command_profile: pd.DataFrame, metadat
         "target linear deviation mT": metadata.get("target_linear_segment_deviation_max_mT"),
     }
     st.dataframe(pd.DataFrame([summary]), use_container_width=True, hide_index=True)
+    _render_peak_lobe_summary(metadata)
     _render_phase_sync_correction_basis(metadata)
 
     with st.expander("target template ripple diagnostic", expanded=False):
@@ -107,10 +120,33 @@ def _render_phase_sync_correction_basis(metadata: dict[str, object]) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_peak_lobe_summary(metadata: dict[str, object]) -> None:
+    if "peak_lobe_status" not in metadata:
+        return
+    st.markdown("##### Peak-lobe gain summary")
+    rows = [
+        {"item": "gain mode", "value": metadata.get("finite_first_gain_mode")},
+        {"item": "enabled", "value": metadata.get("peak_lobe_enabled")},
+        {"item": "status", "value": metadata.get("peak_lobe_status")},
+        {"item": "cycle policy", "value": metadata.get("peak_lobe_cycle_policy")},
+        {"item": "lobe count", "value": metadata.get("peak_lobe_lobe_count")},
+        {"item": "expected polarities", "value": metadata.get("peak_lobe_expected_polarities")},
+        {"item": "detected polarities", "value": metadata.get("peak_lobe_detected_polarities")},
+        {"item": "lobe gains", "value": metadata.get("peak_lobe_lobe_gains")},
+        {"item": "command peak abs V", "value": metadata.get("peak_lobe_command_peak_abs_v")},
+        {"item": "voltage limit exceeded", "value": metadata.get("peak_lobe_voltage_limit_exceeded")},
+        {"item": "fallback reason", "value": metadata.get("peak_lobe_fallback_reason")},
+        {"item": "smoothing method", "value": metadata.get("peak_lobe_smoothing_method")},
+        {"item": "kink detected", "value": metadata.get("peak_lobe_command_kink_detected")},
+    ]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[str, object]) -> go.Figure:
     fig = go.Figure()
     measured_column = str(metadata.get("finite_first_measured_source_column") or "actual source")
     _add_profile_trace(fig, command_profile, "finite_first_base_voltage_v", "source/base voltage, scaled")
+    _add_profile_trace(fig, command_profile, "peak_lobe_predicted_field_mT", "peak-lobe predicted field")
     _add_profile_trace(fig, command_profile, "measured_field_smoothed_mT", f"measured field smoothed, actual source: {measured_column}")
     _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", f"measured field aligned, actual source: {measured_column}")
     for key, label in (
@@ -130,6 +166,7 @@ def _finite_first_phase_sync_plot(command_profile: pd.DataFrame, metadata: dict[
 def _finite_first_residual_plot(command_profile: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     _add_profile_trace(fig, command_profile, "physical_target_output_mT", "target field")
+    _add_profile_trace(fig, command_profile, "peak_lobe_predicted_field_mT", "peak-lobe predicted field")
     _add_profile_trace(fig, command_profile, "measured_field_aligned_mT", "phase-aligned measured field")
     _add_profile_trace(fig, command_profile, "residual_for_modeling_mT", "residual")
     marker_frame = command_profile.rename(
@@ -167,6 +204,8 @@ def _finite_first_command_plot(command_profile: pd.DataFrame, *, diagnostics: bo
     fig = go.Figure()
     if diagnostics:
         _add_profile_trace(fig, command_profile, "finite_first_base_voltage_v", "source/base voltage")
+        _add_profile_trace(fig, command_profile, "peak_lobe_command_voltage_v", "peak_lobe_command_voltage_v")
+        _add_profile_trace(fig, command_profile, "peak_lobe_gain_envelope", "peak_lobe_gain_envelope")
         _add_profile_trace(fig, command_profile, "correction_delta_v", "correction_delta_v")
         _add_profile_trace(fig, command_profile, "limited_voltage_v", "limited_voltage_v")
         title = "Finite 1차 command diagnostics"

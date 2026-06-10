@@ -61,6 +61,16 @@ def render_error_ratio_metrics(st: Any, metadata: dict[str, Any], *, title: str 
     detail_cols[1].metric("목표 보정 peak", format_voltage(metadata.get("auto_gain_target_delta_peak_v")))
     detail_cols[2].metric("safe headroom", format_voltage(metadata.get("auto_gain_headroom_safe_v")))
 
+    if "peak_lobe_status" in metadata:
+        lobe_cols = st.columns(4)
+        lobe_cols[0].metric("gain mode", str(metadata.get("finite_first_gain_mode") or "unavailable"))
+        lobe_cols[1].metric("lobe count", str(metadata.get("peak_lobe_lobe_count") or "0"))
+        lobe_cols[2].metric("command peak", format_voltage(metadata.get("peak_lobe_command_peak_abs_v")))
+        lobe_cols[3].metric(
+            "peak-lobe limit",
+            "EXCEEDED" if metadata.get("peak_lobe_voltage_limit_exceeded") else "ok",
+        )
+
     ratio_basis = metadata.get("auto_gain_error_ratio_basis") or "unavailable"
     eval_cycle = metadata.get("error_evaluation_cycle_count")
     eval_end = metadata.get("error_evaluation_end_s")
