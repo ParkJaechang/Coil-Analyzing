@@ -48,7 +48,7 @@ Expected after implementation: PASS.
 - Create: `src/field_analysis/finite_first_peak_lobe.py`
 - Test: `tests/test_finite_first_peak_lobe_modeling.py`
 
-- [ ] **Step 1: Write the failing 1.5-cycle lobe gain test**
+- [x] **Step 1: Write the failing 1.5-cycle lobe gain test**
 
 The test should construct an already phase-synced active waveform where the effective measured field peaks are `+40mT`, `-20mT`, and `+30mT`, the base voltage peaks are `+1V`, `-1V`, and `+1V`, and the target peak is `50mT`.
 
@@ -59,7 +59,7 @@ assert gains == pytest.approx([1.25, 2.5, 50.0 / 30.0], rel=0.02)
 assert command_peaks == pytest.approx([1.25, -2.5, 50.0 / 30.0], rel=0.02)
 ```
 
-- [ ] **Step 2: Write the failing 1.0-cycle lobe gain test**
+- [x] **Step 2: Write the failing 1.0-cycle lobe gain test**
 
 The test should construct two lobes and assert only `+peak1` and `-peak1` are used.
 
@@ -69,11 +69,11 @@ Expected lobe count:
 assert [lobe.polarity for lobe in result.lobes] == ["positive", "negative"]
 ```
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
 
 Create a pure helper that accepts `time_s`, `target_field_mT`, `aligned_measured_field_mT`, `base_voltage_v`, `active_mask`, and `cycle_count`. It returns a lobe gain envelope, lobe metadata, `peak_lobe_base_voltage_v`, and `peak_lobe_predicted_field_mT`.
 
-- [ ] **Step 4: Verify the helper**
+- [x] **Step 4: Verify the helper**
 
 Run: `.\\.venv\\Scripts\\python.exe -m pytest -q tests/test_finite_first_peak_lobe_modeling.py`
 
