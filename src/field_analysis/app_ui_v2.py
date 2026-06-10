@@ -81,6 +81,10 @@ def render_first_model_stage() -> None:
         "HallBz/raw field polarity is normalized before peak detection, and peak-lobe "
         "gains are calculated after the selected phase sync anchor."
     )
+    st.write(
+        "The production integration is reviewed in the legacy finite-first result panel for now; "
+        "this v2 shell stays intentionally small until upload/model/export wiring is added."
+    )
 
 
 def render_placeholder_stage(name: str) -> None:

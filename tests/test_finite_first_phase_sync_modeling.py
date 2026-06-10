@@ -435,14 +435,15 @@ def test_finite_first_command_plot_includes_original_input_voltage() -> None:
     assert "finite_first_input_lut_voltage_v" in result.columns
     assert "finite_first_input_lut_voltage_normalized_v" in result.columns
     assert metadata["finite_first_input_voltage_normalization_scale"] == pytest.approx(scale)
-    assert metadata["finite_first_base_voltage_source"] == "field_scale_normalized_input_lut_voltage"
+    assert metadata["finite_first_base_voltage_source"] == "peak_lobe_command_voltage_v"
     assert np.allclose(
         result["finite_first_input_lut_voltage_normalized_v"].to_numpy(dtype=float),
         expected_normalized_input,
     )
+    assert metadata["base_command_source"] == "peak_lobe_command_voltage_v"
     assert np.allclose(
         result["finite_first_base_voltage_v"].to_numpy(dtype=float),
-        expected_normalized_input,
+        result["peak_lobe_command_voltage_v"].to_numpy(dtype=float),
     )
     figure = _finite_first_command_plot(result)
     source = UI_FINITE_FIRST.read_text(encoding="utf-8")

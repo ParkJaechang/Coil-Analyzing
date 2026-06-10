@@ -7,6 +7,7 @@ import pandas as pd
 
 from .finite_second_modeling_stabilization import smooth_measured_field_for_second_modeling, stabilize_correction_delta
 from .finite_second_modeling_tail import compute_second_modeling_gain
+from .finite_first_peak_lobe import build_peak_lobe_model
 from .finite_first_normalization import (
     coerce_measured_field_centered,
     normalize_smoothed_field_to_pm50,
@@ -132,7 +133,8 @@ def apply_finite_first_phase_sync_modeling(
         fallback_time_s=time_s,
         fallback_measured=measured_raw,
     )
-    base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
+    source_base_voltage = pd.to_numeric(frame[voltage_column], errors="coerce").to_numpy(dtype=float)
+    base_voltage = source_base_voltage.copy()
     native_voltage_time_s, native_input_voltage, input_voltage_source = native_voltage_support_source(
         frame,
         fallback_time_s=time_s,
@@ -249,6 +251,7 @@ def apply_finite_first_phase_sync_modeling(
     support_ok = bool(np.isfinite(source_end) and source_end >= required_end - 1e-12)
     smoothed = _interp(native_time_s, native_smoothed, source_time_for_output)
     aligned = _interp(native_time_s, native_smoothed, source_time_for_output + phase_delay_s)
+    aligned_unscaled = _interp(native_time_s, native_smoothed_unscaled, source_time_for_output + phase_delay_s)
     field_scale_to_target_mT = float(
         measured_norm_meta.get("measured_field_scale_to_target_mT")
         or measured_norm_meta.get("measured_field_scale_to_target_peak_mT")
@@ -257,6 +260,7 @@ def apply_finite_first_phase_sync_modeling(
     )
     input_lut_voltage_normalized = input_lut_voltage * field_scale_to_target_mT
     base_voltage = np.where(np.isfinite(input_lut_voltage_normalized), input_lut_voltage_normalized, base_voltage)
+    peak_lobe_input_voltage = np.where(np.isfinite(input_lut_voltage), input_lut_voltage, source_base_voltage)
     field_response_meta = field_per_volt_response_metadata(
         input_lut_voltage,
         active_mask,
@@ -337,7 +341,34 @@ def apply_finite_first_phase_sync_modeling(
             **target_scale_meta,
         }
     finite_active = active_mask & np.isfinite(aligned) & np.isfinite(target)
-    residual = target - aligned
+    peak_lobe_model = build_peak_lobe_model(
+        time_s=time_s,
+        target_field_mT=target,
+        aligned_measured_field_mT=aligned_unscaled,
+        base_voltage_v=peak_lobe_input_voltage,
+        active_mask=active_mask,
+        cycle_count=float(cycle_count),
+        voltage_limit_v=float(voltage_limit_v),
+    )
+    peak_lobe_enabled = bool(peak_lobe_model.enabled)
+    fallback_on_peak_lobe_disabled = True
+    if peak_lobe_enabled:
+        base_voltage = peak_lobe_model.peak_lobe_command_voltage_v
+        residual = target - peak_lobe_model.peak_lobe_predicted_field_mT
+        finite_first_gain_mode = "peak_lobe"
+        base_command_source = "peak_lobe_command_voltage_v"
+        residual_trim_source = "field_per_volt_response"
+        residual_conversion_basis = "field_per_volt_response_on_peak_lobe_residual"
+        residual_modeling_source = "peak_lobe_predicted_field"
+        peak_lobe_fallback_reason = ""
+    else:
+        residual = target - aligned
+        finite_first_gain_mode = "field_per_volt_response"
+        base_command_source = "field_per_volt_response"
+        residual_trim_source = "field_per_volt_response"
+        residual_conversion_basis = "measured_field_per_input_volt"
+        residual_modeling_source = "phase_aligned_measured"
+        peak_lobe_fallback_reason = str(peak_lobe_model.status)
     eval_start_cycle, eval_end_cycle = _evaluation_cycle_window(float(cycle_count))
     evaluation_start_s = output_start_s + eval_start_cycle / max(float(freq_hz), 1e-12)
     evaluation_end_s = output_start_s + eval_end_cycle / max(float(freq_hz), 1e-12)
@@ -391,6 +422,9 @@ def apply_finite_first_phase_sync_modeling(
     frame["finite_first_base_voltage_v"] = base_voltage
     frame["finite_first_input_lut_voltage_v"] = input_lut_voltage
     frame["finite_first_input_lut_voltage_normalized_v"] = input_lut_voltage_normalized
+    frame["peak_lobe_gain_envelope"] = peak_lobe_model.gain_envelope
+    frame["peak_lobe_command_voltage_v"] = peak_lobe_model.peak_lobe_command_voltage_v
+    frame["peak_lobe_predicted_field_mT"] = peak_lobe_model.peak_lobe_predicted_field_mT
     frame["first_modeled_voltage_v"] = modeled
     frame["limited_voltage_v"] = limited
     frame["correction_delta_v"] = correction_delta
@@ -409,6 +443,7 @@ def apply_finite_first_phase_sync_modeling(
     frame["finite_first_measured_source_column"] = measured_column
     frame["finite_first_measured_source_is_actual_measured"] = True
     output_frame = frame.loc[active_mask].copy().reset_index(drop=True)
+    command_kink_detected = active_end_kink_detected(limited, residual, active_mask)
     metadata = {
         **smoothing_meta,
         **peak_detection_meta,
@@ -458,7 +493,29 @@ def apply_finite_first_phase_sync_modeling(
         "measured_peak_value_mT": measured_peak_value,
         "phase_delay_s": phase_delay_s,
         "phase_delay_cycles": phase_delay_s * float(freq_hz),
-        "residual_for_modeling_source": "phase_aligned_measured",
+        "residual_for_modeling_source": residual_modeling_source,
+        "finite_first_gain_mode": finite_first_gain_mode,
+        "peak_lobe_enabled": peak_lobe_enabled,
+        "peak_lobe_status": peak_lobe_model.status,
+        "peak_lobe_cycle_policy": peak_lobe_model.cycle_policy,
+        "peak_lobe_lobe_count": len(peak_lobe_model.lobes),
+        "peak_lobe_expected_polarities": ",".join(peak_lobe_model.expected_lobe_polarities),
+        "peak_lobe_detected_polarities": ",".join(peak_lobe_model.detected_lobe_polarities),
+        "peak_lobe_lobe_gains": ",".join(f"{lobe.gain:.12g}" for lobe in peak_lobe_model.lobes),
+        "peak_lobe_command_peaks_v": ",".join(f"{lobe.command_peak_v:.12g}" for lobe in peak_lobe_model.lobes),
+        "peak_lobe_command_peak_abs_v": peak_lobe_model.peak_lobe_command_peak_abs_v,
+        "peak_lobe_voltage_limit_exceeded": peak_lobe_model.voltage_limit_exceeded,
+        "peak_lobe_voltage_exceeded_fraction": peak_lobe_model.voltage_exceeded_fraction,
+        "peak_lobe_gain_envelope_smoothed": peak_lobe_model.peak_lobe_gain_envelope_smoothed,
+        "peak_lobe_boundary_taper_applied": peak_lobe_model.peak_lobe_boundary_taper_applied,
+        "peak_lobe_smoothing_method": "existing_correction_delta_stabilization_after_peak_lobe"
+        if peak_lobe_enabled
+        else "not_applied_peak_lobe_disabled",
+        "peak_lobe_command_kink_detected": command_kink_detected,
+        "fallback_on_peak_lobe_disabled": fallback_on_peak_lobe_disabled,
+        "peak_lobe_fallback_reason": peak_lobe_fallback_reason,
+        "base_command_source": base_command_source,
+        "residual_trim_source": residual_trim_source,
         "modeling_kernel": "shared_phase_aligned",
         "phase_sync_required_source_end_s": required_end,
         "phase_sync_actual_source_end_s": source_end,
@@ -480,18 +537,16 @@ def apply_finite_first_phase_sync_modeling(
         "correction_delta_v_target_peak_reference_mT": target_peak_reference_mT,
         "correction_delta_v_uses_scaled_target_field": True,
         "legacy_residual_over_target_peak_voltage_limit": False,
-        "residual_to_voltage_conversion_basis": "measured_field_per_input_volt",
+        "residual_to_voltage_conversion_basis": residual_conversion_basis,
         "harmonic_inverse_field_scale_applied_or_not_used": "harmonic_inverse_not_used_for_final_export",
-        "source_voltage_raw_peak_v": _peak_abs(base_voltage),
+        "source_voltage_raw_peak_v": _peak_abs(peak_lobe_input_voltage),
         "source_voltage_base_normalized_peak_v": _peak_abs(base_voltage),
         "base_voltage_peak_setting_v": _peak_abs(base_voltage),
         "finite_first_input_voltage_source": input_voltage_source,
         "measured_field_scale_to_target_mT": field_scale_to_target_mT,
         "finite_first_input_voltage_normalization_scale": field_scale_to_target_mT,
         **field_response_meta,
-        "finite_first_base_voltage_source": "field_scale_normalized_input_lut_voltage"
-        if input_voltage_source == "selected_support_source_voltage_v"
-        else input_voltage_source,
+        "finite_first_base_voltage_source": base_command_source,
         "finite_first_input_lut_voltage_peak_v": _peak_abs(input_lut_voltage),
         "finite_first_input_lut_voltage_normalized_peak_v": _peak_abs(input_lut_voltage_normalized),
         "final_voltage_limit_v": float(voltage_limit_v),
@@ -521,12 +576,13 @@ def apply_finite_first_phase_sync_modeling(
             evaluation_mask,
             reference_peak_mT=target_peak_reference_mT,
         ),
-        "active_end_kink_detected": active_end_kink_detected(limited, residual, active_mask),
+        "active_end_kink_detected": command_kink_detected,
         "nonfinite_active_residual_policy": "block_or_warning",
         "command_voltage_scaling_mode": "normalized_modeling_with_field_scale",
         "absolute_voltage_calibration_available": False,
         "calibration_gain_available": False,
         "normalized_modeling_voltage_v": _peak_abs(limited),
+        "final_voltage_source_column": "limited_voltage_v",
     }
     for key in (
         "target_template_type",
