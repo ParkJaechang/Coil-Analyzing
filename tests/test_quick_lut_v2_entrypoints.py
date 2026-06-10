@@ -74,5 +74,10 @@ def test_quick_lut_v2_and_legacy_local_launchers_are_explicit() -> None:
 
     assert v2_launcher.is_file()
     assert legacy_launcher.is_file()
-    assert '"app_field_analysis_quick_v2.py"' in _read(v2_launcher)
-    assert '"app_field_analysis_quick_legacy.py"' in _read(legacy_launcher)
+    v2_source = _read(v2_launcher)
+    legacy_source = _read(legacy_launcher)
+
+    assert '"app_field_analysis_quick_v2.py"' in v2_source
+    assert '"app_field_analysis_quick_legacy.py"' not in v2_source
+    assert '"app_field_analysis_quick_legacy.py"' in legacy_source
+    assert '"app_field_analysis_quick_v2.py"' not in legacy_source

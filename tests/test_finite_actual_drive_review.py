@@ -90,6 +90,21 @@ def test_actual_drive_simple_filename_fallback_defaults_to_triangle() -> None:
     assert metadata["cycle_count"] == pytest.approx(1.0)
 
 
+def test_actual_drive_caller_only_fallback_reports_current_selection_source() -> None:
+    metadata = resolve_actual_drive_metadata(
+        Path("uploaded_feedback.csv"),
+        {},
+        waveform_type="triangle",
+        freq_hz=3.0,
+        cycle_count=1.0,
+    )
+
+    assert metadata["metadata_source"] == "current_quick_lut_selection"
+    assert metadata["waveform_type"] == "triangle"
+    assert metadata["freq_hz"] == pytest.approx(3.0)
+    assert metadata["cycle_count"] == pytest.approx(1.0)
+
+
 def test_actual_drive_review_normalizes_large_field_and_voltage_for_shape_review(tmp_path: Path) -> None:
     path = tmp_path / "finite_recommended_voltage_lut_sine_1.25Hz_1.5cycle_result.csv"
     _write_large_actual_drive_csv(path)

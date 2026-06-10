@@ -239,6 +239,17 @@ def test_ui_support_reference_preview_falls_back_to_field_when_voltage_source_mi
     assert reference_profile.attrs["support_reference_motion_start_detection_source"] == "voltage_or_field_signal"
 
 
+def test_ui_support_reference_preview_without_voltage_or_field_source_falls_back_safely() -> None:
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": np.linspace(0.0, 1.0, 50),
+            "target_active_end_s": 0.5,
+        }
+    )
+
+    assert reference_profile is None
+
+
 def test_ui_support_reference_preview_prefers_command_active_start_over_field_noise_start() -> None:
     time_s = np.linspace(0.0, 1.6, 400)
     motion_start = 1.0
