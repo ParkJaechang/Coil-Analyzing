@@ -1526,6 +1526,7 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     )
     nonzero_start = first_number(compensation.get("selected_support_original_nonzero_start_s"))
     nonzero_end = first_number(compensation.get("selected_support_original_nonzero_end_s"))
+    source_window_start = first_number(compensation.get("support_reference_source_window_start_s"))
     voltage_start = first_number(compensation.get("selected_support_voltage_nonzero_start_s"))
     detected_start = (
         voltage_start
@@ -1535,10 +1536,14 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     if detected_start is None or not np.isfinite(float(detected_start)):
         detected_start = _detect_signal_motion_start_s(time_values, field_values)
     plot_start = (
-        nonzero_start
-        if nonzero_start is not None and np.isfinite(nonzero_start)
+        source_window_start
+        if source_window_start is not None and np.isfinite(source_window_start)
+        else voltage_start
+        if voltage_start is not None and np.isfinite(voltage_start)
         else float(detected_start)
         if detected_start is not None and np.isfinite(float(detected_start))
+        else nonzero_start
+        if nonzero_start is not None and np.isfinite(nonzero_start)
         else float(np.nanmin(time_values))
     )
     plot_end = nonzero_end if nonzero_end is not None and np.isfinite(nonzero_end) else float(np.nanmax(time_values))
@@ -1551,6 +1556,10 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
         plot_start = float(np.nanmin(time_values))
     time_values = time_values[keep]
     field_values = field_values[keep]
+    if time_values.size >= 2 and float(time_values[0]) > float(plot_start) + 1e-12:
+        start_field = float(np.interp(float(plot_start), time_values, field_values))
+        time_values = np.insert(time_values, 0, float(plot_start))
+        field_values = np.insert(field_values, 0, start_field)
 
     # Do not recenter the support preview: this trace is the measured support
     # source used for phase inspection, so only smoothing and target-peak scale are
@@ -1578,7 +1587,11 @@ def _native_support_reference_plot_frame(compensation: dict[str, object]) -> pd.
     frame.attrs["support_reference_native_rebased_to_motion_start"] = True
     frame.attrs["support_reference_motion_start_detection_source"] = (
         "metadata"
-        if nonzero_start is not None and np.isfinite(nonzero_start)
+        if (
+            (source_window_start is not None and np.isfinite(source_window_start))
+            or (voltage_start is not None and np.isfinite(voltage_start))
+            or (nonzero_start is not None and np.isfinite(nonzero_start))
+        )
         else "voltage_or_field_signal"
         if detected_start is not None and np.isfinite(float(detected_start))
         else "source_min_time_fallback"

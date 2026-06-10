@@ -196,6 +196,87 @@ def test_ui_support_reference_preview_detects_motion_start_without_metadata() ->
     assert float(reference_profile["time_s"].max()) > 1.0
 
 
+def test_ui_support_reference_preview_ignores_isolated_early_noise_for_motion_start() -> None:
+    time_s = np.linspace(0.0, 2.0, 500)
+    motion_start = 0.9
+    rel = time_s - motion_start
+    active = rel >= 0.0
+    voltage = np.where(active, 5.0 * np.sin(2.0 * np.pi * rel), 0.0)
+    field = np.where(active, 80.0 * np.sin(2.0 * np.pi * rel), 0.0)
+    field[20] = 80.0
+    voltage[20] = 5.0
+
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": time_s,
+            "selected_support_source_mT": field,
+            "selected_support_source_voltage_v": voltage,
+            "target_active_end_s": 0.8,
+        }
+    )
+
+    assert reference_profile is not None
+    assert reference_profile.attrs["support_reference_native_start_s"] == pytest.approx(motion_start, abs=0.02)
+    assert float(reference_profile["time_s"].min()) == pytest.approx(0.0)
+
+
+def test_ui_support_reference_preview_falls_back_to_field_when_voltage_source_missing() -> None:
+    time_s = np.linspace(0.0, 2.0, 500)
+    motion_start = 0.7
+    rel = time_s - motion_start
+    field = np.where(rel >= 0.0, 80.0 * np.sin(2.0 * np.pi * rel), 0.0)
+
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": time_s,
+            "selected_support_source_mT": field,
+            "target_active_end_s": 0.8,
+        }
+    )
+
+    assert reference_profile is not None
+    assert reference_profile.attrs["support_reference_native_start_s"] == pytest.approx(motion_start, abs=0.02)
+    assert reference_profile.attrs["support_reference_motion_start_detection_source"] == "voltage_or_field_signal"
+
+
+def test_ui_support_reference_preview_without_voltage_or_field_source_falls_back_safely() -> None:
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": np.linspace(0.0, 1.0, 50),
+            "target_active_end_s": 0.5,
+        }
+    )
+
+    assert reference_profile is None
+
+
+def test_ui_support_reference_preview_prefers_command_active_start_over_field_noise_start() -> None:
+    time_s = np.linspace(0.0, 1.6, 400)
+    motion_start = 1.0
+    rel = time_s - motion_start
+    active = rel >= 0.0
+    voltage = np.where(active, 5.0 * np.sin(2.0 * np.pi * rel * 3.0), 0.0)
+    field = np.where(active, 80.0 * np.sin(2.0 * np.pi * rel * 3.0), 0.0)
+
+    reference_profile = _native_support_reference_plot_frame(
+        {
+            "selected_support_source_time_s": time_s,
+            "selected_support_source_mT": field,
+            "selected_support_source_voltage_v": voltage,
+            "selected_support_original_nonzero_start_s": 0.0,
+            "selected_support_voltage_nonzero_start_s": motion_start,
+            "support_reference_source_window_start_s": motion_start,
+            "target_active_end_s": 0.35,
+        }
+    )
+
+    assert reference_profile is not None
+    assert float(reference_profile["time_s"].min()) == pytest.approx(0.0)
+    assert reference_profile.attrs["support_reference_native_start_s"] == pytest.approx(motion_start)
+    assert float(reference_profile["time_s"].iloc[0]) == pytest.approx(0.0)
+    assert not np.allclose(reference_profile["support_reference_native_mT"].head(20), 0.0)
+
+
 def test_support_reference_trace_changes_across_frequency_and_cycle_conditions() -> None:
     cases = [
         ("sine", 1.0, 1.0),

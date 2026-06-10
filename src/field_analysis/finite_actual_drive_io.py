@@ -108,7 +108,7 @@ def resolve_actual_drive_metadata(
     preamble_cycle = numeric_metadata(preamble, "Cycles")
     preamble_waveform = text_metadata(preamble, "Waveform") or text_metadata(preamble, "WaveformFamily")
     if preamble_freq is not None and preamble_freq > 0.0 and preamble_cycle is not None and preamble_cycle > 0.0:
-        waveform = (preamble_waveform or waveform_type or "sine").lower()
+        waveform = (preamble_waveform or waveform_type or "triangle").lower()
         return {
             "source_type": "finite_actual_drive_result",
             "source_file": source_path.name,
